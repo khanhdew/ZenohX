@@ -41,6 +41,7 @@
   },
   "plugins": {
     "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERFMjQ3MjA2MDg4OEMwQzkKUldUSndJZ0lCbklrM3ZueGNNMnlWUWwzVU1yZDk2WW93TSsyelRIY2c1OUUyeEtzZFdUdW0xZmoK",
       "endpoints": [
         "https://github.com/Keemos/zenohx/releases/latest/download/latest.json"
       ]

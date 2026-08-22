@@ -420,3 +420,88 @@ export function detectEncoding(payload: Uint8Array | number[] | null | undefined
     return 'raw';
   }
 }
+
+// ============================================================================
+// Time & Preview Utilities
+// ============================================================================
+
+/**
+ * Formats a unix timestamp (ms) to HH:mm:ss.SSS time string.
+ */
+export function formatTimeWithMs(timestamp: number): string {
+  const d = new Date(timestamp);
+  const hours = d.getHours().toString().padStart(2, '0');
+  const minutes = d.getMinutes().toString().padStart(2, '0');
+  const seconds = d.getSeconds().toString().padStart(2, '0');
+  const ms = d.getMilliseconds().toString().padStart(3, '0');
+  return `${hours}:${minutes}:${seconds}.${ms}`;
+}
+
+/**
+ * Creates a single-line preview string from a message payload.
+ */
+export function getPayloadSnippet(
+  payload: number[] | Uint8Array | null | undefined,
+  encoding?: EncodingType | string,
+  maxLength: number = 120
+): string {
+  if (!payload || (Array.isArray(payload) && payload.length === 0) || (payload instanceof Uint8Array && payload.length === 0)) {
+    return '(empty payload)';
+  }
+
+  const bytes = bytesToUint8Array(payload);
+  const enc = (encoding || '').toLowerCase();
+
+  if (enc === 'json') {
+    const res = tryFormatJson(bytes, 0);
+    if (res.success && res.data !== undefined) {
+      try {
+        const compact = JSON.stringify(res.data);
+        return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
+      } catch {
+        return res.formatted.slice(0, maxLength);
+      }
+    }
+  }
+
+  if (enc === 'cbor') {
+    const res = tryFormatCbor(bytes, 0);
+    if (res.success && res.data !== undefined) {
+      try {
+        const compact = JSON.stringify(res.data);
+        return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
+      } catch {
+        return res.formatted.slice(0, maxLength);
+      }
+    }
+  }
+
+  if (enc === 'raw') {
+    const hexPreview: string[] = [];
+    const limit = Math.min(bytes.length, 16);
+    for (let i = 0; i < limit; i++) {
+      hexPreview.push(bytes[i].toString(16).padStart(2, '0'));
+    }
+    return `${hexPreview.join(' ')}${bytes.length > 16 ? '…' : ''}`;
+  }
+
+  // Try text decode
+  try {
+    const str = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const sanitized = str.replace(/[\r\n\t]+/g, ' ').trim();
+    if (sanitized.length > 0) {
+      return sanitized.length > maxLength ? `${sanitized.slice(0, maxLength)}…` : sanitized;
+    }
+  } catch {
+    // Binary fallback
+  }
+
+  // Hex preview for binary fallback
+  const hexPreview: string[] = [];
+  const limit = Math.min(bytes.length, 16);
+  for (let i = 0; i < limit; i++) {
+    hexPreview.push(bytes[i].toString(16).padStart(2, '0'));
+  }
+  return `${hexPreview.join(' ')}${bytes.length > 16 ? '…' : ''}`;
+}
+

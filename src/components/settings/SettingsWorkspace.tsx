@@ -162,7 +162,7 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
                     <select
                       value={historyProfileId}
                       onChange={(e) => setHistoryProfileId(e.target.value)}
-                      className="w-full h-7 text-xs rounded border border-input bg-background px-2 font-medium"
+                      className="w-full h-7 text-xs rounded border border-input bg-background text-foreground px-2 font-medium"
                     >
                       <option value="" disabled>
                         Select Profile...

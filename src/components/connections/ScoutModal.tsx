@@ -175,7 +175,7 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
                 value={timeoutMs}
                 onChange={(e) => setTimeoutMs(Number(e.target.value))}
                 disabled={isScouting}
-                className="h-7 text-xs rounded border border-input bg-background px-1.5 font-mono"
+                className="h-7 text-xs rounded border border-input bg-background text-foreground px-1.5 font-mono"
               >
                 <option value={1500}>1.5s</option>
                 <option value={3000}>3.0s</option>

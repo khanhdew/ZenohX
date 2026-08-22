@@ -1,8 +1,14 @@
 [package]
 name = "zenohx"
 version = "0.1.0"
-description = "ZenohX - Modern GUI Client for Eclipse Zenoh"
+description = "ZenohX - Modern, high-performance desktop GUI client for Eclipse Zenoh"
 edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/khanhdew/ZenohX"
+homepage = "https://github.com/khanhdew/ZenohX"
+readme = "../README.md"
+keywords = ["zenoh", "gui", "desktop", "robotics", "iot"]
+categories = ["development-tools", "gui", "network-programming"]
 
 [lib]
 name = "zenohx_lib"

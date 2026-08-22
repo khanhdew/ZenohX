@@ -1,7 +1,31 @@
 {
   "name": "zenohx",
-  "private": true,
   "version": "0.1.0",
+  "description": "ZenohX - Modern, high-performance desktop GUI client for Eclipse Zenoh",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/khanhdew/ZenohX.git"
+  },
+  "homepage": "https://github.com/khanhdew/ZenohX",
+  "keywords": [
+    "zenoh",
+    "gui",
+    "desktop",
+    "robotics",
+    "iot",
+    "mqtt",
+    "dds"
+  ],
+  "bin": {
+    "zenohx": "./bin/zenohx.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE",
+    "package.json"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",

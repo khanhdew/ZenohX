@@ -10,7 +10,6 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
-  Zap,
   AlertTriangle,
   X,
 } from 'lucide-react';
@@ -26,6 +25,7 @@ import { QueryWorkspace } from './components/query/QueryWorkspace';
 import { SettingsWorkspace } from './components/settings/SettingsWorkspace';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import zenohxIcon from './assets/icon.png';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<'pubsub' | 'query' | 'settings'>('pubsub');
@@ -142,9 +142,11 @@ export function App() {
 
           {/* App Brand Logo */}
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('pubsub')}>
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              <Zap className="w-3.5 h-3.5 fill-current" />
-            </div>
+            <img
+              src={zenohxIcon}
+              alt="ZenohX Icon"
+              className="h-6 w-6 rounded-md object-contain shadow-xs"
+            />
             <div className="flex items-center gap-1.5">
               <span className="font-bold text-sm tracking-tight text-foreground">
                 ZenohX
@@ -307,8 +309,12 @@ export function App() {
           {profiles.length === 0 ? (
             /* Empty State */
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto space-y-4">
-              <div className="p-3 rounded-lg bg-muted text-muted-foreground border">
-                <Zap className="w-8 h-8" />
+              <div className="p-3 rounded-2xl bg-card border shadow-sm">
+                <img
+                  src={zenohxIcon}
+                  alt="ZenohX Logo"
+                  className="w-12 h-12 rounded-xl object-contain"
+                />
               </div>
               <div className="space-y-1.5">
                 <h2 className="text-lg font-semibold tracking-tight text-foreground">

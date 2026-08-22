@@ -52,7 +52,7 @@ export const UpdatesTab: React.FC<UpdatesTabProps> = ({
                 ZenohX Desktop
               </h3>
               <p className="text-xs text-muted-foreground">
-                Current Installed Version: <span className="font-mono font-medium text-foreground">v0.1.0</span>
+                Current Installed Version: <span className="font-mono font-medium text-foreground">v0.1.1</span>
               </p>
             </div>
           </div>

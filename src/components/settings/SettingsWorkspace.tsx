@@ -4,7 +4,6 @@ import {
   RefreshCw,
   Sliders,
   Keyboard,
-  Database as DbIcon,
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -17,14 +16,13 @@ import type { Update } from '@tauri-apps/plugin-updater';
 import { PreferencesTab } from './tabs/PreferencesTab';
 import { UpdatesTab } from './tabs/UpdatesTab';
 import { HistoryTab } from './tabs/HistoryTab';
-import { DiagnosticsTab } from './tabs/DiagnosticsTab';
 import { ShortcutsTab } from './tabs/ShortcutsTab';
 
 export interface SettingsWorkspaceProps {
   className?: string;
 }
 
-type TabType = 'preferences' | 'updates' | 'history' | 'diagnostics' | 'shortcuts';
+type TabType = 'preferences' | 'updates' | 'history' | 'shortcuts';
 
 export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className = '' }) => {
   const profiles = useConnectionStore((state) => state.profiles);
@@ -99,9 +97,9 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
       } else {
         setUpdateState({
           status: 'up-to-date',
-          version: '0.1.0',
+          version: '0.1.1',
         });
-        setUpdateSuccessNotice('You are running the latest version of ZenohX (v0.1.0).');
+        setUpdateSuccessNotice('You are running the latest version of ZenohX (v0.1.1).');
         setTimeout(() => setUpdateSuccessNotice(null), 4000);
       }
     } catch (err) {
@@ -205,18 +203,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           </button>
           <button
             type="button"
-            onClick={() => setActiveTab('diagnostics')}
-            className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-              activeTab === 'diagnostics'
-                ? 'bg-background text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <DbIcon className="w-3.5 h-3.5" />
-            <span>System Status</span>
-          </button>
-          <button
-            type="button"
             onClick={() => setActiveTab('shortcuts')}
             className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               activeTab === 'shortcuts'
@@ -260,8 +246,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
             onReload={loadHistory}
           />
         )}
-
-        {activeTab === 'diagnostics' && <DiagnosticsTab />}
 
         {activeTab === 'shortcuts' && <ShortcutsTab />}
       </main>

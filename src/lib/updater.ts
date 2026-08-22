@@ -46,6 +46,18 @@ export async function checkForAppUpdates(): Promise<CheckUpdateResult> {
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // If latest.json returns 404 or endpoint is not yet populated with a newer signed build, the app is up to date
+    if (
+      msg.includes('404') ||
+      msg.includes('Could not fetch a valid release JSON') ||
+      msg.includes('status code 404') ||
+      msg.includes('NotFound') ||
+      msg.includes('no release found')
+    ) {
+      return {
+        updateAvailable: false,
+      };
+    }
     return {
       updateAvailable: false,
       error: msg,

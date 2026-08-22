@@ -86,30 +86,7 @@ impl Database {
              ORDER BY updated_at DESC, name ASC",
         )?;
 
-        let rows = stmt.query_map([], |row| {
-            let connect_locators_str: String = row.get(3)?;
-            let listen_locators_str: Option<String> = row.get(4)?;
-            let scout_multicast_int: i64 = row.get(5)?;
-            let user_auth_str: Option<String> = row.get(6)?;
-            let tls_config_str: Option<String> = row.get(7)?;
-            let custom_config_str: Option<String> = row.get(8)?;
-
-            Ok(ConnectionProfile {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                mode: row.get(2)?,
-                connect_locators: serde_json::from_str(&connect_locators_str).unwrap_or_default(),
-                listen_locators: listen_locators_str
-                    .and_then(|s| serde_json::from_str(&s).ok())
-                    .unwrap_or_default(),
-                scout_multicast: scout_multicast_int != 0,
-                user_auth: user_auth_str.and_then(|s| serde_json::from_str(&s).ok()),
-                tls_config: tls_config_str.and_then(|s| serde_json::from_str(&s).ok()),
-                custom_config: custom_config_str.and_then(|s| serde_json::from_str(&s).ok()),
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            })
-        })?;
+        let rows = stmt.query_map([], map_profile_row)?;
 
         let mut profiles = Vec::new();
         for profile in rows {
@@ -128,30 +105,7 @@ impl Database {
              WHERE id = ?1",
         )?;
 
-        let mut rows = stmt.query_map(rusqlite::params![id], |row| {
-            let connect_locators_str: String = row.get(3)?;
-            let listen_locators_str: Option<String> = row.get(4)?;
-            let scout_multicast_int: i64 = row.get(5)?;
-            let user_auth_str: Option<String> = row.get(6)?;
-            let tls_config_str: Option<String> = row.get(7)?;
-            let custom_config_str: Option<String> = row.get(8)?;
-
-            Ok(ConnectionProfile {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                mode: row.get(2)?,
-                connect_locators: serde_json::from_str(&connect_locators_str).unwrap_or_default(),
-                listen_locators: listen_locators_str
-                    .and_then(|s| serde_json::from_str(&s).ok())
-                    .unwrap_or_default(),
-                scout_multicast: scout_multicast_int != 0,
-                user_auth: user_auth_str.and_then(|s| serde_json::from_str(&s).ok()),
-                tls_config: tls_config_str.and_then(|s| serde_json::from_str(&s).ok()),
-                custom_config: custom_config_str.and_then(|s| serde_json::from_str(&s).ok()),
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            })
-        })?;
+        let mut rows = stmt.query_map(rusqlite::params![id], map_profile_row)?;
 
         if let Some(profile) = rows.next() {
             Ok(Some(profile?))
@@ -294,4 +248,30 @@ impl Database {
         conn.execute("DELETE FROM message_history", [])?;
         Ok(())
     }
+}
+
+/// Helper function to map a SQLite row to a `ConnectionProfile`.
+fn map_profile_row(row: &rusqlite::Row) -> rusqlite::Result<ConnectionProfile> {
+    let connect_locators_str: String = row.get(3)?;
+    let listen_locators_str: Option<String> = row.get(4)?;
+    let scout_multicast_int: i64 = row.get(5)?;
+    let user_auth_str: Option<String> = row.get(6)?;
+    let tls_config_str: Option<String> = row.get(7)?;
+    let custom_config_str: Option<String> = row.get(8)?;
+
+    Ok(ConnectionProfile {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        mode: row.get(2)?,
+        connect_locators: serde_json::from_str(&connect_locators_str).unwrap_or_default(),
+        listen_locators: listen_locators_str
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
+        scout_multicast: scout_multicast_int != 0,
+        user_auth: user_auth_str.and_then(|s| serde_json::from_str(&s).ok()),
+        tls_config: tls_config_str.and_then(|s| serde_json::from_str(&s).ok()),
+        custom_config: custom_config_str.and_then(|s| serde_json::from_str(&s).ok()),
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+    })
 }

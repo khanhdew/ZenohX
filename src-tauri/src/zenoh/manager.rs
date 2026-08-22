@@ -256,6 +256,11 @@ impl SessionManager {
 
         if let Some(q) = context.queryables.remove(&queryable_id) {
             q.stop().await;
+            // Clean up any pending queries associated with this queryable
+            {
+                let mut pending = self.pending_queries.write().await;
+                pending.retain(|_, handle| handle.queryable_id != queryable_id);
+            }
             Ok(())
         } else {
             Err(format!(

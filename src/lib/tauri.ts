@@ -15,6 +15,7 @@ import type {
   ScoutedNode,
   SessionConfig,
   SessionInfo,
+  SessionStatusEvent,
   StoredMessage,
   ZenohSample,
 } from '../types/zenoh';
@@ -250,9 +251,9 @@ export async function onInboundQuery(
  * Subscribes to session status notifications.
  */
 export async function onSessionStatus(
-  callback: (status: unknown) => void
+  callback: (status: SessionStatusEvent) => void
 ): Promise<UnlistenFn> {
-  return listen<unknown>('zenohx://session-status', (event) => {
+  return listen<SessionStatusEvent>('zenohx://session-status', (event) => {
     callback(event.payload);
   });
 }

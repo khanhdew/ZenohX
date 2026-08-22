@@ -20,4 +20,21 @@ export default defineConfig({
     host: "0.0.0.0",
   },
   envPrefix: ["VITE_", "TAURI_ENV_*"],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("@tanstack/react-virtual")) {
+            return "vendor-virtual";
+          }
+          if (id.includes("cbor-x")) {
+            return "vendor-cbor";
+          }
+          if (id.includes("@radix-ui") || id.includes("lucide-react")) {
+            return "vendor-ui";
+          }
+        },
+      },
+    },
+  },
 });

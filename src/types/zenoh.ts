@@ -171,6 +171,16 @@ export interface QueryableInfo {
   created_at: number;
 }
 
+/**
+ * Event payload emitted when session connection status changes.
+ */
+export interface SessionStatusEvent {
+  sessionId: string;
+  status: 'connected' | 'disconnected' | 'connecting' | 'error';
+  error?: string;
+  timestamp?: number;
+}
+
 // ============================================================================
 // Frontend State & Workspace Types
 // ============================================================================

@@ -89,5 +89,36 @@ mod tests {
             ..SessionConfig::default_peer()
         };
         assert!(invalid_mode.to_zenoh_config().is_err());
+
+        // Token auth validation
+        let token_config = SessionConfig {
+            user_auth: Some(UserAuth {
+                username: None,
+                password: None,
+                token: Some("secret-token-123".to_string()),
+            }),
+            ..SessionConfig::default_peer()
+        };
+        assert!(token_config.to_zenoh_config().is_ok());
+
+        // Valid custom_config (JSON object)
+        let valid_custom = SessionConfig {
+            custom_config: Some(serde_json::json!({
+                "transport/link/tx/threads": 2
+            })),
+            ..SessionConfig::default_peer()
+        };
+        assert!(valid_custom.to_zenoh_config().is_ok());
+
+        // Invalid custom_config (non-object, e.g. JSON array)
+        let invalid_custom = SessionConfig {
+            custom_config: Some(serde_json::json!(["not", "an", "object"])),
+            ..SessionConfig::default_peer()
+        };
+        let err = invalid_custom.to_zenoh_config().unwrap_err();
+        assert_eq!(
+            err,
+            "custom_config must be a JSON object of key-value overrides"
+        );
     }
 }

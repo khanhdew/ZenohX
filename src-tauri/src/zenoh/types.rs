@@ -133,6 +133,15 @@ impl SessionConfig {
                 config
                     .insert_json5("transport/auth/usrpwd/password", &format!("\"{pass}\""))
                     .map_err(|e| format!("failed to set auth password: {e}"))?;
+            } else if let Some(token) = &auth.token {
+                if auth.username.is_none() {
+                    config
+                        .insert_json5("transport/auth/usrpwd/user", "\"token\"")
+                        .map_err(|e| format!("failed to set auth user for token: {e}"))?;
+                }
+                config
+                    .insert_json5("transport/auth/usrpwd/password", &format!("\"{token}\""))
+                    .map_err(|e| format!("failed to set auth token: {e}"))?;
             }
         }
 
@@ -165,6 +174,10 @@ impl SessionConfig {
                         .insert_json5(k, &json_val)
                         .map_err(|e| format!("failed to insert custom config '{k}': {e}"))?;
                 }
+            } else {
+                return Err(
+                    "custom_config must be a JSON object of key-value overrides".to_string(),
+                );
             }
         }
 

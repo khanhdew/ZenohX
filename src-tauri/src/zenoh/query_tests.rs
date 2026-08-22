@@ -242,4 +242,48 @@ mod tests {
             .await;
         assert!(reply_res.is_err());
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_undeclare_queryable_prunes_pending_queries() {
+        let manager = SessionManager::new();
+        let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
+        let q_id = Uuid::new_v4();
+
+        let (tx, mut rx) = mpsc::channel::<InboundQuery>(10);
+
+        manager
+            .declare_queryable_routed(&session_id, q_id, "prune/test/**", move |inbound| {
+                let _ = tx.try_send(inbound);
+            })
+            .await
+            .unwrap();
+
+        let mgr_clone = manager.clone();
+        tokio::spawn(async move {
+            let _ = mgr_clone
+                .query_get(&session_id, "prune/test/req", "all", 1000)
+                .await;
+        });
+
+        let inbound = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("timeout waiting for inbound query")
+            .expect("channel closed");
+
+        // Undeclare the queryable before replying
+        manager.undeclare_queryable(&session_id, q_id).await.unwrap();
+
+        // Replying with the token should now fail because pending queries were pruned
+        let reply_res = manager
+            .reply_query(
+                &inbound.token,
+                "prune/test/req",
+                b"ok".to_vec(),
+                "text/plain",
+            )
+            .await;
+        assert!(reply_res.is_err());
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
 }

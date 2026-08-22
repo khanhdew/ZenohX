@@ -73,21 +73,20 @@ jobs:
           # Fetch GitHub's native automated release notes
           NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name="$TAG" --jq .body 2>/dev/null || true)
           
-          HEADER="**Version:** ${VERSION}
-**Build Number:** ${{ github.run_number }}
-**Commit:** ${{ github.sha }}
-
-"
+          HEADER=$(printf "**Version:** %s\n**Build Number:** %s\n**Commit:** %s" "$VERSION" "${{ github.run_number }}" "${{ github.sha }}")
           if [ -n "$NOTES" ]; then
-            FULL_BODY="${HEADER}${NOTES}"
+            FULL_BODY="${HEADER}"$'\n\n'"${NOTES}"
           else
-            FULL_BODY="${HEADER}### What's Changed
-$(git log -n 15 --oneline --no-merges)"
+            CHANGES=$(git log -n 15 --oneline --no-merges)
+            FULL_BODY="${HEADER}"$'\n\n'"### What's Changed"$'\n'"${CHANGES}"
           fi
 
-          echo "body<<EOF" >> $GITHUB_OUTPUT
-          echo "$FULL_BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          EOF_DELIMITER=$(openssl rand -hex 8)
+          {
+            echo "body<<${EOF_DELIMITER}"
+            echo "$FULL_BODY"
+            echo "${EOF_DELIMITER}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build Tauri Desktop App & Sign Release
         uses: tauri-apps/tauri-action@v0

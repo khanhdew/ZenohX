@@ -200,3 +200,37 @@ pub struct ZenohSample {
     pub kind: String, // "put" | "delete"
     pub timestamp: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplySample {
+    pub session_id: uuid::Uuid,
+    pub key_expr: String,
+    pub payload: Vec<u8>,
+    pub encoding: String,
+    pub replier_id: Option<String>,
+    pub latency_ms: u64,
+    pub timestamp: i64,
+    pub is_err: bool,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InboundQuery {
+    pub token: uuid::Uuid,
+    pub session_id: uuid::Uuid,
+    pub queryable_id: uuid::Uuid,
+    pub key_expr: String,
+    pub parameters: String,
+    pub payload: Option<Vec<u8>>,
+    pub encoding: Option<String>,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct QueryableInfo {
+    pub id: uuid::Uuid,
+    pub session_id: uuid::Uuid,
+    pub key_expr: String,
+    pub created_at: i64,
+}
+

@@ -1,7 +1,11 @@
 use super::pubsub::{publish_sample, subscribe_with_callback, ActiveSubscriber};
+use super::query::{
+    declare_queryable_with_handler, execute_query, ActiveQueryable, QueryHandle,
+};
 use super::scout::scout_nodes;
-use super::types::{ScoutedNode, SessionConfig, SessionInfo, ZenohSample};
+use super::types::{InboundQuery, ReplySample, ScoutedNode, SessionConfig, SessionInfo, ZenohSample};
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -13,12 +17,14 @@ pub struct SessionContext {
     pub config: SessionConfig,
     pub created_at: i64,
     pub subscribers: HashMap<Uuid, ActiveSubscriber>,
+    pub queryables: HashMap<Uuid, ActiveQueryable>,
 }
 
-/// Centralized manager for handling multiple concurrent Zenoh sessions.
+/// Centralized manager for handling multiple concurrent Zenoh sessions, pub/sub, and queries.
 #[derive(Clone)]
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<Uuid, SessionContext>>>,
+    pending_queries: Arc<RwLock<HashMap<Uuid, QueryHandle>>>,
 }
 
 impl Default for SessionManager {
@@ -32,6 +38,7 @@ impl SessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            pending_queries: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -53,6 +60,7 @@ impl SessionManager {
             config,
             created_at: now,
             subscribers: HashMap::new(),
+            queryables: HashMap::new(),
         };
 
         let mut lock = self.sessions.write().await;
@@ -68,6 +76,15 @@ impl SessionManager {
             // Stop all active background subscriber tasks for this session
             for (_, sub) in context.subscribers {
                 sub.stop().await;
+            }
+            // Stop all active background queryable tasks for this session
+            for (_, qable) in context.queryables {
+                qable.stop().await;
+            }
+            // Clean up any pending queries associated with this session
+            {
+                let mut pending = self.pending_queries.write().await;
+                pending.retain(|_, handle| &handle.session_id != session_id);
             }
             context
                 .session
@@ -137,6 +154,131 @@ impl SessionManager {
     ) -> Result<(), String> {
         let session = self.get_session(session_id).await?;
         publish_sample(&session, key_expr, payload, encoding, kind).await
+    }
+
+    /// Executes a distributed query `session.get` and collects all replies until timeout.
+    pub async fn query_get(
+        &self,
+        session_id: &Uuid,
+        selector: &str,
+        target: &str,
+        timeout_ms: u64,
+    ) -> Result<Vec<ReplySample>, String> {
+        let session = self.get_session(session_id).await?;
+        execute_query(&session, *session_id, selector, target, timeout_ms).await
+    }
+
+    /// Declares a queryable with a custom programmatic async handler.
+    pub async fn declare_queryable<F, Fut>(
+        &self,
+        session_id: &Uuid,
+        queryable_id: Uuid,
+        key_expr: &str,
+        handler: F,
+    ) -> Result<(), String>
+    where
+        F: Fn(QueryHandle) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        let mut lock = self.sessions.write().await;
+        let context = lock
+            .get_mut(session_id)
+            .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
+
+        // If an existing queryable with the same id exists, stop it first
+        if let Some(old_q) = context.queryables.remove(&queryable_id) {
+            old_q.stop().await;
+        }
+
+        let active_q = declare_queryable_with_handler(
+            &context.session,
+            *session_id,
+            queryable_id,
+            key_expr,
+            handler,
+        )
+        .await?;
+
+        context.queryables.insert(queryable_id, active_q);
+
+        Ok(())
+    }
+
+    /// Declares a queryable routed to frontend/callbacks with token-based query handling.
+    pub async fn declare_queryable_routed<F>(
+        &self,
+        session_id: &Uuid,
+        queryable_id: Uuid,
+        key_expr: &str,
+        on_query: F,
+    ) -> Result<(), String>
+    where
+        F: Fn(InboundQuery) + Send + Sync + 'static,
+    {
+        let pending = self.pending_queries.clone();
+        let on_query_arc = Arc::new(on_query);
+
+        self.declare_queryable(session_id, queryable_id, key_expr, move |handle| {
+            let pending = pending.clone();
+            let on_query = on_query_arc.clone();
+            async move {
+                let token = handle.token;
+                let inbound = InboundQuery {
+                    token,
+                    session_id: handle.session_id,
+                    queryable_id: handle.queryable_id,
+                    key_expr: handle.key_expr.clone(),
+                    parameters: handle.parameters.clone(),
+                    payload: handle.payload.clone(),
+                    encoding: handle.encoding.clone(),
+                    timestamp: handle.timestamp,
+                };
+                {
+                    let mut lock = pending.write().await;
+                    lock.insert(token, handle);
+                }
+                (on_query)(inbound);
+            }
+        })
+        .await
+    }
+
+    /// Undeclares an active queryable by queryable_id.
+    pub async fn undeclare_queryable(
+        &self,
+        session_id: &Uuid,
+        queryable_id: Uuid,
+    ) -> Result<(), String> {
+        let mut lock = self.sessions.write().await;
+        let context = lock
+            .get_mut(session_id)
+            .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
+
+        if let Some(q) = context.queryables.remove(&queryable_id) {
+            q.stop().await;
+            Ok(())
+        } else {
+            Err(format!(
+                "queryable with id '{queryable_id}' not found in session '{session_id}'"
+            ))
+        }
+    }
+
+    /// Responds to a pending inbound query identified by its token.
+    pub async fn reply_query(
+        &self,
+        token: &Uuid,
+        key_expr: &str,
+        payload: Vec<u8>,
+        encoding: &str,
+    ) -> Result<(), String> {
+        let handle = {
+            let mut lock = self.pending_queries.write().await;
+            lock.remove(token)
+                .ok_or_else(|| format!("inbound query with token '{token}' not found or already replied"))?
+        };
+
+        handle.reply_with_encoding(key_expr, payload, encoding).await
     }
 
     /// Checks if a session is currently open and managed.

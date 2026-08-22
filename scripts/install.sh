@@ -48,87 +48,82 @@ if [ "${OS}" = "Linux" ]; then
     PACKAGE_TYPE="appimage"
   fi
 
-  log "Detected Linux distribution: ${BOLD}${DISTRO}${NC} (${ARCH}) -> Preferred package: ${BOLD}${PACKAGE_TYPE}${NC}"
+  log "Detected Linux distribution: ${BOLD}${DISTRO}${NC} (${ARCH}) -> Target package: ${BOLD}${PACKAGE_TYPE}${NC}"
 elif [ "${OS}" = "Darwin" ]; then
   PACKAGE_TYPE="dmg"
-  log "Detected macOS (${ARCH}) -> Preferred package: ${BOLD}dmg${NC}"
+  log "Detected macOS (${ARCH}) -> Target package: ${BOLD}dmg${NC}"
 else
-  error "Unsupported operating system: ${OS}. For Windows, run the install.ps1 script."
+  error "Unsupported operating system: ${OS}. For Windows, run the PowerShell install script."
 fi
 
-# 2. Query GitHub Releases API for the latest download URLs
-log "Fetching latest release information from GitHub (https://github.com/${REPO})..."
+# 2. Dynamically Query GitHub Releases API for the Latest Version
+log "Checking for the latest release on GitHub (https://github.com/${REPO})..."
 
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_DIR}"; }
 trap cleanup EXIT
 
+# Fetch latest release data
+RELEASE_JSON="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+
+# Fallback to general releases list if /latest is not populated yet
 if [ -z "${RELEASE_JSON}" ] || echo "${RELEASE_JSON}" | grep -q '"message": *"Not Found"'; then
+  ALL_RELEASES="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github.com/repos/${REPO}/releases" 2>/dev/null || true)"
+  if [ -n "${ALL_RELEASES}" ] && ! echo "${ALL_RELEASES}" | grep -q '"message": *"Not Found"'; then
+    RELEASE_JSON="${ALL_RELEASES}"
+  fi
+fi
+
+# Check if any releases exist
+if [ -z "${RELEASE_JSON}" ] || [ "${RELEASE_JSON}" = "[]" ] || echo "${RELEASE_JSON}" | grep -q '"message": *"Not Found"'; then
   error "No published releases found on https://github.com/${REPO}/releases.
-Please make sure a release tag (e.g. v0.1.1) has been pushed and GitHub Actions has completed the build."
+Please make sure a release tag (e.g. 'git tag vX.Y.Z && git push origin vX.Y.Z') has been pushed and GitHub Actions has finished building."
 fi
 
 TAG="$(echo "${RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4)"
 if [ -z "${TAG}" ]; then
-  TAG="v0.1.1"
+  error "Could not determine the latest release tag from GitHub."
 fi
-VERSION="${TAG#v}"
 
-# Resolve download URL based on OS and package type
+log "Found latest release: ${BOLD}${TAG}${NC}"
+
+# 3. Dynamically Locate Matching Asset Download URL
 DOWNLOAD_URL=""
-FILENAME=""
 
 if [ "${PACKAGE_TYPE}" = "dmg" ]; then
+  # Look for macOS DMG matching architecture if split, else generic DMG
   if [ "${ARCH}" = "arm64" ] || [ "${ARCH}" = "aarch64" ]; then
-    FILENAME="ZenohX_aarch64.dmg"
-  else
-    FILENAME="ZenohX_x64.dmg"
+    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*aarch64.*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
   fi
-  DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*ZenohX.*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+  if [ -z "${DOWNLOAD_URL}" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
 
 elif [ "${PACKAGE_TYPE}" = "rpm" ]; then
-  # Look for .rpm asset matching x86_64 / amd64
   DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
-  FILENAME="zenohx-${VERSION}-1.x86_64.rpm"
 
 elif [ "${PACKAGE_TYPE}" = "deb" ]; then
-  # Look for .deb asset matching amd64
   DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
-  FILENAME="zenohx_${VERSION}_amd64.deb"
 fi
 
-# Fallback to direct URL if API JSON parsing did not find asset
+# Fallback to universal AppImage if specific package not found
+if [ -z "${DOWNLOAD_URL}" ] && [ "${OS}" = "Linux" ]; then
+  PACKAGE_TYPE="appimage"
+  DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
+fi
+
 if [ -z "${DOWNLOAD_URL}" ]; then
-  if [ "${PACKAGE_TYPE}" = "rpm" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${FILENAME}"
-  elif [ "${PACKAGE_TYPE}" = "deb" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${FILENAME}"
-  elif [ "${PACKAGE_TYPE}" = "dmg" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${FILENAME}"
-  else
-    FILENAME="zenohx_amd64.AppImage"
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${FILENAME}"
-  fi
+  error "No compatible installer asset found for ${OS}-${ARCH} in release ${TAG}.
+Please check the available files at: https://github.com/${REPO}/releases/tag/${TAG}"
 fi
 
+FILENAME="${DOWNLOAD_URL##*/}"
 DOWNLOAD_FILE="${TMP_DIR}/${FILENAME}"
 
-log "Downloading ZenohX ${TAG} (${FILENAME})..."
-if ! curl -fSL --progress-bar "${DOWNLOAD_URL}" -o "${DOWNLOAD_FILE}" 2>/dev/null; then
-  # Try fallback to universal AppImage if specific package was not found
-  if [ "${OS}" = "Linux" ] && [ "${PACKAGE_TYPE}" != "appimage" ]; then
-    warn "Package ${FILENAME} not found on release. Falling back to universal AppImage..."
-    PACKAGE_TYPE="appimage"
-    FILENAME="zenohx_amd64.AppImage"
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/${FILENAME}"
-    DOWNLOAD_FILE="${TMP_DIR}/${FILENAME}"
-    curl -fSL --progress-bar "${DOWNLOAD_URL}" -o "${DOWNLOAD_FILE}" || error "Failed to download ZenohX."
-  else
-    error "Failed to download ZenohX from ${DOWNLOAD_URL}"
-  fi
-fi
+log "Downloading ${FILENAME}..."
+curl -fSL --progress-bar "${DOWNLOAD_URL}" -o "${DOWNLOAD_FILE}" || error "Failed to download ${FILENAME} from ${DOWNLOAD_URL}"
 
-# 3. Perform Installation
+# 4. Perform Installation
 if [ "${PACKAGE_TYPE}" = "dmg" ]; then
   log "Installing ZenohX to /Applications..."
   MOUNT_DIR="${TMP_DIR}/mount"
@@ -174,8 +169,7 @@ elif [ "${PACKAGE_TYPE}" = "rpm" ]; then
   if [ "${INSTALLED}" = "true" ]; then
     success "ZenohX ${TAG} RPM successfully installed via package manager!"
   else
-    warn "Could not obtain sudo permissions for RPM install. Falling back to user directory install..."
-    # Fallback to local user AppImage extraction
+    warn "Could not obtain sudo permissions for RPM install. Falling back to local installation..."
     mkdir -p "${INSTALL_DIR_LINUX}"
     cp "${DOWNLOAD_FILE}" "${INSTALL_DIR_LINUX}/zenohx.rpm"
     success "Saved RPM to ${INSTALL_DIR_LINUX}/zenohx.rpm. Run 'sudo dnf install ${INSTALL_DIR_LINUX}/zenohx.rpm' manually."
@@ -239,4 +233,4 @@ EOF
   fi
 fi
 
-log "Done! Launch ZenohX by typing 'zenohx' or from your system applications menu."
+log "Done! Launch ZenohX by typing 'zenohx' or from your application menu."

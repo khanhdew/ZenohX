@@ -2,7 +2,7 @@
 .SYNOPSIS
     ZenohX One-Liner Installer for Windows PowerShell
 .DESCRIPTION
-    Downloads and installs the latest ZenohX desktop application (MSI / EXE) from GitHub Releases.
+    Dynamically discovers and installs the latest ZenohX desktop application (MSI / EXE) from GitHub Releases.
 .EXAMPLE
     irm https://raw.githubusercontent.com/khanhdew/ZenohX/main/scripts/install.ps1 | iex
 #>
@@ -18,8 +18,8 @@ Write-Host "         ZenohX Windows Installer      " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Fetch Latest Release metadata from GitHub API
-Write-Host "[1/3] Querying latest release from GitHub (https://github.com/$Repo)..." -ForegroundColor Yellow
+# 1. Dynamically Query Latest Release metadata from GitHub API
+Write-Host "[1/3] Checking latest release on GitHub (https://github.com/$Repo)..." -ForegroundColor Yellow
 
 $LatestReleaseUrl = "https://api.github.com/repos/$Repo/releases/latest"
 $Release = $null
@@ -27,19 +27,25 @@ $Release = $null
 try {
     $Release = Invoke-RestMethod -Uri $LatestReleaseUrl -Headers @{ "User-Agent" = "ZenohX-Installer" } -ErrorAction Stop
 } catch {
-    Write-Host "Error: Could not query GitHub Releases API." -ForegroundColor Red
-    Write-Host "Please make sure a release has been published on: https://github.com/$Repo/releases" -ForegroundColor Yellow
-    Exit 1
+    # Fallback to general releases list if /latest is not populated yet
+    try {
+        $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases" -Headers @{ "User-Agent" = "ZenohX-Installer" } -ErrorAction Stop
+        if ($Releases -and $Releases.Count -gt 0) {
+            $Release = $Releases[0]
+        }
+    } catch {
+        # Fall through
+    }
 }
 
 if (-not $Release -or -not $Release.tag_name) {
     Write-Host "Error: No published releases found on https://github.com/$Repo/releases." -ForegroundColor Red
-    Write-Host "Please make sure the GitHub Actions release build has completed." -ForegroundColor Yellow
+    Write-Host "Please make sure a release tag (e.g. 'git tag v<version>' and 'git push origin v<version>') has been pushed and GitHub Actions has finished building." -ForegroundColor Yellow
     Exit 1
 }
 
 $Tag = $Release.tag_name
-Write-Host "  Found release: $Tag" -ForegroundColor Green
+Write-Host "  Found latest release: $Tag" -ForegroundColor Green
 
 # 2. Dynamically Locate Windows Installer Asset (.msi or .exe)
 $Asset = $Release.assets | Where-Object { 

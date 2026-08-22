@@ -408,7 +408,7 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
                   <span className="text-[10px] uppercase font-bold text-muted-foreground block">
                     Eclipse Zenoh Core
                   </span>
-                  <span className="font-mono font-semibold">1.0.0</span>
+                  <span className="font-mono font-semibold">1.10.0</span>
                 </div>
                 <div className="p-2.5 rounded-lg bg-muted/30">
                   <span className="text-[10px] uppercase font-bold text-muted-foreground block">

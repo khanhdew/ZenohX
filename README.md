@@ -69,17 +69,6 @@ Download pre-packaged installers directly from [**GitHub Releases**](https://git
 
 ---
 
-### 3. Run via NPM / NPX (Zero Install)
-
-If you have Node.js installed:
-
-```bash
-npx zenohx
-```
-*(Or install globally: `npm install -g zenohx`)*
-
----
-
 ## 🛠️ Building from Source
 
 ### Prerequisites

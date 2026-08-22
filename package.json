@@ -31,7 +31,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node --loader ./tests/test-loader.mjs --test tests/frontend/*.test.ts",
+    "test": "node ./tests/run-tests.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

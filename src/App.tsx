@@ -21,6 +21,7 @@ import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
 import { checkForAppUpdates, downloadAndInstallUpdate } from './lib/updater';
 import { ConnectionProfile } from './types/zenoh';
 import { isTlsEnabled } from './lib/tls';
+import { APP_VERSION } from './lib/version';
 import { Sidebar } from './components/connections/Sidebar';
 import { ProfileModal } from './components/connections/ProfileModal';
 import { ScoutModal } from './components/connections/ScoutModal';
@@ -223,7 +224,7 @@ export function App() {
                 ZenohX
               </span>
               <Badge variant="outline" className="text-[10px] px-1 py-0 font-mono font-normal">
-                v0.1.1
+                v{APP_VERSION}
               </Badge>
             </div>
           </div>

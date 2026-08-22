@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from '../../ui/select';
 import { useSettingsStore, type UpdateChannel } from '../../../stores/settingsStore';
+import { APP_VERSION } from '../../../lib/version';
 import type { UpdateProgress } from '../../../lib/updater';
 import type { Update } from '@tauri-apps/plugin-updater';
 
@@ -52,7 +53,7 @@ export const UpdatesTab: React.FC<UpdatesTabProps> = ({
                 ZenohX Desktop
               </h3>
               <p className="text-xs text-muted-foreground">
-                Current Installed Version: <span className="font-mono font-medium text-foreground">v0.1.1</span>
+                Current Installed Version: <span className="font-mono font-medium text-foreground">v{APP_VERSION}</span>
               </p>
             </div>
           </div>

@@ -9,6 +9,7 @@ import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { checkForAppUpdates, downloadAndInstallUpdate, type UpdateProgress } from '../../lib/updater';
+import { APP_VERSION } from '../../lib/version';
 import { queryMessages } from '../../lib/tauri';
 import type { StoredMessage } from '../../types/zenoh';
 import type { Update } from '@tauri-apps/plugin-updater';
@@ -97,9 +98,9 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
       } else {
         setUpdateState({
           status: 'up-to-date',
-          version: '0.1.1',
+          version: APP_VERSION,
         });
-        setUpdateSuccessNotice('You are running the latest version of ZenohX (v0.1.1).');
+        setUpdateSuccessNotice(`You are running the latest version of ZenohX (v${APP_VERSION}).`);
         setTimeout(() => setUpdateSuccessNotice(null), 4000);
       }
     } catch (err) {

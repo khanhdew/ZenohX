@@ -40,9 +40,23 @@
 
 ## 📥 Installation
 
-### 1. Download Installers (GitHub Releases)
+### 1. One-Liner Install Script (Fastest)
 
-Download the latest version directly from [**GitHub Releases**](https://github.com/khanhdew/ZenohX/releases/latest):
+**Linux & macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/khanhdew/ZenohX/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell as Administrator or User):**
+```powershell
+irm https://raw.githubusercontent.com/khanhdew/ZenohX/main/scripts/install.ps1 | iex
+```
+
+---
+
+### 2. Download Installers (GitHub Releases)
+
+Download pre-packaged installers directly from [**GitHub Releases**](https://github.com/khanhdew/ZenohX/releases/latest):
 
 | Operating System | Package | Install Method |
 | :--- | :--- | :--- |
@@ -54,7 +68,7 @@ Download the latest version directly from [**GitHub Releases**](https://github.c
 
 ---
 
-### 2. Run via NPM / NPX (Zero Install)
+### 3. Run via NPM / NPX (Zero Install)
 
 If you have Node.js installed:
 
@@ -65,7 +79,7 @@ npx zenohx
 
 ---
 
-### 3. Install via Cargo (Rust)
+### 4. Install via Cargo (Rust)
 
 ```bash
 # Fast install precompiled binary

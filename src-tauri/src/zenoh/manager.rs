@@ -7,6 +7,7 @@ use super::types::{InboundQuery, ReplySample, ScoutedNode, SessionConfig, Sessio
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -86,11 +87,8 @@ impl SessionManager {
                 let mut pending = self.pending_queries.write().await;
                 pending.retain(|_, handle| &handle.session_id != session_id);
             }
-            context
-                .session
-                .close()
-                .await
-                .map_err(|e| format!("failed to close zenoh session: {e}"))?;
+            // Gracefully close the Zenoh session, ignoring timeout during teardown
+            let _ = tokio::time::timeout(Duration::from_millis(1500), context.session.close()).await;
             Ok(())
         } else {
             Err(format!("session with id '{session_id}' not found"))

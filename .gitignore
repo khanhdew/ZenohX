@@ -3,3 +3,6 @@ dist/
 node_modules/
 .superpowers/
 *.env
+*.db
+*.db-shm
+*.db-wal

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState } from 'react';
 import {
   Plus,
   Radar,
@@ -9,14 +9,18 @@ import {
   Pencil,
   Copy,
   Trash2,
-  Radio,
-  Server,
-  Zap,
   AlertCircle,
   Loader2,
   RefreshCw,
+  Zap,
+  Radio,
+  Server,
   FolderOpen,
 } from 'lucide-react';
+import { useConnectionStore } from '../../stores/connectionStore';
+import { ConnectionProfile } from '../../types/zenoh';
+import { ProfileModal } from './ProfileModal';
+import { ScoutModal } from './ScoutModal';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -30,107 +34,88 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '../ui/dialog';
-import { useConnectionStore } from '../../stores/connectionStore';
-import type { ConnectionProfile } from '../../types/zenoh';
-import { ProfileModal } from './ProfileModal';
-import { ScoutModal } from './ScoutModal';
 
-export interface SidebarProps {
+interface SidebarProps {
   className?: string;
   onSelectProfile?: (profile: ConnectionProfile) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfile }) => {
-  const {
-    profiles,
-    selectedProfileId,
-    activeSessions,
-    connectingProfileIds,
-    isLoadingProfiles,
-    error,
-    loadProfiles,
-    selectProfile,
-    saveProfile,
-    deleteProfile,
-    connect,
-    disconnect,
-    setError,
-  } = useConnectionStore();
-
-  // Search & Filter
-  const [searchQuery, setSearchQuery] = useState<string>('');
-
-  // Modals state
-  const [profileModalOpen, setProfileModalOpen] = useState<boolean>(false);
+export function Sidebar({ className = '', onSelectProfile }: SidebarProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [scoutModalOpen, setScoutModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
-  const [scoutModalOpen, setScoutModalOpen] = useState<boolean>(false);
-
-  // Delete confirmation state
   const [deleteConfirmProfile, setDeleteConfirmProfile] = useState<ConnectionProfile | null>(null);
-  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load profiles on mount
-  useEffect(() => {
-    loadProfiles();
-  }, [loadProfiles]);
+  // Store state
+  const profiles = useConnectionStore((s) => s.profiles);
+  const selectedProfileId = useConnectionStore((s) => s.selectedProfileId);
+  const activeSessions = useConnectionStore((s) => s.activeSessions);
+  const connectingProfileIds = useConnectionStore((s) => s.connectingProfileIds);
+  const isLoadingProfiles = useConnectionStore((s) => s.isLoadingProfiles);
 
-  // Filter profiles based on search
-  const filteredProfiles = useMemo(() => {
-    if (!searchQuery.trim()) return profiles;
+  // Store actions
+  const selectProfile = useConnectionStore((s) => s.selectProfile);
+  const connect = useConnectionStore((s) => s.connect);
+  const disconnect = useConnectionStore((s) => s.disconnect);
+  const deleteProfile = useConnectionStore((s) => s.deleteProfile);
+  const saveProfile = useConnectionStore((s) => s.saveProfile);
+  const loadProfiles = useConnectionStore((s) => s.loadProfiles);
+
+  // Filter profiles based on search input
+  const filteredProfiles = profiles.filter((p) => {
     const q = searchQuery.toLowerCase().trim();
-    return profiles.filter((p) => {
-      const matchName = p.name.toLowerCase().includes(q);
-      const matchMode = p.mode.toLowerCase().includes(q);
-      const matchLocators = p.connect_locators?.some((l) => l.toLowerCase().includes(q));
-      return matchName || matchMode || matchLocators;
-    });
-  }, [profiles, searchQuery]);
+    if (!q) return true;
+    const matchesName = p.name.toLowerCase().includes(q);
+    const matchesMode = p.mode.toLowerCase().includes(q);
+    const matchesLocators = (p.connect_locators || []).some((loc) =>
+      loc.toLowerCase().includes(q)
+    );
+    return matchesName || matchesMode || matchesLocators;
+  });
 
-  // Active connected profiles count
   const activeCount = Object.keys(activeSessions).length;
 
-  // Actions
   const handleOpenNewProfile = () => {
     setEditingProfile(null);
     setProfileModalOpen(true);
   };
 
   const handleEditProfile = (p: ConnectionProfile, e?: React.MouseEvent) => {
-    e?.stopPropagation();
+    if (e) e.stopPropagation();
     setEditingProfile(p);
     setProfileModalOpen(true);
   };
 
   const handleDuplicateProfile = async (p: ConnectionProfile, e?: React.MouseEvent) => {
-    e?.stopPropagation();
+    if (e) e.stopPropagation();
     try {
-      const now = Date.now();
-      const duplicate: ConnectionProfile = {
+      const now = Math.floor(Date.now() / 1000);
+      const duplicated: ConnectionProfile = {
         ...p,
-        id: crypto.randomUUID(),
+        id: crypto.randomUUID ? crypto.randomUUID() : `profile-${Date.now()}`,
         name: `${p.name} (Copy)`,
         created_at: now,
         updated_at: now,
       };
-      await saveProfile(duplicate);
-      selectProfile(duplicate.id);
+      await saveProfile(duplicated);
+      selectProfile(duplicated.id);
     } catch (err) {
       setError(String(err));
     }
   };
 
   const handleToggleConnect = async (profileId: string, e?: React.MouseEvent) => {
-    e?.stopPropagation();
+    if (e) e.stopPropagation();
+    setError(null);
     const isConnected = Boolean(activeSessions[profileId]);
-    const isConnecting = Boolean(connectingProfileIds[profileId]);
-
-    if (isConnecting) return;
-
     try {
       if (isConnected) {
         await disconnect(profileId);
@@ -138,14 +123,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
         await connect(profileId);
       }
     } catch (err) {
-      // Error handled by store
+      setError(String(err));
     }
   };
 
   const handleConfirmDelete = async () => {
     if (!deleteConfirmProfile) return;
-    setIsDeleting(true);
     try {
+      setIsDeleting(true);
+      setError(null);
       await deleteProfile(deleteConfirmProfile.id);
       setIsDeleting(false);
       setDeleteConfirmProfile(null);
@@ -164,18 +150,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
 
   return (
     <aside
-      className={`flex flex-col h-full w-80 shrink-0 border-r bg-card text-card-foreground select-none ${className}`}
+      className={`flex flex-col h-full w-72 shrink-0 border-r bg-card text-card-foreground select-none ${className}`}
     >
       {/* Top Header */}
-      <div className="p-3.5 border-b bg-muted/20 space-y-3">
+      <div className="p-3 border-b space-y-2.5">
         {/* Title & Stats */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-sm tracking-tight text-foreground">Connections</span>
-            <Badge
-              variant={activeCount > 0 ? 'success' : 'secondary'}
-              className="text-[10px] px-1.5 py-0 font-mono"
-            >
+            <span className="font-semibold text-xs text-foreground">Connections</span>
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-mono">
               {activeCount} active
             </Badge>
           </div>
@@ -186,7 +169,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
               variant="outline"
               size="iconSm"
               onClick={() => setScoutModalOpen(true)}
-              className="h-7 w-7 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
               title="Scout local network (Multicast)"
             >
               <Radar className="w-3.5 h-3.5" />
@@ -197,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
               variant="default"
               size="sm"
               onClick={handleOpenNewProfile}
-              className="h-7 px-2 text-xs gap-1 shadow-sm"
+              className="h-7 px-2 text-xs gap-1"
               title="Add new Zenoh connection profile"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -212,13 +195,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search connections..."
-            className="h-8 pl-8 text-xs bg-background/80"
+            placeholder="Search..."
+            className="h-7 pl-7 text-xs bg-muted/30"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground"
             >
               ✕
             </button>
@@ -228,7 +211,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
 
       {/* Global Error Banner */}
       {error && (
-        <div className="m-2 p-2.5 rounded-md bg-destructive/15 border border-destructive/30 flex items-start justify-between gap-2 text-xs text-destructive">
+        <div className="m-2 p-2 rounded-md bg-destructive/10 border border-destructive/20 flex items-start justify-between gap-2 text-xs text-destructive">
           <div className="flex items-start gap-1.5">
             <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span className="line-clamp-2">{error}</span>
@@ -243,26 +226,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
       )}
 
       {/* Connection List */}
-      <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {isLoadingProfiles ? (
           <div className="flex flex-col items-center justify-center h-48 text-muted-foreground space-y-2">
-            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             <span className="text-xs">Loading connections...</span>
           </div>
         ) : filteredProfiles.length === 0 ? (
           /* Empty List State */
-          <div className="flex flex-col items-center justify-center text-center p-6 space-y-3 mt-6 border border-dashed rounded-lg bg-muted/10">
-            <div className="p-3 rounded-full bg-muted text-muted-foreground">
-              <FolderOpen className="w-6 h-6" />
+          <div className="flex flex-col items-center justify-center text-center p-5 space-y-2.5 mt-4 border border-dashed rounded-md bg-muted/20">
+            <div className="p-2.5 rounded-full bg-muted text-muted-foreground">
+              <FolderOpen className="w-5 h-5" />
             </div>
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               <p className="text-xs font-medium">
                 {searchQuery ? 'No matching connections' : 'No connections configured'}
               </p>
               <p className="text-[11px] text-muted-foreground">
                 {searchQuery
                   ? 'Try a different search term.'
-                  : 'Create a connection profile or scout your local network.'}
+                  : 'Create a profile or scout your local network.'}
               </p>
             </div>
             {!searchQuery && (
@@ -271,16 +254,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                   size="sm"
                   variant="outline"
                   onClick={() => setScoutModalOpen(true)}
-                  className="h-7 text-xs gap-1"
+                  className="h-6 px-2 text-xs gap-1"
                 >
-                  <Radar className="w-3 h-3 text-blue-500" />
-                  Scout LAN
+                  <Radar className="w-3 h-3" />
+                  Scout
                 </Button>
                 <Button
                   size="sm"
                   variant="default"
                   onClick={handleOpenNewProfile}
-                  className="h-7 text-xs gap-1"
+                  className="h-6 px-2 text-xs gap-1"
                 >
                   <Plus className="w-3 h-3" />
                   Create
@@ -296,7 +279,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
             const isConnected = Boolean(session);
             const isConnecting = Boolean(connectingProfileIds[p.id]);
 
-            // Mode icon & styling
+            // Mode icon
             const mode = (p.mode || 'peer').toLowerCase();
             const ModeIcon = mode === 'router' ? Server : mode === 'client' ? Radio : Zap;
 
@@ -305,45 +288,37 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
               p.connect_locators && p.connect_locators.length > 0
                 ? p.connect_locators[0]
                 : p.scout_multicast
-                ? 'Multicast Discovery'
+                ? 'Multicast'
                 : 'Local Peer';
 
             return (
               <div
                 key={p.id}
                 onClick={() => handleSelect(p)}
-                className={`group relative rounded-lg border p-2.5 transition-all cursor-pointer ${
+                className={`group rounded-md border p-2 transition-colors cursor-pointer ${
                   isSelected
-                    ? 'border-primary bg-primary/5 shadow-sm'
-                    : 'border-border hover:border-muted-foreground/30 hover:bg-muted/40'
+                    ? 'border-foreground/30 bg-muted/60'
+                    : 'border-transparent hover:bg-muted/40'
                 }`}
               >
-                {/* Active Indicator Bar on Left */}
-                {isSelected && (
-                  <div className="absolute left-0 top-2 bottom-2 w-1 bg-primary rounded-r" />
-                )}
-
                 {/* Top Row: Status Dot, Name, Action Controls */}
                 <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {/* Status Dot */}
                     <div className="relative flex items-center justify-center shrink-0">
                       {isConnecting ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-500" />
+                        <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
                       ) : isConnected ? (
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                        </span>
+                        <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                       ) : (
-                        <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/40"></span>
+                        <span className="inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground/30"></span>
                       )}
                     </div>
 
                     {/* Name */}
                     <span
-                      className={`text-xs font-semibold truncate ${
-                        isSelected ? 'text-foreground font-bold' : 'text-foreground/90'
+                      className={`text-xs truncate ${
+                        isSelected ? 'font-semibold text-foreground' : 'font-medium text-foreground/90'
                       }`}
                       title={p.name}
                     >
@@ -356,15 +331,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                     {/* Quick Connect / Disconnect Button */}
                     <Button
                       type="button"
-                      variant={isConnected ? 'destructive' : isConnecting ? 'secondary' : 'ghost'}
+                      variant={isConnected ? 'destructive' : 'ghost'}
                       size="iconSm"
                       onClick={(e) => handleToggleConnect(p.id, e)}
                       disabled={isConnecting}
-                      className={`h-6 w-6 rounded p-0 transition-colors ${
-                        isConnected
-                          ? 'bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground'
-                          : 'text-muted-foreground hover:text-emerald-600 hover:bg-emerald-500/10'
-                      }`}
+                      className="h-5 w-5 rounded p-0"
                       title={
                         isConnecting
                           ? 'Connecting...'
@@ -374,11 +345,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                       }
                     >
                       {isConnecting ? (
-                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
                       ) : isConnected ? (
                         <PowerOff className="w-3 h-3" />
                       ) : (
-                        <Power className="w-3 h-3" />
+                        <Power className="w-3 h-3 text-muted-foreground group-hover:text-foreground" />
                       )}
                     </Button>
 
@@ -388,13 +359,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                         <Button
                           variant="ghost"
                           size="iconSm"
-                          className="h-6 w-6 rounded p-0 text-muted-foreground hover:text-foreground"
+                          className="h-5 w-5 rounded p-0 text-muted-foreground hover:text-foreground"
                           title="More options"
                         >
-                          <MoreVertical className="w-3.5 h-3.5" />
+                          <MoreVertical className="w-3 h-3" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40 text-xs">
+                      <DropdownMenuContent align="end" className="w-36 text-xs">
                         <DropdownMenuItem onClick={(e) => handleEditProfile(p, e)}>
                           <Pencil className="w-3.5 h-3.5 mr-2" />
                           Edit Profile
@@ -411,7 +382,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                             </>
                           ) : (
                             <>
-                              <Power className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                              <Power className="w-3.5 h-3.5 mr-2" />
                               <span>Connect</span>
                             </>
                           )}
@@ -425,7 +396,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                           className="text-destructive focus:text-destructive focus:bg-destructive/10"
                         >
                           <Trash2 className="w-3.5 h-3.5 mr-2" />
-                          Delete Profile
+                          Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -433,36 +404,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
                 </div>
 
                 {/* Subtitle / Details Row */}
-                <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
                   {/* Mode Badge & Locator Info */}
                   <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
-                    <Badge
-                      variant={
-                        mode === 'router'
-                          ? 'purple'
-                          : mode === 'client'
-                          ? 'success'
-                          : 'info'
-                      }
-                      className="text-[9px] px-1 py-0 h-4 capitalize font-normal"
-                    >
+                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 capitalize font-mono">
                       <ModeIcon className="w-2.5 h-2.5 mr-0.5 inline-block" />
                       {mode}
                     </Badge>
-                    <span className="truncate font-mono text-[10px]" title={locatorPreview}>
+                    <span className="truncate font-mono" title={locatorPreview}>
                       {locatorPreview}
                     </span>
                   </div>
 
                   {/* Connected ZID pill or locators count */}
                   {isConnected && session?.zid ? (
-                    <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1 rounded shrink-0">
-                      {session.zid.slice(0, 6)}…
+                    <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded shrink-0">
+                      {session.zid.slice(0, 6)}
                     </span>
                   ) : (
                     p.connect_locators && p.connect_locators.length > 1 && (
                       <span className="text-[10px] text-muted-foreground shrink-0">
-                        +{p.connect_locators.length - 1} more
+                        +{p.connect_locators.length - 1}
                       </span>
                     )
                   )}
@@ -474,7 +436,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
       </div>
 
       {/* Bottom Footer */}
-      <div className="p-3 border-t bg-muted/20 flex items-center justify-between text-[11px] text-muted-foreground">
+      <div className="p-2.5 border-t flex items-center justify-between text-[11px] text-muted-foreground">
         <span>
           {profiles.length} profile{profiles.length === 1 ? '' : 's'}
         </span>
@@ -482,7 +444,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
           variant="ghost"
           size="iconSm"
           onClick={() => loadProfiles()}
-          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+          className="h-5 w-5 text-muted-foreground hover:text-foreground"
           title="Reload profiles"
         >
           <RefreshCw className="w-3 h-3" />
@@ -499,7 +461,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
         profile={editingProfile}
       />
 
-      {/* Scout Modal (Multicast Discovery) */}
+      {/* Scout Modal */}
       <ScoutModal
         isOpen={scoutModalOpen}
         onClose={() => setScoutModalOpen(false)}
@@ -512,29 +474,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
       {/* Delete Confirmation Dialog */}
       <Dialog
         open={Boolean(deleteConfirmProfile)}
-        onOpenChange={(open) => !open && setDeleteConfirmProfile(null)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirmProfile(null);
+        }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-[360px]">
           <DialogHeader>
-            <DialogTitle className="text-base flex items-center gap-2 text-destructive">
-              <AlertCircle className="w-4 h-4" />
-              Delete Connection Profile
-            </DialogTitle>
-            <DialogDescription className="text-xs">
+            <DialogTitle className="text-sm font-semibold">Delete Profile?</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
               Are you sure you want to delete profile{' '}
-              <strong className="text-foreground font-semibold">
-                "{deleteConfirmProfile?.name}"
-              </strong>
-              ? If currently connected, this will disconnect the active session. This action cannot be undone.
+              <strong className="text-foreground">{deleteConfirmProfile?.name}</strong>?
+              This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2 sm:gap-0 mt-3">
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setDeleteConfirmProfile(null)}
               disabled={isDeleting}
-              className="text-xs"
+              className="text-xs h-8"
             >
               Cancel
             </Button>
@@ -543,15 +502,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ className = '', onSelectProfil
               size="sm"
               onClick={handleConfirmDelete}
               disabled={isDeleting}
-              className="text-xs"
+              className="text-xs h-8"
             >
-              {isDeleting ? 'Deleting...' : 'Delete Profile'}
+              {isDeleting ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </aside>
   );
-};
+}
 
 export default Sidebar;

@@ -60,8 +60,8 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
-        <span className="text-purple-500 italic">null</span>
+        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+        <span className="text-muted-foreground italic">null</span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -71,8 +71,8 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
-        <span className="text-purple-600 dark:text-purple-400 font-bold">{value ? 'true' : 'false'}</span>
+        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+        <span className="font-semibold text-foreground">{value ? 'true' : 'false'}</span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -82,8 +82,8 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
-        <span className="text-amber-600 dark:text-amber-400">{value.toString()}</span>
+        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+        <span className="font-mono text-foreground">{value.toString()}</span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -93,8 +93,8 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center truncate">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
-        <span className="text-emerald-600 dark:text-emerald-400 truncate">"{value}"</span>
+        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+        <span className="text-foreground/90 truncate">"{value}"</span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -107,7 +107,7 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
       return (
         <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
           <span style={{ marginLeft: `${depth * 14}px` }} />
-          {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
+          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
           <span className="text-muted-foreground">[]</span>
           {!isLast && <span className="text-muted-foreground">,</span>}
         </div>
@@ -118,17 +118,16 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
       <div>
         <div
           onClick={toggleExpanded}
-          className="font-mono text-xs leading-5 hover:bg-muted/60 px-1 rounded flex items-center cursor-pointer select-none group"
+          className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center cursor-pointer select-none"
         >
           <span style={{ marginLeft: `${depth * 14}px` }} />
-          <span className="mr-1 text-muted-foreground group-hover:text-foreground">
-            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          <span className="text-muted-foreground mr-1">
+            {expanded ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronRight className="w-3 h-3 inline" />}
           </span>
-          {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
-          <span className="text-muted-foreground">
-            {expanded ? '[' : `[ ... ${itemCount} items ]`}
-          </span>
-          {!expanded && !isLast && <span className="text-muted-foreground">,</span>}
+          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+          <span className="text-muted-foreground font-mono">[{itemCount}]</span>
+          {!expanded && <span className="text-muted-foreground ml-1">...</span>}
+          {!isLast && !expanded && <span className="text-muted-foreground">,</span>}
         </div>
 
         {expanded && (
@@ -139,9 +138,10 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
                 value={item}
                 depth={depth + 1}
                 isLast={idx === itemCount - 1}
+                defaultExpanded={defaultExpanded}
               />
             ))}
-            <div className="font-mono text-xs leading-5 px-1 flex items-center">
+            <div className="font-mono text-xs leading-5 px-1">
               <span style={{ marginLeft: `${depth * 14}px` }} />
               <span className="text-muted-foreground">]</span>
               {!isLast && <span className="text-muted-foreground">,</span>}
@@ -154,14 +154,13 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
 
   // Render Objects
   if (typeof value === 'object') {
-    const keys = Object.keys(value as Record<string, unknown>);
-    const keyCount = keys.length;
-
+    const entries = Object.entries(value as Record<string, unknown>);
+    const keyCount = entries.length;
     if (keyCount === 0) {
       return (
         <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
           <span style={{ marginLeft: `${depth * 14}px` }} />
-          {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
+          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
           <span className="text-muted-foreground">{'{}'}</span>
           {!isLast && <span className="text-muted-foreground">,</span>}
         </div>
@@ -172,31 +171,31 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
       <div>
         <div
           onClick={toggleExpanded}
-          className="font-mono text-xs leading-5 hover:bg-muted/60 px-1 rounded flex items-center cursor-pointer select-none group"
+          className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center cursor-pointer select-none"
         >
           <span style={{ marginLeft: `${depth * 14}px` }} />
-          <span className="mr-1 text-muted-foreground group-hover:text-foreground">
-            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          <span className="text-muted-foreground mr-1">
+            {expanded ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronRight className="w-3 h-3 inline" />}
           </span>
-          {name !== undefined && <span className="text-blue-500 font-semibold mr-1.5">"{name}":</span>}
-          <span className="text-muted-foreground">
-            {expanded ? '{' : `{ ... ${keyCount} keys }`}
-          </span>
-          {!expanded && !isLast && <span className="text-muted-foreground">,</span>}
+          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+          <span className="text-muted-foreground">{'{' + `${keyCount} keys` + '}'}</span>
+          {!expanded && <span className="text-muted-foreground ml-1">...</span>}
+          {!isLast && !expanded && <span className="text-muted-foreground">,</span>}
         </div>
 
         {expanded && (
           <div>
-            {keys.map((k, idx) => (
+            {entries.map(([k, v], idx) => (
               <JsonTreeNode
                 key={k}
                 name={k}
-                value={(value as Record<string, unknown>)[k]}
+                value={v}
                 depth={depth + 1}
                 isLast={idx === keyCount - 1}
+                defaultExpanded={defaultExpanded}
               />
             ))}
-            <div className="font-mono text-xs leading-5 px-1 flex items-center">
+            <div className="font-mono text-xs leading-5 px-1">
               <span style={{ marginLeft: `${depth * 14}px` }} />
               <span className="text-muted-foreground">{'}'}</span>
               {!isLast && <span className="text-muted-foreground">,</span>}
@@ -324,9 +323,9 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
   ];
 
   return (
-    <div className={`flex flex-col rounded-lg border bg-card text-card-foreground shadow-sm ${className}`}>
+    <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
       {/* Header Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/40 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
         {/* Navigation Tabs */}
         <div className="flex items-center space-x-1">
           {tabs.map((t) => {
@@ -336,14 +335,14 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
-                className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
                   isActive
-                    ? 'bg-background text-foreground shadow-sm'
+                    ? 'bg-background text-foreground shadow-xs'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
                 type="button"
               >
-                <Icon className="w-3.5 h-3.5" />
+                <Icon className="w-3 h-3" />
                 {t.label}
               </button>
             );
@@ -354,12 +353,12 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
         <div className="flex items-center gap-2">
           {/* Tree vs Code Mode Toggle for JSON/CBOR */}
           {(activeTab === 'json' || activeTab === 'cbor') && tabData.parsedJson !== null && (
-            <div className="flex items-center rounded-md border bg-background p-0.5 text-xs">
+            <div className="flex items-center rounded border bg-muted p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => setViewMode('code')}
-                className={`flex items-center gap-1 rounded px-2 py-0.5 ${
-                  viewMode === 'code' ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'
+                className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
+                  viewMode === 'code' ? 'bg-background font-medium text-foreground shadow-xs' : 'text-muted-foreground'
                 }`}
                 title="Code View"
               >
@@ -369,8 +368,8 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
               <button
                 type="button"
                 onClick={() => setViewMode('tree')}
-                className={`flex items-center gap-1 rounded px-2 py-0.5 ${
-                  viewMode === 'tree' ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground'
+                className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
+                  viewMode === 'tree' ? 'bg-background font-medium text-foreground shadow-xs' : 'text-muted-foreground'
                 }`}
                 title="Tree View"
               >
@@ -380,13 +379,13 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
             </div>
           )}
 
-          {/* Word Wrap Toggle (for Text & Code views) */}
+          {/* Word Wrap Toggle */}
           {(activeTab === 'text' || (viewMode === 'code' && (activeTab === 'json' || activeTab === 'cbor'))) && (
             <button
               type="button"
               onClick={() => setWordWrap(!wordWrap)}
               className={`rounded p-1 text-xs hover:bg-muted ${
-                wordWrap ? 'text-primary bg-primary/10' : 'text-muted-foreground'
+                wordWrap ? 'text-foreground bg-muted' : 'text-muted-foreground'
               }`}
               title="Toggle Word Wrap"
             >
@@ -396,7 +395,7 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
 
           {/* Size Metric */}
           {showMetrics && (
-            <span className="rounded bg-muted/80 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
               {formatByteSize(byteCount)}
             </span>
           )}
@@ -406,52 +405,52 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
             type="button"
             onClick={handleCopy}
             disabled={byteCount === 0}
-            className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-            title="Copy to clipboard"
+            className="flex items-center gap-1 rounded bg-muted hover:bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            title="Copy payload to clipboard"
           >
             {copied ? (
               <>
-                <Check className="w-3.5 h-3.5 text-green-500" />
-                <span className="text-green-500">Copied</span>
+                <Check className="w-3 h-3 text-emerald-500" />
+                <span className="text-[11px] text-emerald-500 font-semibold">Copied</span>
               </>
             ) : (
               <>
-                <Copy className="w-3.5 h-3.5 text-muted-foreground" />
-                <span>Copy</span>
+                <Copy className="w-3 h-3" />
+                <span className="text-[11px]">Copy</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Error Message Banner */}
+      {/* Error / Warning Notice if decode failed */}
       {tabData.error && (
-        <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
-          <AlertCircle className="w-4 h-4 shrink-0" />
+        <div className="flex items-center gap-1.5 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
           <span className="truncate">{tabData.error}</span>
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* Main Payload Content Body */}
       <div
-        className="relative overflow-auto p-3 font-mono text-xs"
+        className="overflow-auto p-3 font-mono text-xs bg-background"
         style={{ maxHeight }}
       >
         {byteCount === 0 ? (
-          <div className="flex h-24 items-center justify-center text-muted-foreground">
-            Empty payload (0 bytes)
+          <div className="flex items-center justify-center p-6 text-muted-foreground italic text-xs">
+            Payload is empty (0 bytes)
           </div>
         ) : (activeTab === 'json' || activeTab === 'cbor') && viewMode === 'tree' && tabData.parsedJson !== null ? (
-          <div className="py-1">
-            <JsonTreeNode value={tabData.parsedJson} depth={0} isLast={true} />
+          <div className="space-y-0.5">
+            <JsonTreeNode value={tabData.parsedJson} defaultExpanded={true} />
           </div>
         ) : (
           <pre
-            className={`font-mono text-xs leading-relaxed ${
-              wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+            className={`font-mono text-xs text-foreground select-text ${
+              wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'
             }`}
           >
-            <code>{tabData.text}</code>
+            {tabData.text}
           </pre>
         )}
       </div>

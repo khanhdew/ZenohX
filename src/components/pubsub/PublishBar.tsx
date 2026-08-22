@@ -118,7 +118,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
 
       setStatusMessage({
         type: 'success',
-        text: `Published sample to '${trimmedKey}' successfully`,
+        text: `Published sample to '${trimmedKey}'`,
       });
 
       // Clear success feedback after 3 seconds
@@ -158,17 +158,17 @@ export const PublishBar: React.FC<PublishBarProps> = ({
       className={`flex flex-col border-t bg-card text-card-foreground shadow-sm transition-all ${className}`}
     >
       {/* Publisher Header & Control Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-muted/20 border-b">
+      <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-muted/20 border-b">
         {/* Left: Action Kind (PUT vs DELETE) + Key Expression Input */}
         <div className="flex items-center gap-2 flex-1 min-w-[280px]">
           {/* Action Selector (PUT vs DELETE) */}
-          <div className="flex items-center rounded-md border bg-background p-0.5 text-xs shrink-0">
+          <div className="flex items-center rounded-md border bg-muted p-0.5 text-xs shrink-0">
             <button
               type="button"
               onClick={() => setKind('put')}
-              className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+              className={`rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
                 kind === 'put'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
+                  ? 'bg-background text-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
@@ -177,7 +177,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
             <button
               type="button"
               onClick={() => setKind('delete')}
-              className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors ${
+              className={`rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
                 kind === 'delete'
                   ? 'bg-destructive text-destructive-foreground shadow-xs'
                   : 'text-muted-foreground hover:text-foreground'
@@ -234,16 +234,16 @@ export const PublishBar: React.FC<PublishBarProps> = ({
           {/* Status Message Feedback */}
           {statusMessage && (
             <div
-              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[11px] max-w-[260px] truncate ${
+              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[11px] max-w-[260px] truncate border ${
                 statusMessage.type === 'success'
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                  ? 'bg-muted text-foreground'
+                  : 'bg-destructive/10 text-destructive border-destructive/20'
               }`}
             >
               {statusMessage.type === 'success' ? (
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
               ) : (
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-destructive" />
               )}
               <span className="truncate">{statusMessage.text}</span>
             </div>
@@ -256,7 +256,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
             size="sm"
             onClick={handlePublish}
             disabled={isSending || !activeSessionId || (kind === 'put' && !validation.isValid)}
-            className="h-8 px-3 text-xs gap-1.5 shadow-sm font-semibold"
+            className="h-8 px-3 text-xs gap-1.5 font-medium"
             title="Publish sample (Ctrl+Enter)"
           >
             {isSending ? (
@@ -279,7 +279,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
             size="iconSm"
             onClick={() => setIsExpanded(!isExpanded)}
             className="h-8 w-8 text-muted-foreground hover:text-foreground"
-            title={isExpanded ? 'Collapse payload editor' : 'Expand payload editor'}
+            title={isExpanded ? 'Collapse editor' : 'Expand editor'}
           >
             {isExpanded ? (
               <ChevronDown className="w-4 h-4" />
@@ -294,10 +294,10 @@ export const PublishBar: React.FC<PublishBarProps> = ({
       {isExpanded && (
         <div className="p-2.5 bg-background transition-all">
           {kind === 'delete' ? (
-            <div className="flex items-center justify-center p-6 border border-dashed rounded-lg text-xs text-muted-foreground bg-muted/10">
+            <div className="flex items-center justify-center p-5 border border-dashed rounded-md text-xs text-muted-foreground bg-muted/20">
               <Trash2 className="w-4 h-4 mr-2 text-destructive" />
               <span>
-                Zenoh <strong className="text-foreground">DELETE</strong> samples do not require a payload body. Click "Delete Key" to remove the resource.
+                Zenoh <strong className="text-foreground">DELETE</strong> samples do not require a payload. Click "Delete Key" to remove the resource.
               </span>
             </div>
           ) : (

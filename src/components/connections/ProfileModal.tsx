@@ -148,86 +148,88 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
     setListenLocators((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Save handler
-  const handleSave = async (andConnect: boolean = false) => {
-    setValidationError(null);
-
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setValidationError('Connection Profile Name is required.');
+  // Validation
+  const validate = (): boolean => {
+    if (!name.trim()) {
+      setValidationError('Profile name is required.');
       setActiveTab('general');
-      return;
+      return false;
     }
 
-    // Filter out blank locators
-    const cleanConnectLocators = connectLocators
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    const cleanListenLocators = listenLocators
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-
-    // Validate Custom Config JSON if provided
-    let parsedCustomConfig: Record<string, unknown> | null = null;
     if (customConfigText.trim()) {
       try {
-        parsedCustomConfig = JSON.parse(customConfigText.trim());
-        if (typeof parsedCustomConfig !== 'object' || parsedCustomConfig === null || Array.isArray(parsedCustomConfig)) {
-          setValidationError('Custom configuration must be a valid JSON object (e.g. { "key": "value" }).');
-          setActiveTab('custom');
-          return;
+        const parsed = JSON.parse(customConfigText);
+        if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+          setValidationError('Custom configuration must be a valid JSON object (key-value dictionary).');
+          setActiveTab('advanced');
+          return false;
         }
       } catch (err) {
-        setValidationError(`Invalid Custom JSON: ${(err as Error).message}`);
-        setActiveTab('custom');
-        return;
+        setValidationError(`Invalid JSON in custom configuration: ${(err as Error).message}`);
+        setActiveTab('advanced');
+        return false;
       }
     }
 
-    // Build UserAuth
-    const userAuth =
-      username.trim() || password.trim() || token.trim()
-        ? {
-            username: username.trim() || undefined,
-            password: password.trim() || undefined,
-            token: token.trim() || undefined,
-          }
-        : null;
+    setValidationError(null);
+    return true;
+  };
 
-    // Build TlsConfig
-    const tlsConfig =
-      caCert.trim() || clientCert.trim() || clientKey.trim()
-        ? {
-            ca_cert: caCert.trim() || undefined,
-            client_cert: clientCert.trim() || undefined,
-            client_key: clientKey.trim() || undefined,
-          }
-        : null;
-
-    const now = Date.now();
-    const finalProfile: ConnectionProfile = {
-      id: profile?.id || crypto.randomUUID(),
-      name: trimmedName,
-      mode,
-      connect_locators: cleanConnectLocators,
-      listen_locators: cleanListenLocators,
-      scout_multicast: scoutMulticast,
-      user_auth: userAuth,
-      tls_config: tlsConfig,
-      custom_config: parsedCustomConfig,
-      created_at: profile?.created_at || now,
-      updated_at: now,
-    };
+  // Save handler
+  const handleSave = async (andConnect: boolean = false) => {
+    if (!validate()) return;
 
     setIsSaving(true);
     try {
-      await saveProfileToStore(finalProfile);
+      let customConfigObj: Record<string, unknown> | null = null;
+      if (customConfigText.trim()) {
+        customConfigObj = JSON.parse(customConfigText);
+      }
+
+      const filteredConnect = connectLocators.map((l) => l.trim()).filter(Boolean);
+      const filteredListen = listenLocators.map((l) => l.trim()).filter(Boolean);
+
+      const userAuth =
+        username.trim() || password.trim() || token.trim()
+          ? {
+              username: username.trim() || undefined,
+              password: password.trim() || undefined,
+              token: token.trim() || undefined,
+            }
+          : null;
+
+      const tlsConfig =
+        caCert.trim() || clientCert.trim() || clientKey.trim()
+          ? {
+              ca_cert: caCert.trim() || undefined,
+              client_cert: clientCert.trim() || undefined,
+              client_key: clientKey.trim() || undefined,
+            }
+          : null;
+
+      const now = Date.now();
+      const updatedProfile: ConnectionProfile = {
+        id: profile?.id || crypto.randomUUID(),
+        name: name.trim(),
+        mode,
+        connect_locators: filteredConnect,
+        listen_locators: filteredListen,
+        scout_multicast: scoutMulticast,
+        user_auth: userAuth,
+        tls_config: tlsConfig,
+        custom_config: customConfigObj,
+        created_at: profile?.created_at || now,
+        updated_at: now,
+      };
+
+      await saveProfileToStore(updatedProfile);
+
       if (onSaved) {
-        onSaved(finalProfile);
+        onSaved(updatedProfile);
       }
 
       if (andConnect) {
-        await connectSession(finalProfile.id);
+        await connectSession(updatedProfile.id);
       }
 
       setIsSaving(false);
@@ -240,176 +242,161 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0 overflow-hidden">
-        {/* Header */}
-        <DialogHeader className="p-5 pb-3 border-b bg-muted/20">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary">
-              <Network className="w-5 h-5" />
-            </div>
+      <DialogContent className="max-w-xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+        {/* Modal Header */}
+        <DialogHeader className="p-4 border-b bg-muted/20">
+          <div className="flex items-center justify-between">
             <div>
-              <DialogTitle className="text-lg">
+              <DialogTitle className="text-base font-semibold">
                 {isEditing ? 'Edit Connection Profile' : 'New Connection Profile'}
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                Configure Zenoh session endpoints, scouting, transport protocols, and authentication.
+                Configure endpoint locators, transport mode, authentication, and TLS.
               </DialogDescription>
             </div>
+            <Badge variant="outline" className="text-xs uppercase font-mono">
+              Zenoh 1.10.0
+            </Badge>
           </div>
         </DialogHeader>
 
-        {/* Validation Alert */}
+        {/* Validation Error Notice */}
         {validationError && (
-          <div className="mx-5 mt-4 p-3 rounded-md bg-destructive/15 border border-destructive/30 flex items-start gap-2.5 text-xs text-destructive">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <div className="flex-1 font-medium">{validationError}</div>
+          <div className="mx-4 mt-3 p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{validationError}</span>
           </div>
         )}
 
-        {/* Tab Navigation */}
-        <Tabs
-          value={activeTab}
-          onValueChange={setActiveTab}
-          className="flex-1 flex flex-col overflow-hidden"
-        >
-          <div className="px-5 pt-3 border-b bg-muted/10">
-            <TabsList className="grid grid-cols-3 w-full">
-              <TabsTrigger value="general" className="flex items-center gap-1.5 text-xs">
-                <Network className="w-3.5 h-3.5" />
-                Endpoints & Mode
+        {/* Modal Tabs Body */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid grid-cols-4 w-full h-8 mb-4 bg-muted">
+              <TabsTrigger value="general" className="text-xs">
+                General
               </TabsTrigger>
-              <TabsTrigger value="security" className="flex items-center gap-1.5 text-xs">
-                <Shield className="w-3.5 h-3.5" />
-                Auth & Security
+              <TabsTrigger value="network" className="text-xs">
+                Network
               </TabsTrigger>
-              <TabsTrigger value="custom" className="flex items-center gap-1.5 text-xs">
-                <FileCode className="w-3.5 h-3.5" />
+              <TabsTrigger value="security" className="text-xs">
+                Security
+              </TabsTrigger>
+              <TabsTrigger value="advanced" className="text-xs">
                 JSON Config
               </TabsTrigger>
             </TabsList>
-          </div>
 
-          {/* Scrollable Tab Content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-            {/* GENERAL TAB */}
-            <TabsContent value="general" className="mt-0 space-y-5">
+            {/* Tab 1: General Settings */}
+            <TabsContent value="general" className="space-y-4 m-0">
               {/* Profile Name */}
-              <div className="space-y-1.5">
-                <Label htmlFor="profile-name" className="text-xs font-semibold">
+              <div className="space-y-1">
+                <Label htmlFor="prof-name" className="text-xs font-semibold">
                   Profile Name <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  id="profile-name"
+                  id="prof-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Local Zenoh Router, Cloud Peer"
-                  className="h-9"
+                  placeholder="e.g. Production Router, Local Peer"
+                  className="h-8 text-xs bg-background"
                 />
               </div>
 
               {/* Mode Selection */}
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold">Zenoh Mode</Label>
-                <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Zenoh Operating Mode</Label>
+                <div className="grid grid-cols-3 gap-2">
                   {/* Peer Mode */}
                   <div
-                    onClick={() => {
-                      setMode('peer');
-                      if (connectLocators.length === 0 && !scoutMulticast) {
-                        setScoutMulticast(true);
-                      }
-                    }}
-                    className={`cursor-pointer rounded-lg border p-3 flex flex-col gap-1 transition-all ${
+                    onClick={() => setMode('peer')}
+                    className={`cursor-pointer rounded-md border p-2.5 flex flex-col gap-1 transition-colors ${
                       mode === 'peer'
-                        ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                        : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30'
+                        ? 'border-foreground/30 bg-muted/60'
+                        : 'border-border hover:bg-muted/40'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold flex items-center gap-1.5">
-                        <Zap className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="text-xs font-semibold flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-muted-foreground" />
                         Peer
                       </span>
-                      {mode === 'peer' && <Badge variant="default" className="text-[10px] h-4">Active</Badge>}
+                      {mode === 'peer' && <Badge variant="secondary" className="text-[10px] h-4">Active</Badge>}
                     </div>
                     <span className="text-[11px] text-muted-foreground">
-                      Decentralized P2P peer. Discovers neighbors via multicast or locators.
+                      P2P peer. Discovers neighbors via multicast or locators.
                     </span>
                   </div>
 
                   {/* Client Mode */}
                   <div
                     onClick={() => setMode('client')}
-                    className={`cursor-pointer rounded-lg border p-3 flex flex-col gap-1 transition-all ${
+                    className={`cursor-pointer rounded-md border p-2.5 flex flex-col gap-1 transition-colors ${
                       mode === 'client'
-                        ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                        : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30'
+                        ? 'border-foreground/30 bg-muted/60'
+                        : 'border-border hover:bg-muted/40'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold flex items-center gap-1.5">
-                        <Radio className="w-3.5 h-3.5 text-emerald-500" />
+                      <span className="text-xs font-semibold flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-muted-foreground" />
                         Client
                       </span>
-                      {mode === 'client' && <Badge variant="default" className="text-[10px] h-4">Active</Badge>}
+                      {mode === 'client' && <Badge variant="secondary" className="text-[10px] h-4">Active</Badge>}
                     </div>
                     <span className="text-[11px] text-muted-foreground">
-                      Lightweight client. Connects to one or more Zenoh routers.
+                      Client mode. Connects to one or more Zenoh routers.
                     </span>
                   </div>
 
                   {/* Router Mode */}
                   <div
                     onClick={() => setMode('router')}
-                    className={`cursor-pointer rounded-lg border p-3 flex flex-col gap-1 transition-all ${
+                    className={`cursor-pointer rounded-md border p-2.5 flex flex-col gap-1 transition-colors ${
                       mode === 'router'
-                        ? 'border-primary bg-primary/5 ring-1 ring-primary'
-                        : 'border-border hover:border-muted-foreground/40 hover:bg-muted/30'
+                        ? 'border-foreground/30 bg-muted/60'
+                        : 'border-border hover:bg-muted/40'
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold flex items-center gap-1.5">
-                        <Server className="w-3.5 h-3.5 text-purple-500" />
+                      <span className="text-xs font-semibold flex items-center gap-1.5">
+                        <Server className="w-3.5 h-3.5 text-muted-foreground" />
                         Router
                       </span>
-                      {mode === 'router' && <Badge variant="default" className="text-[10px] h-4">Active</Badge>}
+                      {mode === 'router' && <Badge variant="secondary" className="text-[10px] h-4">Active</Badge>}
                     </div>
                     <span className="text-[11px] text-muted-foreground">
-                      Full router mode. Listens and routes traffic between peers and clients.
+                      Router mode. Listens and routes traffic across nodes.
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* Multicast Scout Toggle */}
-              <div className="rounded-lg border p-3 flex items-center justify-between bg-muted/20">
+              <div className="rounded-md border p-2.5 flex items-center justify-between bg-muted/20">
                 <div className="space-y-0.5 pr-4">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold">Multicast Scouting</span>
-                    <Badge variant="info" className="text-[10px] h-4">LAN Discovery</Badge>
+                    <Badge variant="outline" className="text-[10px] h-4">LAN</Badge>
                   </div>
                   <p className="text-[11px] text-muted-foreground">
-                    Automatically discover Zenoh routers and peers on the local subnet via UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7447</code>).
+                    Discover Zenoh routers and peers on the local subnet via UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7447</code>).
                   </p>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={scoutMulticast}
-                    onChange={(e) => setScoutMulticast(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                </label>
+                <input
+                  type="checkbox"
+                  checked={scoutMulticast}
+                  onChange={(e) => setScoutMulticast(e.target.checked)}
+                  className="rounded border-input text-primary focus:ring-ring h-4 w-4"
+                />
               </div>
 
               {/* Connect Locators */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-xs font-semibold">Connect Locators</Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Remote endpoints to connect to (e.g. <code className="font-mono text-[10px]">tcp/127.0.0.1:7447</code>, <code className="font-mono text-[10px]">udp/10.0.0.1:7447</code>, <code className="font-mono text-[10px]">tls/zenoh.corp:7447</code>).
+                      Endpoints to connect to (e.g. <code className="font-mono text-[10px]">tcp/127.0.0.1:7447</code>, <code className="font-mono text-[10px]">udp/10.0.0.1:7447</code>).
                     </p>
                   </div>
                   <Button
@@ -417,16 +404,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={addConnectLocator}
-                    className="h-7 px-2 text-xs gap-1"
+                    className="h-6 px-2 text-xs gap-1"
                   >
                     <Plus className="w-3 h-3" />
-                    Add Locator
+                    Add
                   </Button>
                 </div>
 
                 {connectLocators.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                    No connect locators specified. {mode === 'client' ? '(Client mode usually requires at least one router locator)' : '(Multicast scouting will be used if enabled)'}
+                  <div className="rounded-md border border-dashed p-2.5 text-center text-xs text-muted-foreground">
+                    No connect locators specified.
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -436,31 +423,33 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           value={loc}
                           onChange={(e) => updateConnectLocator(idx, e.target.value)}
                           placeholder="tcp/127.0.0.1:7447"
-                          className="h-8 font-mono text-xs"
+                          className="h-7 font-mono text-xs bg-background"
                         />
                         <Button
                           type="button"
                           variant="ghost"
                           size="iconSm"
                           onClick={() => removeConnectLocator(idx)}
-                          className="text-muted-foreground hover:text-destructive h-8 w-8"
+                          className="text-muted-foreground hover:text-destructive h-7 w-7"
                           title="Remove Locator"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" />
                         </Button>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
+            </TabsContent>
 
-              {/* Listen Locators */}
-              <div className="space-y-2">
+            {/* Tab 2: Network & Listen Settings */}
+            <TabsContent value="network" className="space-y-4 m-0">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-xs font-semibold">Listen Locators</Label>
                     <p className="text-[11px] text-muted-foreground">
-                      Local endpoints to bind and listen for incoming Zenoh connections (e.g. <code className="font-mono text-[10px]">tcp/0.0.0.0:7447</code>).
+                      Endpoints this session will bind and listen on for inbound connections.
                     </p>
                   </div>
                   <Button
@@ -468,16 +457,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     variant="outline"
                     size="sm"
                     onClick={addListenLocator}
-                    className="h-7 px-2 text-xs gap-1"
+                    className="h-6 px-2 text-xs gap-1"
                   >
                     <Plus className="w-3 h-3" />
-                    Add Listener
+                    Add
                   </Button>
                 </div>
 
                 {listenLocators.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                    No listen locators specified. (Default ephemeral listeners will be assigned if required)
+                  <div className="rounded-md border border-dashed p-2.5 text-center text-xs text-muted-foreground">
+                    No listen locators configured.
                   </div>
                 ) : (
                   <div className="space-y-1.5">
@@ -487,17 +476,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                           value={loc}
                           onChange={(e) => updateListenLocator(idx, e.target.value)}
                           placeholder="tcp/0.0.0.0:7447"
-                          className="h-8 font-mono text-xs"
+                          className="h-7 font-mono text-xs bg-background"
                         />
                         <Button
                           type="button"
                           variant="ghost"
                           size="iconSm"
                           onClick={() => removeListenLocator(idx)}
-                          className="text-muted-foreground hover:text-destructive h-8 w-8"
-                          title="Remove Listener"
+                          className="text-muted-foreground hover:text-destructive h-7 w-7"
+                          title="Remove Listen Locator"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" />
                         </Button>
                       </div>
                     ))}
@@ -506,163 +495,148 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               </div>
             </TabsContent>
 
-            {/* SECURITY & AUTH TAB */}
-            <TabsContent value="security" className="mt-0 space-y-5">
+            {/* Tab 3: Security Settings (Auth & TLS) */}
+            <TabsContent value="security" className="space-y-4 m-0">
               {/* User Authentication */}
-              <div className="space-y-3">
-                <div className="flex items-center gap-1.5">
-                  <Shield className="w-4 h-4 text-primary" />
-                  <span className="text-xs font-semibold">User Credentials</span>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2.5 border rounded-md p-3 bg-muted/10">
+                <span className="text-xs font-semibold flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+                  User Authentication
+                </span>
+
+                <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <Label htmlFor="auth-username" className="text-xs">Username</Label>
+                    <Label className="text-[11px] font-medium text-muted-foreground">Username</Label>
                     <Input
-                      id="auth-username"
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       placeholder="zenoh_user"
-                      className="h-8 text-xs"
+                      className="h-7 text-xs bg-background"
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="auth-password" className="text-xs">Password</Label>
+                    <Label className="text-[11px] font-medium text-muted-foreground">Password</Label>
                     <Input
-                      id="auth-password"
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="h-8 text-xs"
+                      className="h-7 text-xs bg-background"
                     />
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="auth-token" className="text-xs">Auth Token (Bearer / Secret)</Label>
+
+                <div className="space-y-1 pt-1">
+                  <Label className="text-[11px] font-medium text-muted-foreground">Token / Key (Optional)</Label>
                   <Input
-                    id="auth-token"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsIn..."
-                    className="h-8 font-mono text-xs"
+                    placeholder="Bearer token or API secret"
+                    className="h-7 text-xs font-mono bg-background"
                   />
                 </div>
               </div>
 
-              <div className="border-t pt-4 space-y-3">
-                <div className="flex items-center gap-1.5">
-                  <Shield className="w-4 h-4 text-emerald-500" />
-                  <span className="text-xs font-semibold">TLS / Certificate Configuration</span>
-                </div>
-                <div className="space-y-2.5">
+              {/* TLS Configuration */}
+              <div className="space-y-2.5 border rounded-md p-3 bg-muted/10">
+                <span className="text-xs font-semibold flex items-center gap-1.5">
+                  <Network className="w-3.5 h-3.5 text-muted-foreground" />
+                  TLS / SSL Encryption
+                </span>
+
+                <div className="space-y-2">
                   <div className="space-y-1">
-                    <Label htmlFor="tls-ca" className="text-xs">CA Certificate (File path or PEM string)</Label>
+                    <Label className="text-[11px] font-medium text-muted-foreground">CA Certificate Path</Label>
                     <Input
-                      id="tls-ca"
                       value={caCert}
                       onChange={(e) => setCaCert(e.target.value)}
-                      placeholder="/path/to/ca.crt"
-                      className="h-8 font-mono text-xs"
+                      placeholder="/path/to/ca.pem"
+                      className="h-7 font-mono text-xs bg-background"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="tls-client-cert" className="text-xs">Client Certificate</Label>
-                    <Input
-                      id="tls-client-cert"
-                      value={clientCert}
-                      onChange={(e) => setClientCert(e.target.value)}
-                      placeholder="/path/to/client.crt"
-                      className="h-8 font-mono text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="tls-client-key" className="text-xs">Client Private Key</Label>
-                    <Input
-                      id="tls-client-key"
-                      value={clientKey}
-                      onChange={(e) => setClientKey(e.target.value)}
-                      placeholder="/path/to/client.key"
-                      className="h-8 font-mono text-xs"
-                    />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Client Cert Path</Label>
+                      <Input
+                        value={clientCert}
+                        onChange={(e) => setClientCert(e.target.value)}
+                        placeholder="/path/to/client.crt"
+                        className="h-7 font-mono text-xs bg-background"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px] font-medium text-muted-foreground">Client Key Path</Label>
+                      <Input
+                        value={clientKey}
+                        onChange={(e) => setClientKey(e.target.value)}
+                        placeholder="/path/to/client.key"
+                        className="h-7 font-mono text-xs bg-background"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
             </TabsContent>
 
-            {/* CUSTOM JSON5 TAB */}
-            <TabsContent value="custom" className="mt-0 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="custom-json" className="text-xs font-semibold">
-                    Custom Zenoh JSON Configuration
+            {/* Tab 4: Advanced Custom JSON Config */}
+            <TabsContent value="advanced" className="space-y-3 m-0">
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold flex items-center gap-1.5">
+                    <FileCode className="w-3.5 h-3.5 text-muted-foreground" />
+                    Custom JSON Overrides
                   </Label>
-                  <p className="text-[11px] text-muted-foreground">
-                    Override underlying Zenoh session properties (e.g. transport, timestamping, routing).
-                  </p>
+                  <span className="text-[10px] text-muted-foreground">
+                    Deep Zenoh configuration dictionary
+                  </span>
                 </div>
-                {customConfigText.trim() && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      try {
-                        const parsed = JSON.parse(customConfigText);
-                        setCustomConfigText(JSON.stringify(parsed, null, 2));
-                        setValidationError(null);
-                      } catch (err) {
-                        setValidationError(`Invalid JSON: ${(err as Error).message}`);
-                      }
-                    }}
-                    className="h-7 text-xs"
-                  >
-                    Format JSON
-                  </Button>
-                )}
+                <textarea
+                  value={customConfigText}
+                  onChange={(e) => setCustomConfigText(e.target.value)}
+                  placeholder={`{\n  "transport": {\n    "unicast": {\n      "max_sessions": 100\n    }\n  }\n}`}
+                  rows={8}
+                  className="w-full font-mono text-xs rounded-md border border-input bg-background p-2.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
               </div>
-              <textarea
-                id="custom-json"
-                rows={10}
-                value={customConfigText}
-                onChange={(e) => setCustomConfigText(e.target.value)}
-                placeholder={`{\n  "transport": {\n    "unicast": {\n      "max_links": 2\n    }\n  }\n}`}
-                className="w-full rounded-md border border-input bg-transparent p-3 font-mono text-xs leading-relaxed shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              />
             </TabsContent>
-          </div>
-        </Tabs>
+          </Tabs>
+        </div>
 
-        {/* Footer Actions */}
-        <DialogFooter className="p-4 border-t bg-muted/20 gap-2 sm:gap-0">
+        {/* Modal Footer */}
+        <DialogFooter className="p-3 border-t bg-muted/20 flex items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
+            size="sm"
             onClick={onClose}
             disabled={isSaving}
-            className="text-xs h-9"
+            className="h-8 text-xs"
           >
             Cancel
           </Button>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => handleSave(true)}
-              disabled={isSaving}
-              className="text-xs h-9"
-            >
-              Save & Connect
-            </Button>
-            <Button
-              type="button"
-              variant="default"
-              onClick={() => handleSave(false)}
-              disabled={isSaving}
-              className="text-xs h-9"
-            >
-              {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Profile'}
-            </Button>
-          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => handleSave(false)}
+            disabled={isSaving}
+            className="h-8 text-xs font-medium"
+          >
+            Save Profile
+          </Button>
+
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={() => handleSave(true)}
+            disabled={isSaving}
+            className="h-8 text-xs font-medium"
+          >
+            Save & Connect
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

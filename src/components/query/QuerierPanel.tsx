@@ -58,7 +58,7 @@ export const SELECTOR_PRESETS: SelectorPreset[] = [
   {
     label: 'RPC Calculator',
     selector: 'rpc/calculator?op=add&a=15&b=27',
-    description: 'Remote procedure call with arithmetic parameters',
+    description: 'Remote procedure call with parameters',
     target: 'best_matching',
   },
   {
@@ -148,104 +148,92 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
   const handleRemoveParam = useCallback(
     (index: number) => {
       const updated = parsedParams.filter((_, i) => i !== index);
-      const base = baseKeyExpr || 'demo/**';
       if (updated.length === 0) {
-        setSelector(base);
+        setSelector(baseKeyExpr);
       } else {
         const queryStr = updated
           .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
           .join('&');
-        setSelector(`${base}?${queryStr}`);
+        setSelector(`${baseKeyExpr}?${queryStr}`);
       }
     },
-    [baseKeyExpr, parsedParams]
+    [parsedParams, baseKeyExpr]
   );
 
   // Execute Query
-  const handleRunQuery = async () => {
+  const handleRunQuery = useCallback(async () => {
+    if (!selector.trim()) {
+      setErrorMessage('Selector expression cannot be empty.');
+      return;
+    }
+
     if (!sessionId) {
       setErrorMessage('No active Zenoh session connected.');
       return;
     }
-    const cleanSelector = selector.trim();
-    if (!cleanSelector) {
-      setErrorMessage('Please enter a valid key expression or selector.');
-      return;
-    }
 
-    setErrorMessage(null);
     setIsRunning(true);
+    setErrorMessage(null);
 
     try {
-      await runQuery(sessionId, cleanSelector, target, timeoutMs, profileId);
+      await runQuery(sessionId, selector.trim(), target, timeoutMs, profileId);
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRunning(false);
     }
-  };
-
-  // Apply Preset
-  const handleApplyPreset = (preset: SelectorPreset) => {
-    setSelector(preset.selector);
-    if (preset.target) {
-      setTarget(preset.target);
-    }
-  };
+  }, [selector, sessionId, profileId, target, timeoutMs, runQuery]);
 
   return (
-    <div className={`flex flex-col h-full bg-card text-card-foreground border-r border-border ${className}`}>
-      {/* Header Bar */}
-      <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-3 shrink-0">
+    <div
+      className={`flex flex-col h-full bg-card text-card-foreground p-3.5 space-y-4 overflow-y-auto ${className}`}
+    >
+      {/* Panel Header */}
+      <div className="flex items-center justify-between border-b pb-2.5">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-md bg-primary/10 text-primary">
-            <Target className="w-4 h-4" />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold tracking-tight text-foreground">
-              Querier (RPC Client)
-            </h3>
-            <p className="text-[11px] text-muted-foreground">
-              Issue distributed <code className="font-mono text-primary font-semibold">get</code> requests with selectors
-            </p>
-          </div>
+          <span className="font-semibold text-xs text-foreground">
+            Query Client
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            session.get()
+          </span>
         </div>
 
-        {/* Quick Presets Dropdown */}
-        <div className="relative group">
-          <Select
-            onValueChange={(val) => {
-              const preset = SELECTOR_PRESETS.find((p) => p.selector === val);
-              if (preset) handleApplyPreset(preset);
-            }}
-          >
-            <SelectTrigger className="h-7 text-xs px-2.5 gap-1.5 bg-background border-muted font-medium">
-              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-              <span>Presets</span>
-            </SelectTrigger>
-            <SelectContent align="end" className="w-64">
-              {SELECTOR_PRESETS.map((preset) => (
-                <SelectItem key={preset.selector} value={preset.selector} className="text-xs">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-foreground">{preset.label}</span>
-                    <span className="font-mono text-[10px] text-primary">{preset.selector}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Preset Selector Dropdown */}
+        <Select
+          onValueChange={(val) => {
+            const found = SELECTOR_PRESETS.find((p) => p.selector === val);
+            if (found) {
+              setSelector(found.selector);
+              if (found.target) setTarget(found.target);
+            }
+          }}
+        >
+          <SelectTrigger className="h-7 text-xs w-[160px] bg-muted/40">
+            <Sparkles className="w-3 h-3 mr-1 text-muted-foreground" />
+            <SelectValue placeholder="Presets..." />
+          </SelectTrigger>
+          <SelectContent>
+            {SELECTOR_PRESETS.map((preset) => (
+              <SelectItem key={preset.selector} value={preset.selector} className="text-xs">
+                <div>
+                  <span className="font-medium block">{preset.label}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">{preset.selector}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {/* Main Form Scrollable Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Error Alert */}
+      {/* Query Form Section */}
+      <div className="space-y-3.5">
+        {/* Error Alert if any */}
         {errorMessage && (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <span className="font-semibold">Query Execution Error:</span>
-              <p className="mt-0.5 break-all">{errorMessage}</p>
+          <div className="rounded-md border border-destructive/20 bg-destructive/10 p-2.5 text-xs text-destructive flex items-start justify-between gap-2">
+            <div className="flex items-start gap-1.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMessage}</span>
             </div>
             <button
               type="button"
@@ -258,17 +246,17 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
         )}
 
         {/* 1. Selector / Key Expression Input */}
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <label className="text-[11px] font-medium text-muted-foreground">
               Key Expression / Selector
             </label>
             <button
               type="button"
               onClick={() => setShowParamsBuilder(!showParamsBuilder)}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground hover:underline"
             >
-              <Sliders className="w-3 h-3" />
+              <Sliders className="w-3 h-3 text-muted-foreground" />
               <span>{showParamsBuilder ? 'Hide Params' : 'Query Params'}</span>
             </button>
           </div>
@@ -280,31 +268,26 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
               onChange={(e) => setSelector(e.target.value)}
               placeholder="e.g. demo/sensor?limit=10"
               disabled={isRunning}
-              className="font-mono text-xs pr-8 h-9 shadow-xs focus-visible:ring-primary"
+              className="font-mono text-xs pr-8 h-8 bg-background"
             />
             {selector && (
               <button
                 type="button"
                 onClick={() => setSelector('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground">
-            Supports wildcards (<code className="font-mono text-primary">*</code>,{' '}
-            <code className="font-mono text-primary">**</code>) and query parameters (
-            <code className="font-mono text-primary">?key=value</code>).
-          </p>
         </div>
 
         {/* 2. Interactive Query Parameters Builder (Collapsible) */}
         {showParamsBuilder && (
-          <div className="rounded-lg border bg-muted/20 p-3 space-y-2.5">
+          <div className="rounded-md border bg-muted/20 p-2.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-foreground">
-                Query Predicates / Parameters
+                Query Parameters
               </span>
               <span className="text-[10px] text-muted-foreground font-mono">
                 {parsedParams.length} param{parsedParams.length === 1 ? '' : 's'}
@@ -313,16 +296,16 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
 
             {/* List of current params */}
             {parsedParams.length > 0 ? (
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {parsedParams.map((p, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between gap-2 rounded bg-background px-2.5 py-1 text-xs border font-mono"
+                    className="flex items-center justify-between gap-2 rounded bg-background px-2 py-1 text-xs border font-mono"
                   >
-                    <div className="flex items-center gap-1.5 truncate">
-                      <span className="text-primary font-bold">{p.key}</span>
+                    <div className="flex items-center gap-1 truncate">
+                      <span className="font-semibold text-foreground">{p.key}</span>
                       <span className="text-muted-foreground">=</span>
-                      <span className="text-foreground truncate">{p.value}</span>
+                      <span className="text-muted-foreground truncate">{p.value}</span>
                     </div>
                     <button
                       type="button"
@@ -337,7 +320,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
               </div>
             ) : (
               <p className="text-[11px] text-muted-foreground italic">
-                No parameters currently added to selector.
+                No parameters added.
               </p>
             )}
 
@@ -348,7 +331,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
                 placeholder="param_name"
                 value={paramKey}
                 onChange={(e) => setParamKey(e.target.value)}
-                className="h-7 text-xs font-mono flex-1"
+                className="h-7 text-xs font-mono flex-1 bg-background"
                 onKeyDown={(e) => e.key === 'Enter' && handleAddParam()}
               />
               <span className="text-xs text-muted-foreground font-mono">=</span>
@@ -357,7 +340,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
                 placeholder="value"
                 value={paramValue}
                 onChange={(e) => setParamValue(e.target.value)}
-                className="h-7 text-xs font-mono flex-1"
+                className="h-7 text-xs font-mono flex-1 bg-background"
                 onKeyDown={(e) => e.key === 'Enter' && handleAddParam()}
               />
               <Button
@@ -375,10 +358,10 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
         )}
 
         {/* 3. Query Target & Timeout Settings */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Target Dropdown */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
               <Target className="w-3.5 h-3.5" />
               <span>Target</span>
             </label>
@@ -387,35 +370,35 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
               onValueChange={(val) => setTarget(val as QueryTarget)}
               disabled={isRunning}
             >
-              <SelectTrigger className="h-9 text-xs">
+              <SelectTrigger className="h-8 text-xs bg-background">
                 <SelectValue placeholder="Select target" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">
-                  <div className="font-medium">All (all queryables)</div>
+                  All Queryables
                 </SelectItem>
                 <SelectItem value="complete" className="text-xs">
-                  <div className="font-medium">Complete (complete set)</div>
+                  Complete Set
                 </SelectItem>
                 <SelectItem value="best_matching" className="text-xs">
-                  <div className="font-medium">Best Matching (single best)</div>
+                  Best Matching
                 </SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Timeout Control */}
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+              <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" />
                 <span>Timeout</span>
               </label>
-              <span className="font-mono text-xs font-bold text-foreground">
-                {timeoutMs} ms ({(timeoutMs / 1000).toFixed(1)}s)
+              <span className="font-mono text-xs font-medium text-foreground">
+                {timeoutMs} ms
               </span>
             </div>
-            <div className="flex items-center gap-2 h-9">
+            <div className="flex items-center gap-2 h-8">
               <input
                 type="range"
                 min={100}
@@ -424,29 +407,29 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
                 value={timeoutMs}
                 onChange={(e) => setTimeoutMs(Number(e.target.value))}
                 disabled={isRunning}
-                className="w-full accent-primary h-1.5 bg-muted rounded-lg cursor-pointer"
+                className="w-full h-1.5 bg-muted rounded-md cursor-pointer accent-primary"
               />
             </div>
           </div>
         </div>
 
         {/* 4. Action Button: Run Query */}
-        <div className="pt-2">
+        <div className="pt-1">
           <Button
             type="button"
             onClick={handleRunQuery}
             disabled={isRunning || !sessionId || !selector.trim()}
-            className="w-full h-10 gap-2 font-semibold shadow-md transition-all active:scale-[0.99]"
+            className="w-full h-9 gap-2 font-medium"
             variant="default"
           >
             {isRunning ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin text-primary-foreground" />
+                <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Querying Zenoh Network…</span>
               </>
             ) : (
               <>
-                <Play className="w-4 h-4 fill-current" />
+                <Play className="w-3.5 h-3.5 fill-current" />
                 <span>Run Query</span>
               </>
             )}
@@ -454,19 +437,19 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
         </div>
 
         {/* 5. Past Query Executions History */}
-        <div className="pt-4 border-t space-y-2">
+        <div className="pt-3 border-t space-y-2">
           <div className="flex items-center justify-between">
             <button
               type="button"
               onClick={() => setShowHistory(!showHistory)}
-              className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground uppercase tracking-wider"
+              className="flex items-center gap-1.5 text-xs font-semibold text-foreground"
             >
-              <History className="w-3.5 h-3.5" />
+              <History className="w-3.5 h-3.5 text-muted-foreground" />
               <span>Query History ({sessionExecutions.length})</span>
               {showHistory ? (
-                <ChevronUp className="w-3 h-3 ml-0.5" />
+                <ChevronUp className="w-3 h-3 text-muted-foreground ml-0.5" />
               ) : (
-                <ChevronDown className="w-3 h-3 ml-0.5" />
+                <ChevronDown className="w-3 h-3 text-muted-foreground ml-0.5" />
               )}
             </button>
 
@@ -486,10 +469,10 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
           </div>
 
           {showHistory && (
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {sessionExecutions.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-                  No query executions recorded yet.
+                <div className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
+                  No query history yet.
                 </div>
               ) : (
                 sessionExecutions.map((exec: QueryExecution) => {
@@ -502,53 +485,36 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
                     <div
                       key={exec.id}
                       onClick={() => selectExecution(exec.id)}
-                      className={`flex flex-col gap-1 rounded-lg border p-2.5 text-xs cursor-pointer transition-colors ${
+                      className={`rounded-md border p-2 text-xs transition-colors cursor-pointer select-none ${
                         isSelected
-                          ? 'border-primary bg-primary/5 shadow-xs'
-                          : 'border-border hover:bg-muted/40'
+                          ? 'border-foreground/30 bg-muted/60'
+                          : 'border-transparent hover:bg-muted/40'
                       }`}
                     >
-                      {/* Top row: Status, selector, time */}
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center justify-between gap-1.5">
                         <div className="flex items-center gap-1.5 truncate">
                           {isRunningExec ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-500 shrink-0" />
                           ) : hasError ? (
-                            <XCircle className="w-3.5 h-3.5 text-destructive shrink-0" />
+                            <XCircle className="w-3 h-3 text-destructive shrink-0" />
                           ) : (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
                           )}
-                          <span className="font-mono font-bold text-foreground truncate">
+                          <span className="font-mono truncate font-medium text-foreground">
                             {exec.selector}
                           </span>
                         </div>
-                        <span className="font-mono text-[10px] text-muted-foreground shrink-0">
-                          {formatTimeWithMs(exec.startedAt)}
+
+                        <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                          {exec.durationMs !== undefined ? `${exec.durationMs}ms` : '...'}
                         </span>
                       </div>
 
-                      {/* Bottom row: target pill, reply count, latency */}
-                      <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="rounded bg-muted px-1.5 py-0.2 font-mono text-[10px] uppercase">
-                            {exec.target}
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              replyCount > 0
-                                ? 'text-emerald-600 dark:text-emerald-400'
-                                : 'text-muted-foreground'
-                            }`}
-                          >
-                            {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
-                          </span>
-                        </div>
-
-                        {exec.durationMs !== undefined && (
-                          <span className="font-mono text-[10px] text-muted-foreground">
-                            {exec.durationMs} ms
-                          </span>
-                        )}
+                      <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+                        <span>{formatTimeWithMs(exec.startedAt)}</span>
+                        <span className="font-mono">
+                          {replyCount} repl{replyCount === 1 ? 'y' : 'ies'}
+                        </span>
                       </div>
                     </div>
                   );

@@ -2,12 +2,12 @@
 .SYNOPSIS
     ZenohX One-Liner Installer for Windows PowerShell
 .DESCRIPTION
-    Downloads and installs the latest ZenohX desktop application from GitHub Releases.
+    Downloads and installs the latest ZenohX desktop application (MSI / EXE) from GitHub Releases.
 .EXAMPLE
     irm https://raw.githubusercontent.com/khanhdew/ZenohX/main/scripts/install.ps1 | iex
 #>
 
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
 $Repo = "khanhdew/ZenohX"
 $AppName = "ZenohX"
@@ -18,66 +18,85 @@ Write-Host "         ZenohX Windows Installer      " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Fetch Latest Release metadata
-Write-Host "[1/3] Fetching latest release info from GitHub..." -ForegroundColor Yellow
+# 1. Fetch Latest Release metadata from GitHub API
+Write-Host "[1/3] Querying latest release from GitHub (https://github.com/$Repo)..." -ForegroundColor Yellow
 
 $LatestReleaseUrl = "https://api.github.com/repos/$Repo/releases/latest"
 $Release = $null
 
 try {
     $Release = Invoke-RestMethod -Uri $LatestReleaseUrl -Headers @{ "User-Agent" = "ZenohX-Installer" } -ErrorAction Stop
-    $Tag = $Release.tag_name
 } catch {
-    $Tag = "v0.1.1"
-    Write-Host "  Note: Could not query GitHub API, defaulting to $Tag." -ForegroundColor Gray
+    Write-Host "Error: Could not query GitHub Releases API." -ForegroundColor Red
+    Write-Host "Please make sure a release has been published on: https://github.com/$Repo/releases" -ForegroundColor Yellow
+    Exit 1
 }
 
-Write-Host "  Target version: $Tag" -ForegroundColor Green
+if (-not $Release -or -not $Release.tag_name) {
+    Write-Host "Error: No published releases found on https://github.com/$Repo/releases." -ForegroundColor Red
+    Write-Host "Please make sure the GitHub Actions release build has completed." -ForegroundColor Yellow
+    Exit 1
+}
 
-# 2. Download MSI Package
-$MsiName = "ZenohX_x64_en-US.msi"
-$DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$MsiName"
+$Tag = $Release.tag_name
+Write-Host "  Found release: $Tag" -ForegroundColor Green
+
+# 2. Dynamically Locate Windows Installer Asset (.msi or .exe)
+$Asset = $Release.assets | Where-Object { 
+    $_.name -like "*x64*.msi" -or 
+    $_.name -like "*.msi" -or 
+    $_.name -like "*setup*.exe" -or 
+    $_.name -like "*x64*.exe" 
+} | Select-Object -First 1
+
+if (-not $Asset) {
+    Write-Host "Error: No Windows installer (.msi or .exe) was found in release $Tag." -ForegroundColor Red
+    Write-Host "Available assets in release:" -ForegroundColor Yellow
+    $Release.assets | ForEach-Object { Write-Host "  - $($_.name)" -ForegroundColor Gray }
+    Exit 1
+}
+
+$DownloadUrl = $Asset.browser_download_url
+$FileName = $Asset.name
 $TempDir = [System.IO.Path]::GetTempPath()
-$TempMsiPath = Join-Path $TempDir "$AppName-$Tag.msi"
+$TempFilePath = Join-Path $TempDir $FileName
 
-Write-Host "[2/3] Downloading $MsiName..." -ForegroundColor Yellow
+Write-Host "[2/3] Downloading $FileName..." -ForegroundColor Yellow
 Write-Host "  URL: $DownloadUrl" -ForegroundColor Gray
 
 try {
-    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempMsiPath -UseBasicParsing -ErrorAction Stop
+    Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempFilePath -UseBasicParsing -ErrorAction Stop
 } catch {
-    # Fallback to direct latest endpoint
-    $FallbackUrl = "https://github.com/$Repo/releases/latest/download/$MsiName"
-    Write-Host "  Retrying via fallback: $FallbackUrl..." -ForegroundColor Gray
-    try {
-        Invoke-WebRequest -Uri $FallbackUrl -OutFile $TempMsiPath -UseBasicParsing -ErrorAction Stop
-    } catch {
-        Write-Host "Error: Failed to download ZenohX installer from GitHub." -ForegroundColor Red
-        Write-Host "Please download directly from: https://github.com/$Repo/releases/latest" -ForegroundColor Red
-        Exit 1
-    }
+    Write-Host "Error: Failed to download installer package: $_" -ForegroundColor Red
+    Write-Host "Download directly from: https://github.com/$Repo/releases/latest" -ForegroundColor Yellow
+    Exit 1
 }
 
-Write-Host "  Download completed." -ForegroundColor Green
+Write-Host "  Download complete." -ForegroundColor Green
 
-# 3. Execute MSI Installer
+# 3. Execute Installer (.msi via msiexec or .exe installer)
 Write-Host "[3/3] Installing ZenohX..." -ForegroundColor Yellow
 
 try {
-    $Process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempMsiPath`" /qb" -Wait -PassThru
+    if ($FileName.EndsWith(".msi")) {
+        $Process = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$TempFilePath`" /qb" -Wait -PassThru
+    } else {
+        $Process = Start-Process -FilePath "$TempFilePath" -Wait -PassThru
+    }
+
     if ($Process.ExitCode -eq 0) {
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Green
         Write-Host "   ZenohX was successfully installed!   " -ForegroundColor Green
         Write-Host "========================================" -ForegroundColor Green
-        Write-Host "You can now launch ZenohX from your Start Menu or Desktop shortcut." -ForegroundColor Cyan
+        Write-Host "Launch ZenohX from your Start Menu or Desktop shortcut." -ForegroundColor Cyan
     } else {
-        Write-Host "Installer finished with code: $($Process.ExitCode)" -ForegroundColor Yellow
+        Write-Host "Installer exited with status code: $($Process.ExitCode)" -ForegroundColor Yellow
     }
 } catch {
-    Write-Host "Error running MSI installer: $_" -ForegroundColor Red
+    Write-Host "Error executing installer: $_" -ForegroundColor Red
 } finally {
-    if (Test-Path $TempMsiPath) {
-        Remove-Item $TempMsiPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path $TempFilePath) {
+        Remove-Item $TempFilePath -Force -ErrorAction SilentlyContinue
     }
 }

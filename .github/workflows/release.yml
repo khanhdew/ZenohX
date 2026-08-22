@@ -70,4 +70,4 @@ jobs:
           releaseBody: 'See the release assets below for download packages and checksum signatures.'
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}

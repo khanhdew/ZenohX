@@ -63,16 +63,14 @@ TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_DIR}"; }
 trap cleanup EXIT
 
-RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
-
-if [ -n "${RELEASE_JSON}" ]; then
-  TAG="$(echo "${RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4)"
-else
-  TAG="v0.1.0"
+if [ -z "${RELEASE_JSON}" ] || echo "${RELEASE_JSON}" | grep -q '"message": *"Not Found"'; then
+  error "No published releases found on https://github.com/${REPO}/releases.
+Please make sure a release tag (e.g. v0.1.1) has been pushed and GitHub Actions has completed the build."
 fi
 
+TAG="$(echo "${RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4)"
 if [ -z "${TAG}" ]; then
-  TAG="v0.1.0"
+  TAG="v0.1.1"
 fi
 VERSION="${TAG#v}"
 

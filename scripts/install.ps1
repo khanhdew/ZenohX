@@ -28,7 +28,7 @@ try {
     $Release = Invoke-RestMethod -Uri $LatestReleaseUrl -Headers @{ "User-Agent" = "ZenohX-Installer" } -ErrorAction Stop
     $Tag = $Release.tag_name
 } catch {
-    $Tag = "v0.1.0"
+    $Tag = "v0.1.1"
     Write-Host "  Note: Could not query GitHub API, defaulting to $Tag." -ForegroundColor Gray
 }
 

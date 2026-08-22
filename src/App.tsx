@@ -223,7 +223,7 @@ export function App() {
                 ZenohX
               </span>
               <Badge variant="outline" className="text-[10px] px-1 py-0 font-mono font-normal">
-                v0.1.0
+                v0.1.1
               </Badge>
             </div>
           </div>

@@ -12,7 +12,7 @@ const https = require('https');
 const { spawn } = require('child_process');
 
 const pkg = require('../package.json');
-const VERSION = pkg.version || '0.1.0';
+const VERSION = pkg.version || '0.1.1';
 const REPO = 'khanhdew/ZenohX';
 
 function getBinaryInfo() {

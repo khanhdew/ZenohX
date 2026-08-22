@@ -18,7 +18,7 @@ import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
 import { useQueryStore } from './stores/queryStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
-import { checkForAppUpdates } from './lib/updater';
+import { checkForAppUpdates, downloadAndInstallUpdate } from './lib/updater';
 import { ConnectionProfile } from './types/zenoh';
 import { isTlsEnabled } from './lib/tls';
 import { Sidebar } from './components/connections/Sidebar';
@@ -97,6 +97,7 @@ export function App() {
 
   const theme = useSettingsStore((s) => s.theme);
   const autoCheckUpdates = useSettingsStore((s) => s.autoCheckUpdates);
+  const autoDownload = useSettingsStore((s) => s.autoDownload);
   const setLastCheckedUpdate = useSettingsStore((s) => s.setLastCheckedUpdate);
 
   // Apply active theme to DOM root and listen to OS theme if set to 'system'
@@ -117,13 +118,18 @@ export function App() {
       checkForAppUpdates()
         .then((res) => {
           setLastCheckedUpdate(Date.now());
-          if (res.updateAvailable) {
+          if (res.updateAvailable && res.update) {
             console.log('ZenohX update available:', res.version);
+            if (autoDownload) {
+              downloadAndInstallUpdate(res.update).catch((err) => {
+                console.error('Failed to auto-download update:', err);
+              });
+            }
           }
         })
         .catch(() => {});
     }
-  }, [autoCheckUpdates, setLastCheckedUpdate]);
+  }, [autoCheckUpdates, autoDownload, setLastCheckedUpdate]);
 
   useEffect(() => {
     loadProfiles();

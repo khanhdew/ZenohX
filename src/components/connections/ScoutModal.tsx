@@ -2,12 +2,6 @@ import React, { useState, useEffect } from 'react';
 import {
   Radar,
   RefreshCw,
-  Server,
-  Zap,
-  Copy,
-  Check,
-  Plus,
-  Play,
   Wifi,
   AlertCircle,
 } from 'lucide-react';
@@ -23,6 +17,14 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
 import type { ConnectionProfile, ScoutedNode } from '../../types/zenoh';
+import {
+  buildProfileFromScoutedNode,
+  getLocatorProtocol,
+  getPreferredLocator,
+  resolveTlsConfig,
+} from '../../lib/tls';
+import { ScoutFilters } from './scout/ScoutFilters';
+import { ScoutNodeCard, type NodeTlsState } from './scout/ScoutNodeCard';
 
 export interface ScoutModalProps {
   isOpen: boolean;
@@ -44,11 +46,16 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   const connectSession = useConnectionStore((state) => state.connect);
 
   const [timeoutMs, setTimeoutMs] = useState<number>(3000);
+  const [protocolFilter, setProtocolFilter] = useState<'all' | 'tls' | 'plain'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [actionLoadingZid, setActionLoadingZid] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Trigger scout on initial open if not already scouting
+  // Per-node local TLS and locator configuration
+  const [nodeStates, setNodeStates] = useState<Record<string, NodeTlsState>>({});
+
+  // Trigger scout on initial open if modal becomes active
   useEffect(() => {
     if (isOpen) {
       setErrorMsg(null);
@@ -61,7 +68,7 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
     try {
       await scout(timeoutMs);
     } catch (err) {
-      setErrorMsg(String(err));
+      setErrorMsg(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -72,53 +79,92 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
     });
   };
 
-  // Build a ConnectionProfile from a scouted node
-  const buildProfileFromNode = (node: ScoutedNode): ConnectionProfile => {
-    const isRouter = node.what.toLowerCase() === 'router';
-    const shortZid = node.zid ? node.zid.slice(0, 8) : 'unknown';
-    const now = Date.now();
-
+  // Get or initialize state for a scouted node
+  const getNodeState = (node: ScoutedNode): NodeTlsState => {
+    if (nodeStates[node.zid]) {
+      return nodeStates[node.zid];
+    }
+    const defaultLocator = getPreferredLocator(node.locators || []) || '';
+    const isTls = getLocatorProtocol(defaultLocator) === 'tls';
     return {
-      id: crypto.randomUUID(),
-      name: `Zenoh ${isRouter ? 'Router' : 'Peer'} (${shortZid})`,
-      mode: isRouter ? 'client' : 'peer',
-      connect_locators: node.locators && node.locators.length > 0 ? [...node.locators] : [],
-      listen_locators: [],
-      scout_multicast: true,
-      user_auth: null,
-      tls_config: null,
-      custom_config: null,
-      created_at: now,
-      updated_at: now,
+      selectedLocator: defaultLocator,
+      enableTls: isTls,
+      useCustomTls: false,
+      caCert: '',
+      clientCert: '',
+      clientKey: '',
+      showTlsOptions: false,
     };
   };
 
-  const handleCreateProfile = async (node: ScoutedNode, openEditor: boolean = false) => {
+  const updateNodeState = (zid: string, patch: Partial<NodeTlsState>) => {
+    setNodeStates((prev) => {
+      const current = prev[zid] || {
+        selectedLocator: '',
+        enableTls: false,
+        useCustomTls: false,
+        caCert: '',
+        clientCert: '',
+        clientKey: '',
+        showTlsOptions: false,
+      };
+      return {
+        ...prev,
+        [zid]: {
+          ...current,
+          ...patch,
+        },
+      };
+    });
+  };
+
+  const buildProfile = (node: ScoutedNode): ConnectionProfile => {
+    const state = getNodeState(node);
+    const customTlsConfig = resolveTlsConfig({
+      enableTls: state.enableTls,
+      useCustomTls: state.useCustomTls,
+      caCert: state.caCert,
+      clientCert: state.clientCert,
+      clientKey: state.clientKey,
+    });
+
+    return buildProfileFromScoutedNode(node, {
+      selectedLocator: state.selectedLocator || undefined,
+      enableTls: state.enableTls,
+      customTls: customTlsConfig,
+    });
+  };
+
+  const handleCreateProfile = async (node: ScoutedNode) => {
     setActionLoadingZid(node.zid);
     try {
-      const newProfile = buildProfileFromNode(node);
+      const newProfile = buildProfile(node);
       await saveProfile(newProfile);
 
       if (onUseAsProfile) {
         onUseAsProfile(node);
       }
 
-      if (openEditor && onOpenProfileEditor) {
-        onOpenProfileEditor(newProfile);
-      }
-
       setActionLoadingZid(null);
       onClose();
     } catch (err) {
       setActionLoadingZid(null);
-      setErrorMsg(String(err));
+      setErrorMsg(err instanceof Error ? err.message : String(err));
     }
+  };
+
+  const handleOpenInEditor = (node: ScoutedNode) => {
+    const newProfile = buildProfile(node);
+    if (onOpenProfileEditor) {
+      onOpenProfileEditor(newProfile);
+    }
+    onClose();
   };
 
   const handleConnectDirectly = async (node: ScoutedNode) => {
     setActionLoadingZid(node.zid);
     try {
-      const newProfile = buildProfileFromNode(node);
+      const newProfile = buildProfile(node);
       await saveProfile(newProfile);
       await connectSession(newProfile.id);
 
@@ -126,9 +172,28 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
       onClose();
     } catch (err) {
       setActionLoadingZid(null);
-      setErrorMsg(String(err));
+      setErrorMsg(err instanceof Error ? err.message : String(err));
     }
   };
+
+  // Filter nodes based on search query and protocol filter
+  const filteredNodes = scoutedNodes.filter((node) => {
+    const matchesSearch =
+      !searchQuery.trim() ||
+      node.zid.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (node.locators && node.locators.some((l) => l.toLowerCase().includes(searchQuery.toLowerCase())));
+
+    if (!matchesSearch) return false;
+
+    if (protocolFilter === 'tls') {
+      return node.locators && node.locators.some((l) => getLocatorProtocol(l) === 'tls');
+    }
+    if (protocolFilter === 'plain') {
+      return !node.locators || !node.locators.some((l) => getLocatorProtocol(l) === 'tls');
+    }
+
+    return true;
+  });
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -138,64 +203,40 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="p-2 rounded-md bg-muted text-muted-foreground">
-                <Radar className={`w-4 h-4 ${isScouting ? 'animate-spin' : ''}`} />
+                <Radar className={`w-4 h-4 ${isScouting ? 'animate-spin text-primary' : ''}`} />
               </div>
               <div>
                 <DialogTitle className="text-base font-semibold flex items-center gap-2">
                   LAN Multicast Scout
                   {isScouting && (
-                    <Badge variant="secondary" className="text-[10px] animate-pulse">
+                    <Badge variant="secondary" className="text-[10px] animate-pulse font-normal">
                       Scanning...
                     </Badge>
                   )}
                 </DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                  Listen for Zenoh peers and routers announcing on UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7447</code>).
+                  Listen for Zenoh peers and routers announcing on UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7446</code>).
                 </DialogDescription>
               </div>
             </div>
             <Badge variant="outline" className="text-xs uppercase font-mono">
-              Scout
+              Zenoh 1.10.0
             </Badge>
           </div>
         </DialogHeader>
 
         {/* Toolbar & Filter Bar */}
-        <div className="p-3 border-b bg-muted/10 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-foreground">
-              Discovered Nodes: <span className="font-mono font-bold">{scoutedNodes.length}</span>
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] text-muted-foreground">Timeout:</span>
-              <select
-                value={timeoutMs}
-                onChange={(e) => setTimeoutMs(Number(e.target.value))}
-                disabled={isScouting}
-                className="h-7 text-xs rounded border border-input bg-background text-foreground px-1.5 font-mono"
-              >
-                <option value={1500}>1.5s</option>
-                <option value={3000}>3.0s</option>
-                <option value={5000}>5.0s</option>
-                <option value={10000}>10.0s</option>
-              </select>
-            </div>
-
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleScout}
-              disabled={isScouting}
-              className="h-7 text-xs gap-1.5 font-medium"
-            >
-              <RefreshCw className={`w-3 h-3 ${isScouting ? 'animate-spin' : ''}`} />
-              <span>{isScouting ? 'Scouting...' : 'Scan Again'}</span>
-            </Button>
-          </div>
-        </div>
+        <ScoutFilters
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          protocolFilter={protocolFilter}
+          setProtocolFilter={setProtocolFilter}
+          totalNodeCount={scoutedNodes.length}
+          timeoutMs={timeoutMs}
+          setTimeoutMs={setTimeoutMs}
+          isScouting={isScouting}
+          onScout={handleScout}
+        />
 
         {/* Error message */}
         {errorMsg && (
@@ -206,19 +247,25 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
         )}
 
         {/* Scouted Nodes List Body */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
-          {scoutedNodes.length === 0 ? (
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {filteredNodes.length === 0 ? (
             <div className="flex flex-col items-center justify-center p-8 text-center space-y-3 mt-4 border border-dashed rounded-md bg-muted/10">
               <div className="p-3 rounded-full bg-muted text-muted-foreground">
                 <Wifi className={`w-6 h-6 ${isScouting ? 'animate-pulse' : 'opacity-40'}`} />
               </div>
               <div className="space-y-1">
                 <h4 className="text-xs font-semibold">
-                  {isScouting ? 'Scanning local subnet for Zenoh nodes...' : 'No Zenoh Nodes Discovered'}
+                  {isScouting
+                    ? 'Scanning local subnet for Zenoh nodes...'
+                    : scoutedNodes.length > 0
+                    ? 'No matching nodes found for current filter'
+                    : 'No Zenoh Nodes Discovered'}
                 </h4>
                 <p className="text-[11px] text-muted-foreground max-w-sm leading-relaxed">
                   {isScouting
-                    ? 'Listening for UDP multicast heartbeat packets on 224.0.0.224:7447.'
+                    ? 'Listening for UDP multicast heartbeat packets on 224.0.0.224:7446.'
+                    : scoutedNodes.length > 0
+                    ? 'Try adjusting your protocol or text search filter above.'
                     : 'No Zenoh peers or routers responded. Ensure target nodes have multicast scouting enabled or add locators manually.'}
                 </p>
               </div>
@@ -235,114 +282,23 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
               )}
             </div>
           ) : (
-            scoutedNodes.map((node, index) => {
-              const isRouter = node.what.toLowerCase() === 'router';
+            filteredNodes.map((node, index) => {
               const isLoading = actionLoadingZid === node.zid;
+              const nodeState = getNodeState(node);
 
               return (
-                <div
+                <ScoutNodeCard
                   key={`${node.zid}-${index}`}
-                  className="rounded-md border bg-card p-3 space-y-2.5 transition-colors hover:border-foreground/30"
-                >
-                  {/* Node Header */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-1.5 rounded-md bg-muted text-muted-foreground">
-                        {isRouter ? (
-                          <Server className="w-4 h-4" />
-                        ) : (
-                          <Zap className="w-4 h-4" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold">
-                            Zenoh {isRouter ? 'Router' : 'Peer'}
-                          </span>
-                          <Badge variant="secondary" className="text-[10px] capitalize">
-                            {node.what}
-                          </Badge>
-                        </div>
-                        {/* ZID */}
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-[11px] text-muted-foreground">ZID:</span>
-                          <code className="font-mono text-xs text-foreground select-all">
-                            {node.zid}
-                          </code>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(node.zid)}
-                            className="text-muted-foreground hover:text-foreground p-0.5"
-                            title="Copy ZID"
-                          >
-                            {copiedText === node.zid ? (
-                              <Check className="w-3 h-3 text-emerald-500" />
-                            ) : (
-                              <Copy className="w-3 h-3" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCreateProfile(node, false)}
-                        disabled={isLoading}
-                        className="h-7 text-xs gap-1"
-                        title="Save as a new connection profile"
-                      >
-                        <Plus className="w-3 h-3" />
-                        + Profile
-                      </Button>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => handleConnectDirectly(node)}
-                        disabled={isLoading}
-                        className="h-7 text-xs gap-1 font-medium"
-                        title="Create profile and connect immediately"
-                      >
-                        <Play className="w-3 h-3 fill-current" />
-                        Connect
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Locators List */}
-                  {node.locators && node.locators.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t">
-                      <span className="text-[10px] font-semibold uppercase text-muted-foreground">
-                        Advertised Locators ({node.locators.length}):
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {node.locators.map((loc, lIdx) => (
-                          <div
-                            key={lIdx}
-                            className="flex items-center gap-1 font-mono text-[11px] rounded bg-muted/60 px-2 py-0.5 border"
-                          >
-                            <span className="text-foreground">{loc}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(loc)}
-                              className="text-muted-foreground hover:text-foreground"
-                              title="Copy locator"
-                            >
-                              {copiedText === loc ? (
-                                <Check className="w-3 h-3 text-emerald-500" />
-                              ) : (
-                                <Copy className="w-3 h-3" />
-                              )}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                  node={node}
+                  nodeState={nodeState}
+                  updateNodeState={(patch) => updateNodeState(node.zid, patch)}
+                  isLoading={isLoading}
+                  copiedText={copiedText}
+                  onCopy={handleCopy}
+                  onOpenInEditor={handleOpenInEditor}
+                  onCreateProfile={handleCreateProfile}
+                  onConnectDirectly={handleConnectDirectly}
+                />
               );
             })
           )}
@@ -351,7 +307,7 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
         {/* Footer */}
         <DialogFooter className="p-3 border-t bg-muted/20 flex items-center justify-between">
           <span className="text-[11px] text-muted-foreground">
-            Scouting uses multicast UDP group 224.0.0.224 on port 7447.
+            Scouting uses multicast UDP group 224.0.0.224 on port 7446.
           </span>
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-xs">
             Close

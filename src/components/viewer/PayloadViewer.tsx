@@ -34,6 +34,88 @@ export interface PayloadViewerProps {
 }
 
 /**
+ * Tokenized JSON syntax highlighter for Code View.
+ */
+export const JsonHighlightedCode: React.FC<{ code: string }> = React.memo(({ code }) => {
+  if (!code) return null;
+
+  const elements: React.ReactNode[] = [];
+  const regex = /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|[{}\[\],:]/g;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let keyIndex = 0;
+
+  while ((match = regex.exec(code)) !== null) {
+    // Plain text before token (whitespace, indentation)
+    if (match.index > lastIndex) {
+      elements.push(code.slice(lastIndex, match.index));
+    }
+
+    const [fullMatch, stringToken, , colonSuffix, keywordToken] = match;
+
+    if (stringToken) {
+      if (colonSuffix) {
+        // Key
+        elements.push(
+          <span key={keyIndex++} className="text-sky-600 dark:text-sky-400 font-medium">
+            {stringToken}
+          </span>
+        );
+        elements.push(
+          <span key={keyIndex++} className="text-muted-foreground">
+            {colonSuffix}
+          </span>
+        );
+      } else {
+        // String value
+        elements.push(
+          <span key={keyIndex++} className="text-emerald-600 dark:text-emerald-400">
+            {stringToken}
+          </span>
+        );
+      }
+    } else if (keywordToken) {
+      if (keywordToken === 'true' || keywordToken === 'false') {
+        elements.push(
+          <span key={keyIndex++} className="text-purple-600 dark:text-purple-400 font-semibold">
+            {keywordToken}
+          </span>
+        );
+      } else if (keywordToken === 'null') {
+        elements.push(
+          <span key={keyIndex++} className="text-rose-500/80 dark:text-rose-400/80 italic">
+            {keywordToken}
+          </span>
+        );
+      }
+    } else if (/^-?\d/.test(fullMatch)) {
+      // Number
+      elements.push(
+        <span key={keyIndex++} className="text-amber-600 dark:text-amber-400">
+          {fullMatch}
+        </span>
+      );
+    } else {
+      // Punctuation
+      elements.push(
+        <span key={keyIndex++} className="text-muted-foreground">
+          {fullMatch}
+        </span>
+      );
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < code.length) {
+    elements.push(code.slice(lastIndex));
+  }
+
+  return <>{elements}</>;
+});
+
+/**
  * Recursive JSON Tree Node component for collapsible tree view.
  */
 interface JsonTreeNodeProps {
@@ -60,8 +142,12 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
-        <span className="text-muted-foreground italic">null</span>
+        {name !== undefined && (
+          <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+            "{name}":
+          </span>
+        )}
+        <span className="text-rose-500/80 dark:text-rose-400/80 italic">null</span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -71,8 +157,14 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
-        <span className="font-semibold text-foreground">{value ? 'true' : 'false'}</span>
+        {name !== undefined && (
+          <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+            "{name}":
+          </span>
+        )}
+        <span className="font-semibold text-purple-600 dark:text-purple-400">
+          {value ? 'true' : 'false'}
+        </span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -82,8 +174,14 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
-        <span className="font-mono text-foreground">{value.toString()}</span>
+        {name !== undefined && (
+          <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+            "{name}":
+          </span>
+        )}
+        <span className="font-mono text-amber-600 dark:text-amber-400">
+          {value.toString()}
+        </span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -93,8 +191,14 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
     return (
       <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center truncate">
         <span style={{ marginLeft: `${depth * 14}px` }} />
-        {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
-        <span className="text-foreground/90 truncate">"{value}"</span>
+        {name !== undefined && (
+          <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+            "{name}":
+          </span>
+        )}
+        <span className="text-emerald-600 dark:text-emerald-400 truncate">
+          "{value}"
+        </span>
         {!isLast && <span className="text-muted-foreground">,</span>}
       </div>
     );
@@ -107,7 +211,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
       return (
         <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
           <span style={{ marginLeft: `${depth * 14}px` }} />
-          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+          {name !== undefined && (
+            <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+              "{name}":
+            </span>
+          )}
           <span className="text-muted-foreground">[]</span>
           {!isLast && <span className="text-muted-foreground">,</span>}
         </div>
@@ -124,7 +232,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
           <span className="text-muted-foreground mr-1">
             {expanded ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronRight className="w-3 h-3 inline" />}
           </span>
-          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+          {name !== undefined && (
+            <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+              "{name}":
+            </span>
+          )}
           <span className="text-muted-foreground font-mono">[{itemCount}]</span>
           {!expanded && <span className="text-muted-foreground ml-1">...</span>}
           {!isLast && !expanded && <span className="text-muted-foreground">,</span>}
@@ -160,7 +272,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
       return (
         <div className="font-mono text-xs leading-5 hover:bg-muted/40 px-1 rounded flex items-center">
           <span style={{ marginLeft: `${depth * 14}px` }} />
-          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+          {name !== undefined && (
+            <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+              "{name}":
+            </span>
+          )}
           <span className="text-muted-foreground">{'{}'}</span>
           {!isLast && <span className="text-muted-foreground">,</span>}
         </div>
@@ -177,7 +293,11 @@ const JsonTreeNode: React.FC<JsonTreeNodeProps> = ({
           <span className="text-muted-foreground mr-1">
             {expanded ? <ChevronDown className="w-3 h-3 inline" /> : <ChevronRight className="w-3 h-3 inline" />}
           </span>
-          {name !== undefined && <span className="text-foreground font-semibold mr-1.5">"{name}":</span>}
+          {name !== undefined && (
+            <span className="text-sky-600 dark:text-sky-400 font-semibold mr-1.5">
+              "{name}":
+            </span>
+          )}
           <span className="text-muted-foreground">{'{' + `${keyCount} keys` + '}'}</span>
           {!expanded && <span className="text-muted-foreground ml-1">...</span>}
           {!isLast && !expanded && <span className="text-muted-foreground">,</span>}
@@ -450,7 +570,11 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
               wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'
             }`}
           >
-            {tabData.text}
+            {(activeTab === 'json' || activeTab === 'cbor') && tabData.parsedJson !== null ? (
+              <JsonHighlightedCode code={tabData.text} />
+            ) : (
+              tabData.text
+            )}
           </pre>
         )}
       </div>

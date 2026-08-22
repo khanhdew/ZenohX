@@ -1,0 +1,270 @@
+import React from 'react';
+import { Moon, Sun, Laptop, Sliders, Check } from 'lucide-react';
+import { Button } from '../../ui/button';
+import { Switch } from '../../ui/switch';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../ui/select';
+import { useSettingsStore, type CodeFont } from '../../../stores/settingsStore';
+import type { EncodingType } from '../../../types/zenoh';
+
+export const PreferencesTab: React.FC = () => {
+  const {
+    theme,
+    compactMode,
+    codeFont,
+    defaultPayloadEncoding,
+    maxMessageBuffer,
+    defaultQueryTimeoutMs,
+    setTheme,
+    setCompactMode,
+    setCodeFont,
+    setDefaultPayloadEncoding,
+    setMaxMessageBuffer,
+    setDefaultQueryTimeoutMs,
+    resetToDefaults,
+  } = useSettingsStore();
+
+  return (
+    <div className="max-w-3xl mx-auto p-6 space-y-8">
+      {/* Appearance Section */}
+      <section className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Moon className="w-4 h-4" />
+            Appearance & Theme
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Customize the interface theme and visual density.
+          </p>
+        </div>
+
+        {/* Theme Selector Cards */}
+        <div className="grid grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={() => setTheme('dark')}
+            className={`flex flex-col items-start p-4 rounded-xl border text-left transition-all ${
+              theme === 'dark'
+                ? 'border-primary bg-accent/80 ring-2 ring-primary/20 shadow-sm'
+                : 'border-border bg-card hover:bg-muted/40 hover:border-muted-foreground/30'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-2.5">
+              <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+                <Moon className="w-4 h-4" />
+              </div>
+              {theme === 'dark' && (
+                <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground">
+                  <Check className="w-3 h-3 stroke-[2.5]" />
+                </span>
+              )}
+            </div>
+            <span className="text-xs font-semibold text-foreground">Dark Theme</span>
+            <span className="text-[11px] text-muted-foreground mt-0.5">
+              Pure Zinc dark palette
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme('light')}
+            className={`flex flex-col items-start p-4 rounded-xl border text-left transition-all ${
+              theme === 'light'
+                ? 'border-primary bg-accent/80 ring-2 ring-primary/20 shadow-sm'
+                : 'border-border bg-card hover:bg-muted/40 hover:border-muted-foreground/30'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-2.5">
+              <div className={`p-2 rounded-lg ${theme === 'light' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+                <Sun className="w-4 h-4" />
+              </div>
+              {theme === 'light' && (
+                <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground">
+                  <Check className="w-3 h-3 stroke-[2.5]" />
+                </span>
+              )}
+            </div>
+            <span className="text-xs font-semibold text-foreground">Light Theme</span>
+            <span className="text-[11px] text-muted-foreground mt-0.5">
+              Crisp Zinc daylight palette
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTheme('system')}
+            className={`flex flex-col items-start p-4 rounded-xl border text-left transition-all ${
+              theme === 'system'
+                ? 'border-primary bg-accent/80 ring-2 ring-primary/20 shadow-sm'
+                : 'border-border bg-card hover:bg-muted/40 hover:border-muted-foreground/30'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full mb-2.5">
+              <div className={`p-2 rounded-lg ${theme === 'system' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'}`}>
+                <Laptop className="w-4 h-4" />
+              </div>
+              {theme === 'system' && (
+                <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground">
+                  <Check className="w-3 h-3 stroke-[2.5]" />
+                </span>
+              )}
+            </div>
+            <span className="text-xs font-semibold text-foreground">System Default</span>
+            <span className="text-[11px] text-muted-foreground mt-0.5">
+              Follows OS appearance
+            </span>
+          </button>
+        </div>
+
+        {/* Compact Mode & Font Preferences */}
+        <div className="rounded-xl border bg-card divide-y shadow-xs">
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <label className="text-xs font-medium text-foreground block">
+                Compact Layout Mode
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                Tighten row heights in message streams and sidebar.
+              </span>
+            </div>
+            <Switch
+              checked={compactMode}
+              onCheckedChange={setCompactMode}
+            />
+          </div>
+
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <label className="text-xs font-medium text-foreground block">
+                Payload Code Font
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                Font family used in Payload Viewers and Hex editors.
+              </span>
+            </div>
+            <Select value={codeFont} onValueChange={(val) => setCodeFont(val as CodeFont)}>
+              <SelectTrigger className="w-48 h-8 text-xs font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mono" className="text-xs font-mono">System Monospace</SelectItem>
+                <SelectItem value="jetbrains" className="text-xs font-mono">JetBrains Mono</SelectItem>
+                <SelectItem value="fira" className="text-xs font-mono">Fira Code</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </section>
+
+      {/* General Protocol & Buffer Defaults */}
+      <section className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <Sliders className="w-4 h-4" />
+            Protocol & Buffer Defaults
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Default encoders, query timeouts, and memory limits.
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-card divide-y shadow-xs">
+          {/* Default Payload Encoding */}
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <label className="text-xs font-medium text-foreground block">
+                Default Payload Encoding
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                Preselected encoder for new publish and queryable panels.
+              </span>
+            </div>
+            <Select
+              value={defaultPayloadEncoding}
+              onValueChange={(val) => setDefaultPayloadEncoding(val as EncodingType)}
+            >
+              <SelectTrigger className="w-36 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="json" className="text-xs">JSON</SelectItem>
+                <SelectItem value="cbor" className="text-xs">CBOR</SelectItem>
+                <SelectItem value="text" className="text-xs">Plain Text</SelectItem>
+                <SelectItem value="raw" className="text-xs">RAW / Hex</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* In-Memory Ring Buffer Limit */}
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <label className="text-xs font-medium text-foreground block">
+                In-Memory Message Buffer
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                Maximum live messages kept per session in RAM.
+              </span>
+            </div>
+            <Select
+              value={String(maxMessageBuffer)}
+              onValueChange={(val) => setMaxMessageBuffer(Number(val))}
+            >
+              <SelectTrigger className="w-48 h-8 text-xs font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="200" className="text-xs font-mono">200 samples</SelectItem>
+                <SelectItem value="500" className="text-xs font-mono">500 samples</SelectItem>
+                <SelectItem value="1000" className="text-xs font-mono">1,000 samples (Default)</SelectItem>
+                <SelectItem value="5000" className="text-xs font-mono">5,000 samples</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Default Query RPC Timeout */}
+          <div className="p-4 flex items-center justify-between">
+            <div>
+              <label className="text-xs font-medium text-foreground block">
+                Default Query Timeout
+              </label>
+              <span className="text-[11px] text-muted-foreground">
+                Default wait duration for distributed query replies.
+              </span>
+            </div>
+            <Select
+              value={String(defaultQueryTimeoutMs)}
+              onValueChange={(val) => setDefaultQueryTimeoutMs(Number(val))}
+            >
+              <SelectTrigger className="w-44 h-8 text-xs font-mono">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1000" className="text-xs font-mono">1,000ms (1.0s)</SelectItem>
+                <SelectItem value="3000" className="text-xs font-mono">3,000ms (3.0s)</SelectItem>
+                <SelectItem value="5000" className="text-xs font-mono">5,000ms (5.0s)</SelectItem>
+                <SelectItem value="10000" className="text-xs font-mono">10,000ms (10.0s)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Reset to Defaults button */}
+        <div className="flex justify-end pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetToDefaults}
+            className="text-xs"
+          >
+            Reset Preferences to Default
+          </Button>
+        </div>
+      </section>
+    </div>
+  );
+};

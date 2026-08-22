@@ -4,8 +4,6 @@ import {
   Server,
   Columns2,
   Activity,
-  Power,
-  PowerOff,
   AlertCircle,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -15,6 +13,8 @@ import { ReplyTimeline } from './ReplyTimeline';
 import { QueryablePanel } from './QueryablePanel';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { ResizeHandle } from '../ui/resize-handle';
+import { useResizable } from '../../hooks/useResizable';
 
 interface QueryWorkspaceProps {
   className?: string;
@@ -23,12 +23,37 @@ interface QueryWorkspaceProps {
 export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }) => {
   const [activeTab, setActiveTab] = useState<'querier' | 'queryable' | 'split'>('querier');
 
+  // Resizable Querier Form Panel (Left)
+  const {
+    size: querierWidth,
+    isDragging: isQuerierDragging,
+    startDragging: startQuerierDragging,
+    resetToDefault: resetQuerierWidth,
+  } = useResizable({
+    initialSize: 460,
+    minSize: 320,
+    maxSize: 750,
+    storageKey: 'zenohx_query_querier_width',
+  });
+
+  // Resizable Split Stage Left Column
+  const {
+    size: splitLeftWidth,
+    isDragging: isSplitDragging,
+    startDragging: startSplitDragging,
+    resetToDefault: resetSplitWidth,
+  } = useResizable({
+    initialSize: 550,
+    minSize: 350,
+    maxSize: 900,
+    storageKey: 'zenohx_query_split_width',
+  });
+
   // Connection store state
   const selectedProfileId = useConnectionStore((s) => s.selectedProfileId);
   const profiles = useConnectionStore((s) => s.profiles);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
   const connect = useConnectionStore((s) => s.connect);
-  const disconnect = useConnectionStore((s) => s.disconnect);
 
   // Active session and profile details
   const profile = useMemo(
@@ -136,37 +161,6 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
             <span>Split Stage</span>
           </button>
         </div>
-
-        {/* Right: Connect / Disconnect Action */}
-        <div className="flex items-center gap-2">
-          {profile && (
-            <Button
-              type="button"
-              variant={isConnected ? 'destructive' : 'default'}
-              size="sm"
-              onClick={async () => {
-                if (isConnected) {
-                  await disconnect(profile.id);
-                } else {
-                  await connect(profile.id);
-                }
-              }}
-              className="h-7 px-2.5 text-xs gap-1 font-medium"
-            >
-              {isConnected ? (
-                <>
-                  <PowerOff className="w-3 h-3" />
-                  Disconnect
-                </>
-              ) : (
-                <>
-                  <Power className="w-3 h-3" />
-                  Connect
-                </>
-              )}
-            </Button>
-          )}
-        </div>
       </header>
 
       {/* Disconnected Notice Banner */}
@@ -196,13 +190,22 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
         {activeTab === 'querier' && (
           <div className="flex-1 flex flex-col md:flex-row min-h-0 w-full overflow-hidden">
             {/* Querier Client Form on Left/Top */}
-            <div className="w-full md:w-[480px] shrink-0 border-r border-border h-full overflow-y-auto">
+            <div
+              style={{ width: `${querierWidth}px` }}
+              className="w-full md:w-auto shrink-0 border-r border-border h-full overflow-y-auto"
+            >
               <QuerierPanel
                 sessionId={sessionId}
                 profileId={profile?.id}
                 className="h-full"
               />
             </div>
+
+            <ResizeHandle
+              isDragging={isQuerierDragging}
+              onMouseDown={startQuerierDragging}
+              onReset={resetQuerierWidth}
+            />
 
             {/* Replies Timeline on Right/Bottom */}
             <div className="flex-1 h-full min-w-0 overflow-hidden">
@@ -225,9 +228,12 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
         )}
 
         {activeTab === 'split' && (
-          <div className="flex-1 flex flex-col lg:flex-row min-h-0 w-full overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-border">
+          <div className="flex-1 flex flex-col lg:flex-row min-h-0 w-full overflow-hidden">
             {/* Left: Querier & Reply Feed */}
-            <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
+            <div
+              style={{ width: `${splitLeftWidth}px` }}
+              className="w-full lg:w-auto shrink-0 flex flex-col min-h-0 h-full overflow-hidden border-r border-border"
+            >
               <div className="p-2 border-b bg-muted/30 flex items-center justify-between text-xs font-medium text-foreground">
                 <span className="flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5 text-muted-foreground" />
@@ -253,6 +259,12 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
                 </div>
               </div>
             </div>
+
+            <ResizeHandle
+              isDragging={isSplitDragging}
+              onMouseDown={startSplitDragging}
+              onReset={resetSplitWidth}
+            />
 
             {/* Right: Queryable Simulator Server */}
             <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">

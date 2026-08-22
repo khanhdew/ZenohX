@@ -11,6 +11,7 @@ import {
   Loader2,
   Hash,
   Search,
+  Check,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -31,6 +32,17 @@ export interface SubscriptionListProps {
   profileId?: string;
   className?: string;
 }
+
+export const SUBSCRIPTION_COLOR_PALETTE = [
+  '#3b82f6', // blue
+  '#10b981', // emerald
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#8b5cf6', // purple
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#84cc16', // lime
+];
 
 const PRESET_KEY_EXPRS = [
   { label: 'All (demo/**)', value: 'demo/**' },
@@ -94,6 +106,7 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
   const [newKeyExpr, setNewKeyExpr] = useState<string>('');
   const [newEncoding, setNewEncoding] = useState<EncodingType>('json');
+  const [selectedColor, setSelectedColor] = useState<string>(SUBSCRIPTION_COLOR_PALETTE[0]);
   const [isSubscribing, setIsSubscribing] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState<string>('');
@@ -146,10 +159,13 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
         activeSessionId,
         key,
         newEncoding,
-        '#71717a',
+        selectedColor,
         propProfileId || selectedProfileId || undefined
       );
       setNewKeyExpr('');
+      // Auto cycle to next color for subsequent subscription
+      const nextColorIndex = (SUBSCRIPTION_COLOR_PALETTE.indexOf(selectedColor) + 1) % SUBSCRIPTION_COLOR_PALETTE.length;
+      setSelectedColor(SUBSCRIPTION_COLOR_PALETTE[nextColorIndex]);
       setShowAddForm(false);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
@@ -320,6 +336,34 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
             </Select>
           </div>
 
+          {/* Color Palette Picker */}
+          <div className="space-y-1.5 pt-1">
+            <label className="text-[11px] font-medium text-muted-foreground flex items-center justify-between">
+              <span>Topic Color Tag</span>
+              <span className="font-mono text-[10px]" style={{ color: selectedColor }}>
+                {selectedColor}
+              </span>
+            </label>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {SUBSCRIPTION_COLOR_PALETTE.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setSelectedColor(color)}
+                  style={{ backgroundColor: color }}
+                  className={`h-5 w-5 rounded-full transition-transform flex items-center justify-center ${
+                    selectedColor === color
+                      ? 'scale-110 ring-2 ring-foreground ring-offset-1 ring-offset-background'
+                      : 'hover:scale-105 opacity-80 hover:opacity-100'
+                  }`}
+                  title={color}
+                >
+                  {selectedColor === color && <Check className="w-3 h-3 text-white stroke-[3]" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Form Error Banner */}
           {formError && (
             <div className="flex items-center gap-1.5 p-2 rounded bg-destructive/10 text-destructive text-[11px]">
@@ -401,11 +445,13 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
         ) : (
           displayedSubscriptions.map((sub) => {
             const isFiltered = activeFilterKey === sub.keyExpr;
+            const color = sub.colorTag || '#3b82f6';
 
             return (
               <div
                 key={sub.id}
                 onClick={() => handleFilterClick(sub)}
+                style={{ borderLeftColor: color, borderLeftWidth: '3px' }}
                 className={`group rounded-md border p-2 transition-colors cursor-pointer select-none ${
                   isFiltered
                     ? 'border-foreground/30 bg-muted/60'
@@ -414,8 +460,14 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
               >
                 {/* Top Row: Key Expression + Controls */}
                 <div className="flex items-start justify-between gap-1.5">
-                  <div className="min-w-0 flex-1 truncate" title={sub.keyExpr}>
-                    {renderKeyExprWithWildcards(sub.keyExpr)}
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0 shadow-xs"
+                      style={{ backgroundColor: color }}
+                    />
+                    <div className="min-w-0 flex-1 truncate" title={sub.keyExpr}>
+                      {renderKeyExprWithWildcards(sub.keyExpr)}
+                    </div>
                   </div>
 
                   {/* Right Actions: Pause/Resume Toggle + Delete */}

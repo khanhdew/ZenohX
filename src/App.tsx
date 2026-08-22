@@ -9,9 +9,10 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
-  Sliders,
+  Settings,
   AlertTriangle,
   X,
+  Lock,
 } from 'lucide-react';
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
@@ -19,6 +20,7 @@ import { useQueryStore } from './stores/queryStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
 import { checkForAppUpdates } from './lib/updater';
 import { ConnectionProfile } from './types/zenoh';
+import { isTlsEnabled } from './lib/tls';
 import { Sidebar } from './components/connections/Sidebar';
 import { ProfileModal } from './components/connections/ProfileModal';
 import { ScoutModal } from './components/connections/ScoutModal';
@@ -27,6 +29,8 @@ import { QueryWorkspace } from './components/query/QueryWorkspace';
 import { SettingsWorkspace } from './components/settings/SettingsWorkspace';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
+import { ResizeHandle } from './components/ui/resize-handle';
+import { useResizable } from './hooks/useResizable';
 import zenohxIcon from './assets/icon.png';
 
 export function App() {
@@ -35,6 +39,19 @@ export function App() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
   const [scoutModalOpen, setScoutModalOpen] = useState(false);
+
+  // Resizable Sidebar
+  const {
+    size: sidebarWidth,
+    isDragging: isSidebarDragging,
+    startDragging: startSidebarDragging,
+    resetToDefault: resetSidebarWidth,
+  } = useResizable({
+    initialSize: 280,
+    minSize: 220,
+    maxSize: 500,
+    storageKey: 'zenohx_sidebar_width',
+  });
 
   // Connection store state
   const profiles = useConnectionStore((s) => s.profiles);
@@ -82,9 +99,16 @@ export function App() {
   const autoCheckUpdates = useSettingsStore((s) => s.autoCheckUpdates);
   const setLastCheckedUpdate = useSettingsStore((s) => s.setLastCheckedUpdate);
 
-  // Apply active theme to DOM root
+  // Apply active theme to DOM root and listen to OS theme if set to 'system'
   useEffect(() => {
     applyThemeToDom(theme);
+
+    if (theme === 'system' && typeof window !== 'undefined' && window.matchMedia) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const handleChange = () => applyThemeToDom('system');
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
   }, [theme]);
 
   // Background auto-check for updates on launch
@@ -149,8 +173,24 @@ export function App() {
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
       {/* Top Application Header */}
       <header className="h-12 border-b bg-card px-3 flex items-center justify-between shrink-0 z-20">
-        {/* Left Section: Sidebar Toggle & Brand Title */}
-        <div className="flex items-center gap-2.5">
+        {/* Left Section: Settings & Sidebar Toggle & Brand Title */}
+        <div className="flex items-center gap-2">
+          {/* Settings Button */}
+          <Button
+            variant="ghost"
+            size="iconSm"
+            onClick={() => setActiveTab('settings')}
+            className={`h-8 w-8 transition-colors ${
+              activeTab === 'settings'
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            title="Settings & Preferences (Ctrl+3)"
+          >
+            <Settings className="w-4 h-4" />
+          </Button>
+
+          {/* Sidebar Toggle */}
           <Button
             variant="ghost"
             size="iconSm"
@@ -224,21 +264,6 @@ export function App() {
               </span>
             )}
           </button>
-
-          {/* Tab 3: Settings & Preferences */}
-          <button
-            type="button"
-            onClick={() => setActiveTab('settings')}
-            className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
-              activeTab === 'settings'
-                ? 'bg-background text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            title="Settings & Preferences (Ctrl+3)"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Settings</span>
-          </button>
         </nav>
 
         {/* Right Section: Active Connection Status & Quick Controls */}
@@ -262,6 +287,16 @@ export function App() {
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 uppercase font-mono">
                   {selectedProfile.mode}
                 </Badge>
+                {isTlsEnabled(selectedProfile.tls_config, selectedProfile.connect_locators) && (
+                  <Badge
+                    variant="secondary"
+                    className="text-[9px] px-1.5 py-0 font-mono gap-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                    title="TLS / SSL Encrypted Session"
+                  >
+                    <Lock className="w-2.5 h-2.5 inline-block" />
+                    SSL
+                  </Badge>
+                )}
               </div>
 
               {/* Connect / Disconnect Action Button */}
@@ -323,16 +358,27 @@ export function App() {
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {/* Left Sidebar */}
         {sidebarOpen && (
-          <Sidebar
-            className="transition-all duration-200"
-            onSelectProfile={(p) => selectProfile(p.id)}
-          />
+          <>
+            <Sidebar
+              style={{ width: `${sidebarWidth}px` }}
+              onSelectProfile={(p) => selectProfile(p.id)}
+            />
+            <ResizeHandle
+              isDragging={isSidebarDragging}
+              onMouseDown={startSidebarDragging}
+              onReset={resetSidebarWidth}
+            />
+          </>
         )}
 
         {/* Central Workspace Area */}
         <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
-          {profiles.length === 0 ? (
-            /* Empty State */
+          {activeTab === 'settings' ? (
+            <SettingsWorkspace className="h-full" />
+          ) : activeTab === 'query' ? (
+            <QueryWorkspace className="h-full" />
+          ) : profiles.length === 0 ? (
+            /* Empty State for Pub/Sub Onboarding */
             <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto space-y-4">
               <div className="p-3 rounded-2xl bg-card border shadow-sm">
                 <img
@@ -377,7 +423,10 @@ export function App() {
 
               {/* Feature Highlights Grid */}
               <div className="grid grid-cols-2 gap-2.5 pt-4 w-full text-left">
-                <div className="p-3 rounded-md border bg-card space-y-1">
+                <div
+                  className="p-3 rounded-md border bg-card space-y-1 cursor-pointer hover:border-foreground/40 transition-colors"
+                  onClick={() => setActiveTab('pubsub')}
+                >
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
                     <Radio className="w-3.5 h-3.5 text-muted-foreground" />
                     Pub / Sub
@@ -386,7 +435,10 @@ export function App() {
                     Real-time sample stream with JSON, CBOR, and Hex viewers.
                   </p>
                 </div>
-                <div className="p-3 rounded-md border bg-card space-y-1">
+                <div
+                  className="p-3 rounded-md border bg-card space-y-1 cursor-pointer hover:border-foreground/40 transition-colors"
+                  onClick={() => setActiveTab('query')}
+                >
                   <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
                     <Search className="w-3.5 h-3.5 text-muted-foreground" />
                     Query & RPC
@@ -398,12 +450,7 @@ export function App() {
               </div>
             </div>
           ) : (
-            /* Active Workspace View */
-            <>
-              {activeTab === 'pubsub' && <PubSubWorkspace className="h-full" />}
-              {activeTab === 'query' && <QueryWorkspace className="h-full" />}
-              {activeTab === 'settings' && <SettingsWorkspace className="h-full" />}
-            </>
+            <PubSubWorkspace className="h-full" />
           )}
         </main>
       </div>

@@ -421,6 +421,33 @@ export function detectEncoding(payload: Uint8Array | number[] | null | undefined
   }
 }
 
+/**
+ * Normalizes raw MIME strings or Zenoh encoding names (e.g. 'application/json', 'zenoh/bytes')
+ * into a recognized EncodingType, falling back to payload auto-detection when appropriate.
+ */
+export function normalizeEncoding(
+  rawEncoding?: string | null,
+  payload?: Uint8Array | number[] | null
+): EncodingType {
+  if (rawEncoding) {
+    const lower = rawEncoding.toLowerCase().trim();
+    if (lower === 'json' || lower === 'application/json') return 'json';
+    if (lower === 'cbor' || lower === 'application/cbor') return 'cbor';
+    if (lower === 'text' || lower === 'text/plain' || lower === 'string') return 'text';
+    if (lower === 'hex') return 'raw';
+    if (lower === 'raw' || lower === 'bytes' || lower === 'zenoh/bytes' || lower === 'application/octet-stream') {
+      if (payload) {
+        const bytes = bytesToUint8Array(payload);
+        if (bytes.length > 0) {
+          return detectEncoding(bytes);
+        }
+      }
+      return 'raw';
+    }
+  }
+  return detectEncoding(payload);
+}
+
 // ============================================================================
 // Time & Preview Utilities
 // ============================================================================
@@ -504,4 +531,38 @@ export function getPayloadSnippet(
   }
   return `${hexPreview.join(' ')}${bytes.length > 16 ? '…' : ''}`;
 }
+
+/**
+ * Tests whether a topic key matches a Zenoh subscription key expression pattern.
+ * Supports glob wildcards '*' (single level) and '**' (recursive multi-level).
+ */
+export function matchesKeyExpr(pattern: string, key: string): boolean {
+  if (!pattern || !key) return false;
+  if (pattern === key || pattern === '**') return true;
+  if (pattern === '*') return !key.includes('/');
+
+  if (pattern.includes('*')) {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    const placeholder = '___DOUBLE_STAR___';
+    const regexPattern =
+      '^' +
+      escaped
+        .replace(/\*\*/g, placeholder)
+        .replace(/\*/g, '[^/]+')
+        .replace(new RegExp(`/${placeholder}/`, 'g'), '(?:/|/.*/)')
+        .replace(new RegExp(`/${placeholder}$`, 'g'), '(?:/.*)?')
+        .replace(new RegExp(`^${placeholder}/`, 'g'), '(?:.*/)?')
+        .replace(new RegExp(placeholder, 'g'), '.*') +
+      '$';
+
+    try {
+      return new RegExp(regexPattern).test(key);
+    } catch {
+      return false;
+    }
+  }
+
+  return pattern === key;
+}
+
 

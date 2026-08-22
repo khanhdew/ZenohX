@@ -21,7 +21,10 @@ import {
   formatByteSize,
   formatTimeWithMs,
   getPayloadSnippet,
+  matchesKeyExpr,
+  normalizeEncoding,
 } from '../../lib/formatters';
+import { JsonHighlightedCode } from '../viewer/PayloadViewer';
 import type { MessageItem } from '../../types/zenoh';
 
 export interface MessageListProps {
@@ -39,6 +42,7 @@ export const MessageList: React.FC<MessageListProps> = ({
 }) => {
   const {
     messages,
+    subscriptions,
     activeFilterKey,
     searchQuery,
     selectedMessage,
@@ -358,12 +362,15 @@ export const MessageList: React.FC<MessageListProps> = ({
               const isSelected = selectedMessage?.id === item.id;
               const isIncoming = item.direction === 'incoming';
               const isDelete = item.kind === 'delete';
-              const snippet = getPayloadSnippet(item.payload, item.encoding);
-              const byteSize = item.payload ? item.payload.length : 0;
+              const byteSize = item.payload?.length || 0;
+              const effectiveEncoding = normalizeEncoding(item.encoding, item.payload);
+              const snippet = getPayloadSnippet(item.payload, effectiveEncoding);
+              const matchedSub = subscriptions.find((s) => matchesKeyExpr(s.keyExpr, item.keyExpr));
+              const colorTag = matchedSub?.colorTag || (isIncoming ? '#0284c7' : '#8b5cf6');
 
               return (
                 <div
-                  key={virtualItem.key}
+                  key={item.id || virtualItem.key}
                   data-index={virtualItem.index}
                   ref={rowVirtualizer.measureElement}
                   onClick={() => handleItemClick(item)}
@@ -377,6 +384,11 @@ export const MessageList: React.FC<MessageListProps> = ({
                   className="pb-1"
                 >
                   <div
+                    style={
+                      isIncoming
+                        ? { borderLeftColor: colorTag, borderLeftWidth: '3px' }
+                        : { borderRightColor: colorTag, borderRightWidth: '3px' }
+                    }
                     className={`rounded-md border px-2.5 py-1.5 text-xs transition-colors cursor-pointer ${
                       isSelected
                         ? 'border-foreground/40 bg-muted/70'
@@ -391,15 +403,19 @@ export const MessageList: React.FC<MessageListProps> = ({
                           {formatTimeWithMs(item.timestamp)}
                         </span>
 
-                        {/* Direction Badge */}
+                        {/* Direction Badge (IN = Blue/Sky, OUT = Purple) */}
                         <Badge
-                          variant="secondary"
-                          className="text-[9px] font-mono uppercase px-1 py-0"
+                          variant="outline"
+                          className={`text-[9px] font-mono font-semibold uppercase px-1.5 py-0 border ${
+                            isIncoming
+                              ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
+                              : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                          }`}
                         >
                           {isIncoming ? (
-                            <ArrowDownLeft className="w-2.5 h-2.5 mr-0.5 inline-block" />
+                            <ArrowDownLeft className="w-2.5 h-2.5 mr-0.5 inline-block text-sky-500" />
                           ) : (
-                            <ArrowUpRight className="w-2.5 h-2.5 mr-0.5 inline-block" />
+                            <ArrowUpRight className="w-2.5 h-2.5 mr-0.5 inline-block text-purple-500" />
                           )}
                           {isIncoming ? 'IN' : 'OUT'}
                         </Badge>
@@ -411,9 +427,9 @@ export const MessageList: React.FC<MessageListProps> = ({
                           </Badge>
                         )}
 
-                        {/* Key Expression */}
+                        {/* Key Expression (Topic Name) */}
                         <span
-                          className="font-medium text-foreground truncate max-w-[280px]"
+                          className="font-medium text-foreground truncate"
                           title={item.keyExpr}
                         >
                           {item.keyExpr}
@@ -423,15 +439,21 @@ export const MessageList: React.FC<MessageListProps> = ({
                       {/* Right Meta: Encoding & Byte Size */}
                       <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-muted-foreground">
                         <span className="uppercase rounded bg-muted px-1 py-0.2 font-mono text-[9px]">
-                          {item.encoding || 'raw'}
+                          {effectiveEncoding}
                         </span>
                         <span>{formatByteSize(byteSize)}</span>
                       </div>
                     </div>
 
-                    {/* Bottom Row: Truncated Payload Preview */}
+                    {/* Bottom Row: Truncated Payload Preview with Syntax Highlighting */}
                     <div className="mt-0.5 font-mono text-[11px] text-muted-foreground truncate pl-0.5">
-                      <span className="text-foreground/80">{snippet}</span>
+                      {effectiveEncoding === 'json' || effectiveEncoding === 'cbor' || (snippet.startsWith('{') && snippet.endsWith('}')) || (snippet.startsWith('[') && snippet.endsWith(']')) ? (
+                        <span className="truncate inline-block max-w-full">
+                          <JsonHighlightedCode code={snippet} />
+                        </span>
+                      ) : (
+                        <span className="text-foreground/80">{snippet}</span>
+                      )}
                     </div>
                   </div>
                 </div>

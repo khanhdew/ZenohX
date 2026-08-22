@@ -9,7 +9,9 @@ import {
   formatPayload,
   encodePayload,
   detectEncoding,
+  normalizeEncoding,
   bytesToUint8Array,
+  matchesKeyExpr,
 } from '../../src/lib/formatters';
 import * as cbor from 'cbor-x';
 
@@ -226,3 +228,68 @@ describe('detectEncoding', () => {
     assert.equal(detectEncoding(binBytes), 'raw');
   });
 });
+
+describe('matchesKeyExpr', () => {
+  test('matches exact key expressions', () => {
+    assert.equal(matchesKeyExpr('demo/a', 'demo/a'), true);
+    assert.equal(matchesKeyExpr('demo/a', 'demo/b'), false);
+    assert.equal(matchesKeyExpr('demo/test', 'demo/testing'), false);
+  });
+
+  test('matches double wildcard (**) recursively', () => {
+    assert.equal(matchesKeyExpr('demo/**', 'demo/a'), true);
+    assert.equal(matchesKeyExpr('demo/**', 'demo/a/b/c'), true);
+    assert.equal(matchesKeyExpr('demo/**', 'demo'), true);
+    assert.equal(matchesKeyExpr('demo/**', 'sensor/temp'), false);
+  });
+
+  test('matches double wildcard (**) in middle of pattern', () => {
+    assert.equal(matchesKeyExpr('sensors/**/temperature', 'sensors/floor1/room2/temperature'), true);
+    assert.equal(matchesKeyExpr('sensors/**/temperature', 'sensors/temperature'), true);
+    assert.equal(matchesKeyExpr('sensors/**/temperature', 'sensors/floor1/room2/humidity'), false);
+  });
+
+  test('matches single wildcard (*)', () => {
+    assert.equal(matchesKeyExpr('sensor/*', 'sensor/temp'), true);
+    assert.equal(matchesKeyExpr('sensor/*', 'sensor/humidity'), true);
+    assert.equal(matchesKeyExpr('sensor/*', 'sensor/room1/temp'), false);
+    assert.equal(matchesKeyExpr('sensor/*', 'demo/a'), false);
+    assert.equal(matchesKeyExpr('sensor/*/temp', 'sensor/living_room/temp'), true);
+    assert.equal(matchesKeyExpr('sensor/*/temp', 'sensor/floor1/living_room/temp'), false);
+  });
+
+  test('handles global wildcards', () => {
+    assert.equal(matchesKeyExpr('**', 'any/topic/key'), true);
+    assert.equal(matchesKeyExpr('*', 'single_segment'), true);
+    assert.equal(matchesKeyExpr('*', 'any/topic/key'), false);
+    assert.equal(matchesKeyExpr('*/*', 'demo/a'), true);
+    assert.equal(matchesKeyExpr('*/*', 'demo/a/b'), false);
+    assert.equal(matchesKeyExpr('', 'any/topic'), false);
+  });
+});
+
+describe('normalizeEncoding', () => {
+  test('maps MIME and Zenoh encoding names to recognized types', () => {
+    assert.equal(normalizeEncoding('application/json'), 'json');
+    assert.equal(normalizeEncoding('json'), 'json');
+    assert.equal(normalizeEncoding('application/cbor'), 'cbor');
+    assert.equal(normalizeEncoding('cbor'), 'cbor');
+    assert.equal(normalizeEncoding('text/plain'), 'text');
+    assert.equal(normalizeEncoding('text'), 'text');
+    assert.equal(normalizeEncoding('hex'), 'raw');
+  });
+
+  test('auto-detects encoding for zenoh/bytes and raw when payload contains JSON', () => {
+    const jsonBytes = Array.from(Buffer.from('{"temperature": 23.5, "unit": "C"}'));
+    assert.equal(normalizeEncoding('zenoh/bytes', jsonBytes), 'json');
+    assert.equal(normalizeEncoding('raw', jsonBytes), 'json');
+    assert.equal(normalizeEncoding('', jsonBytes), 'json');
+    assert.equal(normalizeEncoding(null, jsonBytes), 'json');
+  });
+
+  test('falls back to raw for binary payload with zenoh/bytes', () => {
+    const binBytes = [0x00, 0xff, 0xfe, 0x01];
+    assert.equal(normalizeEncoding('zenoh/bytes', binBytes), 'raw');
+  });
+});
+

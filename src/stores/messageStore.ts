@@ -18,6 +18,7 @@ import {
   subscribeKey,
   unsubscribeKey,
 } from '../lib/tauri';
+import { normalizeEncoding } from '../lib/formatters';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 // Palette of colors for subscription badges
@@ -117,7 +118,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           direction: 'incoming',
           keyExpr: sample.key_expr,
           payload: sample.payload,
-          encoding: (sample.encoding as EncodingType) || 'raw',
+          encoding: normalizeEncoding(sample.encoding, sample.payload),
           kind: (sample.kind as PutKind) || 'put',
           timestamp: sample.timestamp || Date.now(),
         };
@@ -341,7 +342,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         direction: (m.direction as 'incoming' | 'outgoing') || 'incoming',
         keyExpr: m.key_expr,
         payload: m.payload,
-        encoding: (m.encoding as EncodingType) || 'raw',
+        encoding: normalizeEncoding(m.encoding, m.payload),
         kind: (m.kind as PutKind) || 'put',
         timestamp: m.timestamp,
       }));

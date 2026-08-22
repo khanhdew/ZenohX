@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   Sparkles,
   Minimize2,
@@ -20,6 +20,7 @@ import {
   formatByteSize,
   tryFormatJson,
 } from '../../lib/formatters';
+import { JsonHighlightedCode } from './PayloadViewer';
 import type { EncodingType } from '../../types/zenoh';
 
 export interface PayloadEditorProps {
@@ -28,6 +29,7 @@ export interface PayloadEditorProps {
   encoding: EncodingType | string;
   onEncodingChange?: (encoding: EncodingType) => void;
   className?: string;
+  style?: React.CSSProperties;
   placeholder?: string;
   disabled?: boolean;
   showTemplates?: boolean;
@@ -124,6 +126,7 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
   encoding,
   onEncodingChange,
   className = '',
+  style,
   placeholder,
   disabled = false,
   showTemplates = true,
@@ -134,6 +137,11 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
   const [templateMenuOpen, setTemplateMenuOpen] = useState<boolean>(false);
 
   const currentEncoding = (encoding || 'json').toLowerCase() as EncodingType;
+
+  const highlightRef = useRef<HTMLPreElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const isJsonLike = currentEncoding === 'json' || currentEncoding === 'cbor';
 
   // Real-time encoding validation and size computation
   const validation = useMemo(() => {
@@ -171,6 +179,29 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
     }
   }, [value, onChange]);
 
+  // Tab key & Shift+Alt+F shortcut support
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const target = e.currentTarget;
+        const start = target.selectionStart;
+        const end = target.selectionEnd;
+        const newValue = value.substring(0, start) + '  ' + value.substring(end);
+        onChange(newValue);
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
+          }
+        }, 0);
+      } else if ((e.key === 'F' && e.shiftKey && e.altKey) || (e.key === 'l' && e.ctrlKey && e.altKey)) {
+        e.preventDefault();
+        handlePrettify();
+      }
+    },
+    [value, onChange, handlePrettify]
+  );
+
   // Apply template
   const handleApplyTemplate = useCallback(
     (template: PayloadTemplate) => {
@@ -205,9 +236,12 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
   ];
 
   return (
-    <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
+    <div
+      style={style}
+      className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}
+    >
       {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5 shrink-0">
         {/* Encoding Selector Pills */}
         {showEncodingSelector && onEncodingChange ? (
           <div className="flex items-center space-x-1">
@@ -291,26 +325,26 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
           )}
 
           {/* Format / Prettify JSON Button (for json or cbor) */}
-          {(currentEncoding === 'json' || currentEncoding === 'cbor') && (
+          {isJsonLike && (
             <>
               <button
                 type="button"
                 disabled={disabled || !value}
                 onClick={handlePrettify}
-                className="inline-flex items-center gap-1 rounded border bg-background px-2 py-0.5 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
-                title="Prettify JSON (2 spaces)"
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-0.5 text-xs font-medium hover:bg-muted hover:text-foreground text-foreground disabled:opacity-50 transition-colors shadow-xs"
+                title="Format & Prettify JSON (Shift+Alt+F)"
               >
-                <Sparkles className="w-3 h-3 text-muted-foreground" />
+                <Sparkles className="w-3 h-3 text-sky-500" />
                 <span>Format</span>
               </button>
               <button
                 type="button"
                 disabled={disabled || !value}
                 onClick={handleMinify}
-                className="inline-flex items-center gap-1 rounded border bg-background px-2 py-0.5 text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+                className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs font-medium hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors shadow-xs"
                 title="Minify JSON"
               >
-                <Minimize2 className="w-3 h-3 text-muted-foreground" />
+                <Minimize2 className="w-3 h-3" />
                 <span>Minify</span>
               </button>
             </>
@@ -344,11 +378,31 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
         </div>
       </div>
 
-      {/* Editor Body */}
-      <div className="relative flex-1">
+      {/* Editor Body with Synchronized Syntax Highlighting */}
+      <div className="relative flex-1 min-h-[100px] overflow-hidden bg-background">
+        {/* Syntax-highlighted background layer for JSON & CBOR */}
+        {isJsonLike && value ? (
+          <pre
+            ref={highlightRef}
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 m-0 overflow-auto p-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all select-none text-foreground [tab-size:2]"
+          >
+            <JsonHighlightedCode code={value} />
+            {value.endsWith('\n') ? ' ' : ''}
+          </pre>
+        ) : null}
+
         <textarea
+          ref={textareaRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onScroll={(e) => {
+            if (highlightRef.current) {
+              highlightRef.current.scrollTop = e.currentTarget.scrollTop;
+              highlightRef.current.scrollLeft = e.currentTarget.scrollLeft;
+            }
+          }}
           placeholder={
             placeholder ||
             (currentEncoding === 'json'
@@ -361,26 +415,30 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
           }
           disabled={disabled}
           rows={rows}
-          className="w-full resize-y bg-transparent p-2.5 font-mono text-xs leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+          className={`relative z-10 w-full h-full min-h-[100px] resize-y border-0 m-0 bg-transparent p-2.5 font-mono text-xs leading-relaxed placeholder:text-muted-foreground focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 whitespace-pre-wrap break-all [tab-size:2] ${
+            isJsonLike && value
+              ? 'text-transparent caret-foreground selection:bg-sky-500/30 dark:selection:bg-sky-500/40'
+              : 'text-foreground'
+          }`}
           spellCheck={false}
         />
       </div>
 
       {/* Footer Status & Validation Bar */}
-      <div className="flex flex-wrap items-center justify-between border-t bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between border-t bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground shrink-0">
         {/* Left: Validation Feedback */}
         <div className="flex items-center gap-1.5">
           {!value || value.trim().length === 0 ? (
             <span className="text-[11px] text-muted-foreground">Empty payload</span>
           ) : validation.isValid ? (
-            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
+            <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               <span>Valid {currentEncoding.toUpperCase()}</span>
             </div>
           ) : (
-            <div className="flex items-center gap-1 text-[11px] text-destructive">
-              <AlertCircle className="w-3 h-3 shrink-0" />
-              <span className="truncate max-w-[280px]">{validation.error || 'Syntax error'}</span>
+            <div className="flex items-center gap-1 text-[11px] text-destructive font-medium">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate max-w-[320px]">{validation.error || 'Syntax error'}</span>
             </div>
           )}
         </div>

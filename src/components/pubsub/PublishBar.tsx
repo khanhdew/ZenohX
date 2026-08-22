@@ -5,12 +5,14 @@ import {
   ChevronDown,
   ChevronUp,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Hash,
+  Check,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { ResizeHandle } from '../ui/resize-handle';
+import { useResizable } from '../../hooks/useResizable';
 import { PayloadEditor } from '../viewer/PayloadEditor';
 import { useMessageStore } from '../../stores/messageStore';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -61,10 +63,23 @@ export const PublishBar: React.FC<PublishBarProps> = ({
   // UI States
   const [isExpanded, setIsExpanded] = useState<boolean>(true);
   const [isSending, setIsSending] = useState<boolean>(false);
-  const [statusMessage, setStatusMessage] = useState<{
-    type: 'success' | 'error';
-    text: string;
-  } | null>(null);
+  const [isSuccess, setIsSuccess] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Resizable Editor Height (scale to top)
+  const {
+    size: editorHeight,
+    isDragging: isEditorDragging,
+    startDragging: startEditorDragging,
+    resetToDefault: resetEditorHeight,
+  } = useResizable({
+    initialSize: 180,
+    minSize: 100,
+    maxSize: 650,
+    direction: 'vertical',
+    reverse: true,
+    storageKey: 'zenohx_publish_editor_height',
+  });
 
   // Key suggestions dropdown
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
@@ -81,28 +96,22 @@ export const PublishBar: React.FC<PublishBarProps> = ({
   const handlePublish = useCallback(async () => {
     const trimmedKey = keyExpr.trim();
     if (!trimmedKey) {
-      setStatusMessage({ type: 'error', text: 'Key expression cannot be empty' });
+      setErrorMessage('Key expression cannot be empty');
       return;
     }
 
     if (!activeSessionId) {
-      setStatusMessage({
-        type: 'error',
-        text: 'Cannot publish: No active Zenoh session connected',
-      });
+      setErrorMessage('Cannot publish: No active Zenoh session connected');
       return;
     }
 
     if (kind === 'put' && !validation.isValid) {
-      setStatusMessage({
-        type: 'error',
-        text: `Cannot publish: ${validation.error || 'Invalid payload format'}`,
-      });
+      setErrorMessage(`Cannot publish: ${validation.error || 'Invalid payload format'}`);
       return;
     }
 
     setIsSending(true);
-    setStatusMessage(null);
+    setErrorMessage(null);
 
     try {
       const bytesToSend = kind === 'delete' ? [] : validation.bytes;
@@ -116,20 +125,13 @@ export const PublishBar: React.FC<PublishBarProps> = ({
         propProfileId || selectedProfileId || undefined
       );
 
-      setStatusMessage({
-        type: 'success',
-        text: `Published sample to '${trimmedKey}'`,
-      });
-
-      // Clear success feedback after 3 seconds
+      // Turn button into green verified state for 1.5 seconds
+      setIsSuccess(true);
       setTimeout(() => {
-        setStatusMessage((prev) => (prev?.type === 'success' ? null : prev));
-      }, 3000);
+        setIsSuccess(false);
+      }, 1500);
     } catch (err) {
-      setStatusMessage({
-        type: 'error',
-        text: err instanceof Error ? err.message : String(err),
-      });
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setIsSending(false);
     }
@@ -231,38 +233,37 @@ export const PublishBar: React.FC<PublishBarProps> = ({
 
         {/* Right: Expand/Collapse & Publish Button */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Status Message Feedback */}
-          {statusMessage && (
-            <div
-              className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[11px] max-w-[260px] truncate border ${
-                statusMessage.type === 'success'
-                  ? 'bg-muted text-foreground'
-                  : 'bg-destructive/10 text-destructive border-destructive/20'
-              }`}
-            >
-              {statusMessage.type === 'success' ? (
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
-              ) : (
-                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-destructive" />
-              )}
-              <span className="truncate">{statusMessage.text}</span>
+          {/* Error Message Feedback */}
+          {errorMessage && (
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[11px] max-w-[260px] truncate border bg-destructive/10 text-destructive border-destructive/20">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 text-destructive" />
+              <span className="truncate">{errorMessage}</span>
             </div>
           )}
 
           {/* Send Sample Button */}
           <Button
             type="button"
-            variant={kind === 'delete' ? 'destructive' : 'default'}
+            variant={isSuccess ? 'outline' : kind === 'delete' ? 'destructive' : 'default'}
             size="sm"
             onClick={handlePublish}
             disabled={isSending || !activeSessionId || (kind === 'put' && !validation.isValid)}
-            className="h-8 px-3 text-xs gap-1.5 font-medium"
+            className={`h-8 px-3 text-xs gap-1.5 font-medium transition-all duration-200 ${
+              isSuccess
+                ? 'bg-emerald-600 hover:bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                : ''
+            }`}
             title="Publish sample (Ctrl+Enter)"
           >
             {isSending ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Publishing...
+                <span>Publishing...</span>
+              </>
+            ) : isSuccess ? (
+              <>
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>{kind === 'delete' ? 'Deleted' : 'Published'}</span>
               </>
             ) : (
               <>
@@ -290,6 +291,16 @@ export const PublishBar: React.FC<PublishBarProps> = ({
         </div>
       </div>
 
+      {/* Top Edge Resize Handle (when editor is expanded) */}
+      {isExpanded && kind === 'put' && (
+        <ResizeHandle
+          direction="vertical"
+          isDragging={isEditorDragging}
+          onMouseDown={startEditorDragging}
+          onReset={resetEditorHeight}
+        />
+      )}
+
       {/* Expanded Payload Editor Section (when kind === 'put') */}
       {isExpanded && (
         <div className="p-2.5 bg-background transition-all">
@@ -308,7 +319,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
               onEncodingChange={setEncoding}
               showTemplates={true}
               showEncodingSelector={true}
-              rows={4}
+              style={{ height: `${editorHeight}px` }}
               disabled={isSending}
             />
           )}

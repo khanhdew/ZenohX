@@ -39,6 +39,8 @@ export interface ConnectionState {
   loadProfiles: () => Promise<void>;
   selectProfile: (profileId: string | null) => void;
   saveProfile: (profile: ConnectionProfile) => Promise<void>;
+  saveAndConnect: (profile: ConnectionProfile) => Promise<string>;
+  testConnection: (config: SessionConfig) => Promise<{ success: boolean; message: string }>;
   deleteProfile: (profileId: string) => Promise<void>;
   connect: (profileId: string) => Promise<string>;
   disconnect: (profileId: string) => Promise<void>;
@@ -105,6 +107,76 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const msg = `Failed to save profile: ${err}`;
       set({ error: msg });
       throw new Error(msg);
+    }
+  },
+
+  saveAndConnect: async (profile: ConnectionProfile) => {
+    set((state) => ({
+      connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: true },
+      error: null,
+    }));
+
+    let sessionId: string | null = null;
+
+    try {
+      const config: SessionConfig = {
+        mode: profile.mode,
+        connect_locators: profile.connect_locators,
+        listen_locators: profile.listen_locators,
+        scout_multicast: profile.scout_multicast,
+        user_auth: profile.user_auth,
+        tls_config: profile.tls_config,
+        custom_config: profile.custom_config,
+      };
+
+      // 1. Attempt connection first
+      sessionId = await connectSession(config);
+      const sessionInfo = await getSessionInfo(sessionId);
+
+      // 2. Persist profile ONLY after successful connection
+      await saveProfileIpc(profile);
+
+      set((state) => {
+        const index = state.profiles.findIndex((p) => p.id === profile.id);
+        const newProfiles =
+          index >= 0
+            ? state.profiles.map((p) => (p.id === profile.id ? profile : p))
+            : [...state.profiles, profile];
+        return {
+          profiles: newProfiles,
+          selectedProfileId: profile.id,
+          activeSessions: { ...state.activeSessions, [profile.id]: sessionInfo },
+          sessionToProfile: { ...state.sessionToProfile, [sessionId!]: profile.id },
+          connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: false },
+        };
+      });
+
+      return sessionId;
+    } catch (err) {
+      if (sessionId) {
+        try {
+          await disconnectSession(sessionId);
+        } catch {
+          // Ignore disconnect error during cleanup
+        }
+      }
+
+      const msg = `Failed to connect session: ${err instanceof Error ? err.message : String(err)}`;
+      set((state) => ({
+        connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: false },
+        error: msg,
+      }));
+      throw new Error(msg);
+    }
+  },
+
+  testConnection: async (config: SessionConfig) => {
+    try {
+      const sessionId = await connectSession(config);
+      await disconnectSession(sessionId);
+      return { success: true, message: 'Successfully verified connection to Zenoh router!' };
+    } catch (err) {
+      return { success: false, message: String(err) };
     }
   },
 

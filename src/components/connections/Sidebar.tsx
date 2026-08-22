@@ -16,9 +16,11 @@ import {
   Radio,
   Server,
   FolderOpen,
+  Lock,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { ConnectionProfile } from '../../types/zenoh';
+import { isTlsEnabled } from '../../lib/tls';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
 import { Button } from '../ui/button';
@@ -42,10 +44,11 @@ import {
 
 interface SidebarProps {
   className?: string;
+  style?: React.CSSProperties;
   onSelectProfile?: (profile: ConnectionProfile) => void;
 }
 
-export function Sidebar({ className = '', onSelectProfile }: SidebarProps) {
+export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [scoutModalOpen, setScoutModalOpen] = useState(false);
@@ -150,7 +153,8 @@ export function Sidebar({ className = '', onSelectProfile }: SidebarProps) {
 
   return (
     <aside
-      className={`flex flex-col h-full w-72 shrink-0 border-r bg-card text-card-foreground select-none ${className}`}
+      style={style}
+      className={`flex flex-col h-full shrink-0 border-r bg-card text-card-foreground select-none ${className}`}
     >
       {/* Top Header */}
       <div className="p-3 border-b space-y-2.5">
@@ -405,12 +409,22 @@ export function Sidebar({ className = '', onSelectProfile }: SidebarProps) {
 
                 {/* Subtitle / Details Row */}
                 <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
-                  {/* Mode Badge & Locator Info */}
+                  {/* Mode Badge, SSL Badge & Locator Info */}
                   <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
                     <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 capitalize font-mono">
                       <ModeIcon className="w-2.5 h-2.5 mr-0.5 inline-block" />
                       {mode}
                     </Badge>
+                    {isTlsEnabled(p.tls_config, p.connect_locators) && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] px-1 py-0 h-3.5 font-mono gap-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                        title="TLS / SSL Encrypted Connection"
+                      >
+                        <Lock className="w-2.5 h-2.5 inline-block" />
+                        SSL
+                      </Badge>
+                    )}
                     <span className="truncate font-mono" title={locatorPreview}>
                       {locatorPreview}
                     </span>

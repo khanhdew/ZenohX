@@ -57,7 +57,7 @@ export function applyThemeToDom(theme: ThemeMode) {
   let isDark = theme === 'dark';
 
   if (theme === 'system') {
-    isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    isDark = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
   }
 
   if (isDark) {
@@ -68,6 +68,10 @@ export function applyThemeToDom(theme: ThemeMode) {
     root.classList.remove('dark');
     root.classList.add('light');
     root.style.colorScheme = 'light';
+  }
+
+  if (document.body) {
+    document.body.classList.remove('dark', 'light');
   }
 }
 

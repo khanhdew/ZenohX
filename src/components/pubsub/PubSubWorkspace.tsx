@@ -1,8 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   Radio,
-  Power,
-  PowerOff,
   Layers,
   Info,
   Clock,
@@ -21,7 +19,9 @@ import { PublishBar } from './PublishBar';
 import { PayloadViewer } from '../viewer/PayloadViewer';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { formatByteSize, formatTimeWithMs } from '../../lib/formatters';
+import { ResizeHandle } from '../ui/resize-handle';
+import { useResizable } from '../../hooks/useResizable';
+import { formatByteSize, formatTimeWithMs, matchesKeyExpr, normalizeEncoding } from '../../lib/formatters';
 
 interface PubSubWorkspaceProps {
   className?: string;
@@ -33,7 +33,6 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
   const profiles = useConnectionStore((s) => s.profiles);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
   const connect = useConnectionStore((s) => s.connect);
-  const disconnect = useConnectionStore((s) => s.disconnect);
 
   // Active session and profile details
   const profile = useMemo(
@@ -52,6 +51,33 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
   // Panel layout toggles
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState<boolean>(true);
   const [inspectorExpanded, setInspectorExpanded] = useState<boolean>(false);
+
+  // Resizable Subscriptions Left Panel
+  const {
+    size: subPanelWidth,
+    isDragging: isSubDragging,
+    startDragging: startSubDragging,
+    resetToDefault: resetSubWidth,
+  } = useResizable({
+    initialSize: 280,
+    minSize: 200,
+    maxSize: 450,
+    storageKey: 'zenohx_pubsub_sub_width',
+  });
+
+  // Resizable Inspector Right Panel
+  const {
+    size: inspectorWidth,
+    isDragging: isInspectorDragging,
+    startDragging: startInspectorDragging,
+    resetToDefault: resetInspectorWidth,
+  } = useResizable({
+    initialSize: 380,
+    minSize: 280,
+    maxSize: 700,
+    reverse: true,
+    storageKey: 'zenohx_pubsub_inspector_width',
+  });
 
   // Stats for the workspace
   const sessionSubs = useMemo(() => {
@@ -94,7 +120,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
           )}
         </div>
 
-        {/* Right: Subscriptions panel toggle, Stats, Quick Connect/Disconnect */}
+        {/* Right: Subscriptions panel toggle */}
         <div className="flex items-center gap-2">
           {/* Subscriptions Panel Toggle Button */}
           <Button
@@ -105,42 +131,13 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
             className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
             title={
               showSubscriptionPanel
-                ? 'Hide Subscriptions panel'
-                : 'Show Subscriptions panel'
+                ? 'Hide Topics panel'
+                : 'Show Topics panel'
             }
           >
             <Layers className="w-3.5 h-3.5" />
             <span>Topics ({sessionSubs.length})</span>
           </Button>
-
-          {/* Quick Connect / Disconnect Action */}
-          {profile && (
-            <Button
-              type="button"
-              variant={isConnected ? 'destructive' : 'default'}
-              size="sm"
-              onClick={async () => {
-                if (isConnected) {
-                  await disconnect(profile.id);
-                } else {
-                  await connect(profile.id);
-                }
-              }}
-              className="h-7 px-2.5 text-xs gap-1 font-medium"
-            >
-              {isConnected ? (
-                <>
-                  <PowerOff className="w-3 h-3" />
-                  Disconnect
-                </>
-              ) : (
-                <>
-                  <Power className="w-3 h-3" />
-                  Connect
-                </>
-              )}
-            </Button>
-          )}
         </div>
       </header>
 
@@ -170,13 +167,23 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         {/* Left: Subscriptions Side Panel */}
         {showSubscriptionPanel && (
-          <div className="w-72 shrink-0 h-full border-r border-border transition-all duration-200">
-            <SubscriptionList
-              sessionId={sessionId}
-              profileId={profile?.id}
-              className="h-full"
+          <>
+            <div
+              style={{ width: `${subPanelWidth}px` }}
+              className="shrink-0 h-full border-r border-border overflow-hidden"
+            >
+              <SubscriptionList
+                sessionId={sessionId}
+                profileId={profile?.id}
+                className="h-full"
+              />
+            </div>
+            <ResizeHandle
+              isDragging={isSubDragging}
+              onMouseDown={startSubDragging}
+              onReset={resetSubWidth}
             />
-          </div>
+          </>
         )}
 
         {/* Center & Right: Message Stream Feed + Inspector Panel */}
@@ -195,11 +202,16 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
 
             {/* Right: Message Inspector Panel (when a message is selected) */}
             {selectedMessage && (
-              <div
-                className={`border-l border-border bg-card flex flex-col shrink-0 h-full transition-all duration-200 ${
-                  inspectorExpanded ? 'w-[580px]' : 'w-[380px]'
-                }`}
-              >
+              <>
+                <ResizeHandle
+                  isDragging={isInspectorDragging}
+                  onMouseDown={startInspectorDragging}
+                  onReset={resetInspectorWidth}
+                />
+                <div
+                  style={{ width: `${inspectorExpanded ? Math.max(580, inspectorWidth) : inspectorWidth}px` }}
+                  className="border-l border-border bg-card flex flex-col shrink-0 h-full overflow-hidden"
+                >
                 {/* Inspector Header */}
                 <div className="flex items-center justify-between p-2.5 border-b bg-muted/20">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -248,6 +260,32 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                     </div>
                   </div>
 
+                  {/* Matched Subscription Tag */}
+                  {(() => {
+                    const matchedSub = subscriptions.find((s) =>
+                      matchesKeyExpr(s.keyExpr, selectedMessage.keyExpr)
+                    );
+                    if (!matchedSub) return null;
+                    const subColor = matchedSub.colorTag || '#3b82f6';
+                    return (
+                      <div className="pt-0.5">
+                        <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
+                          Matched Subscription Topic
+                        </div>
+                        <div className="flex items-center gap-1.5 font-mono text-xs p-1.5 rounded bg-muted/40 border">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full shrink-0 shadow-xs"
+                            style={{ backgroundColor: subColor }}
+                          />
+                          <span className="font-semibold text-foreground">{matchedSub.keyExpr}</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto uppercase font-mono">
+                            {matchedSub.encoding || 'raw'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Meta pills grid: Direction, Kind, Timestamp, Size, Encoding */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <div>
@@ -255,13 +293,20 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                         Direction
                       </div>
                       <div className="flex items-center gap-1 font-mono text-xs">
-                        <Badge variant="secondary" className="text-[10px] font-mono uppercase">
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] font-mono font-semibold uppercase px-1.5 py-0 border ${
+                            selectedMessage.direction === 'incoming'
+                              ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
+                              : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                          }`}
+                        >
                           {selectedMessage.direction === 'incoming' ? (
-                            <ArrowDownLeft className="w-3 h-3 mr-0.5 inline-block" />
+                            <ArrowDownLeft className="w-3 h-3 mr-0.5 inline-block text-sky-500" />
                           ) : (
-                            <ArrowUpRight className="w-3 h-3 mr-0.5 inline-block" />
+                            <ArrowUpRight className="w-3 h-3 mr-0.5 inline-block text-purple-500" />
                           )}
-                          {selectedMessage.direction}
+                          {selectedMessage.direction === 'incoming' ? 'IN' : 'OUT'}
                         </Badge>
                         {selectedMessage.kind === 'delete' && (
                           <Badge variant="destructive" className="text-[10px] px-1 py-0 uppercase font-mono">
@@ -295,7 +340,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                         Encoding
                       </div>
                       <div className="font-mono text-xs uppercase font-medium text-foreground">
-                        {selectedMessage.encoding || 'raw'}
+                        {normalizeEncoding(selectedMessage.encoding, selectedMessage.payload)}
                       </div>
                     </div>
                   </div>
@@ -308,12 +353,13 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                   </div>
                   <PayloadViewer
                     payload={selectedMessage.payload}
-                    encoding={selectedMessage.encoding}
+                    encoding={normalizeEncoding(selectedMessage.encoding, selectedMessage.payload)}
                     showMetrics={true}
                     maxHeight="460px"
                   />
                 </div>
               </div>
+            </>
             )}
           </div>
 

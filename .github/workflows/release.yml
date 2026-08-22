@@ -58,29 +58,36 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Generate Automated Changelog
-        id: changelog
-        uses: mikepenz/release-changelog-builder-action@v5
-        with:
-          configurationJson: |
-            {
-              "categories": [
-                {
-                  "title": "## 🚀 Features",
-                  "labels": ["feature", "feat"]
-                },
-                {
-                  "title": "## 🐛 Bug Fixes",
-                  "labels": ["fix", "bug"]
-                },
-                {
-                  "title": "## 📦 Other Changes",
-                  "labels": []
-                }
-              ]
-            }
+      - name: Generate GitHub Release Notes
+        id: release_notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+            TAG="v$(node -p "require('./package.json').version")"
+          fi
+          
+          VERSION="${TAG#v}"
+          
+          # Fetch GitHub's native automated release notes
+          NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name="$TAG" --jq .body 2>/dev/null || true)
+          
+          HEADER="**Version:** ${VERSION}
+**Build Number:** ${{ github.run_number }}
+**Commit:** ${{ github.sha }}
+
+"
+          if [ -n "$NOTES" ]; then
+            FULL_BODY="${HEADER}${NOTES}"
+          else
+            FULL_BODY="${HEADER}### What's Changed
+$(git log -n 15 --oneline --no-merges)"
+          fi
+
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$FULL_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Build Tauri Desktop App & Sign Release
         uses: tauri-apps/tauri-action@v0
@@ -91,7 +98,7 @@ jobs:
         with:
           tagName: v__VERSION__ # The tag name from tauri.conf.json or git tag
           releaseName: 'ZenohX v__VERSION__'
-          releaseBody: ${{ steps.changelog.outputs.changelog }}
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}

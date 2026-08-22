@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   Radio,
   Search,
-  History,
   Radar,
   Plus,
   Power,
@@ -10,12 +9,15 @@ import {
   Loader2,
   PanelLeftClose,
   PanelLeftOpen,
+  Sliders,
   AlertTriangle,
   X,
 } from 'lucide-react';
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
 import { useQueryStore } from './stores/queryStore';
+import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
+import { checkForAppUpdates } from './lib/updater';
 import { ConnectionProfile } from './types/zenoh';
 import { Sidebar } from './components/connections/Sidebar';
 import { ProfileModal } from './components/connections/ProfileModal';
@@ -75,6 +77,29 @@ export function App() {
     if (pubsubError) setPubsubError(null);
     if (queryError) setQueryError(null);
   };
+
+  const theme = useSettingsStore((s) => s.theme);
+  const autoCheckUpdates = useSettingsStore((s) => s.autoCheckUpdates);
+  const setLastCheckedUpdate = useSettingsStore((s) => s.setLastCheckedUpdate);
+
+  // Apply active theme to DOM root
+  useEffect(() => {
+    applyThemeToDom(theme);
+  }, [theme]);
+
+  // Background auto-check for updates on launch
+  useEffect(() => {
+    if (autoCheckUpdates) {
+      checkForAppUpdates()
+        .then((res) => {
+          setLastCheckedUpdate(Date.now());
+          if (res.updateAvailable) {
+            console.log('ZenohX update available:', res.version);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [autoCheckUpdates, setLastCheckedUpdate]);
 
   useEffect(() => {
     loadProfiles();
@@ -200,7 +225,7 @@ export function App() {
             )}
           </button>
 
-          {/* Tab 3: Settings / History */}
+          {/* Tab 3: Settings & Preferences */}
           <button
             type="button"
             onClick={() => setActiveTab('settings')}
@@ -209,10 +234,10 @@ export function App() {
                 ? 'bg-background text-foreground shadow-xs'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            title="Settings & History (Ctrl+3)"
+            title="Settings & Preferences (Ctrl+3)"
           >
-            <History className="w-3.5 h-3.5" />
-            <span>History / DB</span>
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Settings</span>
           </button>
         </nav>
 

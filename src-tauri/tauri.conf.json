@@ -38,5 +38,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/Keemos/zenohx/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

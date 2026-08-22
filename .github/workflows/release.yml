@@ -58,6 +58,30 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Generate Automated Changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v5
+        with:
+          configurationJson: |
+            {
+              "categories": [
+                {
+                  "title": "## 🚀 Features",
+                  "labels": ["feature", "feat"]
+                },
+                {
+                  "title": "## 🐛 Bug Fixes",
+                  "labels": ["fix", "bug"]
+                },
+                {
+                  "title": "## 📦 Other Changes",
+                  "labels": []
+                }
+              ]
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build Tauri Desktop App & Sign Release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -67,7 +91,7 @@ jobs:
         with:
           tagName: v__VERSION__ # The tag name from tauri.conf.json or git tag
           releaseName: 'ZenohX v__VERSION__'
-          releaseBody: 'See the release assets below for download packages and checksum signatures.'
+          releaseBody: ${{ steps.changelog.outputs.changelog }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}

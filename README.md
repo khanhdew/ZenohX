@@ -1,6 +1,8 @@
-# ⚡ ZenohX
-
 <div align="center">
+
+<img src="public/icon.png" width="96" height="96" alt="ZenohX Logo" style="border-radius: 18px;" />
+
+# ⚡ ZenohX
 
 **Modern, high-performance desktop GUI client for Eclipse Zenoh (1.x Protocol).**
 
@@ -9,7 +11,7 @@
 [![Platform](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/khanhdew/ZenohX/releases)
 [![Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-24C8D8?style=flat-square&logo=tauri)](https://tauri.app)
 
-[**Download ZenohX**](https://github.com/khanhdew/ZenohX/releases/latest) • [**Features**](#features) • [**Installation**](#installation) • [**Quick Start**](#quick-start) • [**Building from Source**](#building-from-source)
+[**Download ZenohX**](https://github.com/khanhdew/ZenohX/releases/latest) • [**Features**](#features) • [**Installation**](#installation) • [**Building from Source**](#building-from-source)
 
 </div>
 

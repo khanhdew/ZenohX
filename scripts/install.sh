@@ -56,71 +56,75 @@ else
   error "Unsupported operating system: ${OS}. For Windows, run the PowerShell install script."
 fi
 
-# 2. Dynamically Query GitHub Releases API for the Latest Version
+# 2. Dynamically Resolve Latest Release Tag
 log "Checking for the latest release on GitHub (https://github.com/${REPO})..."
 
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_DIR}"; }
 trap cleanup EXIT
 
-# Fetch latest release data
-RELEASE_JSON="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+# Get latest release tag directly from GitHub redirect header (avoids API rate limits)
+TAG="$(curl -sIL "https://github.com/${REPO}/releases/latest" 2>/dev/null | grep -i "^location:" | head -n 1 | tr -d '\r\n' | awk -F'/' '{print $NF}' || true)"
 
-# Fallback to general releases list if /latest is not populated yet
-if [ -z "${RELEASE_JSON}" ] || echo "${RELEASE_JSON}" | grep -q '"message": *"Not Found"'; then
-  ALL_RELEASES="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github.com/repos/${REPO}/releases" 2>/dev/null || true)"
-  if [ -n "${ALL_RELEASES}" ] && ! echo "${ALL_RELEASES}" | grep -q '"message": *"Not Found"'; then
-    RELEASE_JSON="${ALL_RELEASES}"
+# Fallback to GitHub API if redirect header was empty
+if [ -z "${TAG}" ]; then
+  RELEASE_JSON="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+  if [ -n "${RELEASE_JSON}" ]; then
+    TAG="$(echo "${RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4 || true)"
   fi
 fi
 
-# Check if any releases exist
-if [ -z "${RELEASE_JSON}" ] || [ "${RELEASE_JSON}" = "[]" ] || echo "${RELEASE_JSON}" | grep -q '"message": *"Not Found"'; then
-  error "No published releases found on https://github.com/${REPO}/releases.
-Please make sure a release tag (e.g. 'git tag vX.Y.Z && git push origin vX.Y.Z') has been pushed and GitHub Actions has finished building."
-fi
-
-TAG="$(echo "${RELEASE_JSON}" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4)"
 if [ -z "${TAG}" ]; then
-  error "Could not determine the latest release tag from GitHub."
+  error "Could not retrieve the latest release from https://github.com/${REPO}/releases.
+Please make sure a release is published on GitHub."
 fi
 
 log "Found latest release: ${BOLD}${TAG}${NC}"
+
+# Fetch release assets metadata
+RELEASE_META="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github.com/repos/${REPO}/releases/tags/${TAG}" 2>/dev/null || true)"
 
 # 3. Dynamically Locate Matching Asset Download URL
 DOWNLOAD_URL=""
 
 if [ "${PACKAGE_TYPE}" = "dmg" ]; then
-  # Look for macOS DMG matching architecture if split, else generic DMG
   if [ "${ARCH}" = "arm64" ] || [ "${ARCH}" = "aarch64" ]; then
-    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*aarch64.*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*aarch64[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
   fi
   if [ -z "${DOWNLOAD_URL}" ]; then
-    DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
   fi
 
 elif [ "${PACKAGE_TYPE}" = "rpm" ]; then
-  DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
 
 elif [ "${PACKAGE_TYPE}" = "deb" ]; then
-  DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
 fi
 
 # Fallback to universal AppImage if specific package not found
 if [ -z "${DOWNLOAD_URL}" ] && [ "${OS}" = "Linux" ]; then
   PACKAGE_TYPE="appimage"
-  DOWNLOAD_URL="$(echo "${RELEASE_JSON}" | grep -o '"browser_download_url": *"[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
 fi
 
+# Fallback to direct latest pattern if API meta was empty
 if [ -z "${DOWNLOAD_URL}" ]; then
-  error "No compatible installer asset found for ${OS}-${ARCH} in release ${TAG}.
-Please check the available files at: https://github.com/${REPO}/releases/tag/${TAG}"
+  if [ "${PACKAGE_TYPE}" = "rpm" ]; then
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX-${TAG#v}-1.x86_64.rpm"
+  elif [ "${PACKAGE_TYPE}" = "deb" ]; then
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_amd64.deb"
+  elif [ "${PACKAGE_TYPE}" = "dmg" ]; then
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_aarch64.dmg"
+  else
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_amd64.AppImage"
+  fi
 fi
 
 FILENAME="${DOWNLOAD_URL##*/}"
 DOWNLOAD_FILE="${TMP_DIR}/${FILENAME}"
 
-log "Downloading ${FILENAME}..."
+log "Downloading ${FILENAME} from GitHub Releases..."
 curl -fSL --progress-bar "${DOWNLOAD_URL}" -o "${DOWNLOAD_FILE}" || error "Failed to download ${FILENAME} from ${DOWNLOAD_URL}"
 
 # 4. Perform Installation

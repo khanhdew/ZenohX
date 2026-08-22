@@ -2,7 +2,7 @@
 
 <img src="public/icon.png" width="96" height="96" alt="ZenohX Logo" style="border-radius: 18px;" />
 
-# ⚡ ZenohX
+# ZenohX
 
 **Modern, high-performance desktop GUI client for Eclipse Zenoh (1.x Protocol).**
 
@@ -65,7 +65,6 @@ Download pre-packaged installers directly from [**GitHub Releases**](https://git
 | **macOS** (Apple Silicon / Intel) | `.dmg` | Open `.dmg` and drag to Applications |
 | **Windows** (x64) | `.msi` / `.exe` | Run installer |
 | **Ubuntu / Debian / Mint** | `.deb` | `sudo dpkg -i zenohx_*_amd64.deb` |
-| **RHEL / Fedora / Rocky Linux** | `.rpm` | `sudo dnf install ./zenohx-*.x86_64.rpm` |
 | **Universal Linux** | `.AppImage` | `chmod +x zenohx.AppImage && ./zenohx.AppImage` |
 
 ---
@@ -78,18 +77,6 @@ If you have Node.js installed:
 npx zenohx
 ```
 *(Or install globally: `npm install -g zenohx`)*
-
----
-
-### 4. Install via Cargo (Rust)
-
-```bash
-# Fast install precompiled binary
-cargo binstall zenohx
-
-# Or compile from source
-cargo install zenohx
-```
 
 ---
 

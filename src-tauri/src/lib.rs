@@ -1,11 +1,43 @@
+pub mod commands;
 pub mod db;
 pub mod zenoh;
 
+use commands::*;
+use db::Database;
+use zenoh::SessionManager;
+
+pub struct AppState {
+    pub session_manager: SessionManager,
+    pub db: Database,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let session_manager = SessionManager::new();
+    let db = Database::new("zenohx.db")
+        .or_else(|_| Database::new_in_memory())
+        .expect("failed to initialize SQLite database");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .manage(AppState {
+            session_manager,
+            db,
+        })
+        .invoke_handler(tauri::generate_handler![
+            connect_session,
+            disconnect_session,
+            scout_locators,
+            get_session_info,
+            get_all_sessions,
+            publish_sample,
+            subscribe,
+            unsubscribe,
+            save_profile,
+            load_profiles,
+            delete_profile,
+            query_messages,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

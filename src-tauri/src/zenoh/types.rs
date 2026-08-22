@@ -189,3 +189,14 @@ pub struct SessionInfo {
     pub listen_locators: Vec<String>,
     pub created_at: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ZenohSample {
+    pub session_id: uuid::Uuid,
+    pub sub_id: Option<uuid::Uuid>,
+    pub key_expr: String,
+    pub payload: Vec<u8>,
+    pub encoding: String,
+    pub kind: String, // "put" | "delete"
+    pub timestamp: i64,
+}

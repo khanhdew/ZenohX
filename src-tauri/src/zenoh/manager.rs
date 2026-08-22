@@ -1,5 +1,6 @@
+use super::pubsub::{publish_sample, subscribe_with_callback, ActiveSubscriber};
 use super::scout::scout_nodes;
-use super::types::{ScoutedNode, SessionConfig, SessionInfo};
+use super::types::{ScoutedNode, SessionConfig, SessionInfo, ZenohSample};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -11,6 +12,7 @@ pub struct SessionContext {
     pub session: zenoh::Session,
     pub config: SessionConfig,
     pub created_at: i64,
+    pub subscribers: HashMap<Uuid, ActiveSubscriber>,
 }
 
 /// Centralized manager for handling multiple concurrent Zenoh sessions.
@@ -50,6 +52,7 @@ impl SessionManager {
             session,
             config,
             created_at: now,
+            subscribers: HashMap::new(),
         };
 
         let mut lock = self.sessions.write().await;
@@ -62,6 +65,10 @@ impl SessionManager {
     pub async fn disconnect(&self, session_id: &Uuid) -> Result<(), String> {
         let mut lock = self.sessions.write().await;
         if let Some(context) = lock.remove(session_id) {
+            // Stop all active background subscriber tasks for this session
+            for (_, sub) in context.subscribers {
+                sub.stop().await;
+            }
             context
                 .session
                 .close()
@@ -71,6 +78,65 @@ impl SessionManager {
         } else {
             Err(format!("session with id '{session_id}' not found"))
         }
+    }
+
+    /// Subscribes to a key expression with a callback function for sample streaming.
+    pub async fn subscribe<F>(
+        &self,
+        session_id: &Uuid,
+        sub_id: Uuid,
+        key_expr: &str,
+        callback: F,
+    ) -> Result<(), String>
+    where
+        F: Fn(ZenohSample) + Send + Sync + 'static,
+    {
+        let mut lock = self.sessions.write().await;
+        let context = lock
+            .get_mut(session_id)
+            .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
+
+        // If an existing subscriber with the same sub_id exists, stop it first
+        if let Some(old_sub) = context.subscribers.remove(&sub_id) {
+            old_sub.stop().await;
+        }
+
+        let active_sub =
+            subscribe_with_callback(&context.session, *session_id, sub_id, key_expr, callback)
+                .await?;
+        context.subscribers.insert(sub_id, active_sub);
+
+        Ok(())
+    }
+
+    /// Unsubscribes an active subscriber by sub_id.
+    pub async fn unsubscribe(&self, session_id: &Uuid, sub_id: Uuid) -> Result<(), String> {
+        let mut lock = self.sessions.write().await;
+        let context = lock
+            .get_mut(session_id)
+            .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
+
+        if let Some(sub) = context.subscribers.remove(&sub_id) {
+            sub.stop().await;
+            Ok(())
+        } else {
+            Err(format!(
+                "subscriber with id '{sub_id}' not found in session '{session_id}'"
+            ))
+        }
+    }
+
+    /// Publishes a payload with the specified encoding and operation kind (put or delete).
+    pub async fn publish(
+        &self,
+        session_id: &Uuid,
+        key_expr: &str,
+        payload: Vec<u8>,
+        encoding: &str,
+        kind: &str,
+    ) -> Result<(), String> {
+        let session = self.get_session(session_id).await?;
+        publish_sample(&session, key_expr, payload, encoding, kind).await
     }
 
     /// Checks if a session is currently open and managed.

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "node --loader ./tests/test-loader.mjs --test tests/frontend/*.test.ts",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -65,6 +65,7 @@ Download pre-packaged installers directly from [**GitHub Releases**](https://git
 | **macOS** (Apple Silicon / Intel) | `.dmg` | Open `.dmg` and drag to Applications |
 | **Windows** (x64) | `.msi` / `.exe` | Run installer |
 | **Ubuntu / Debian / Mint** | `.deb` | `sudo dpkg -i zenohx_*_amd64.deb` |
+| **RHEL / Fedora / Rocky Linux** | `.rpm` | `sudo dnf install ./zenohx-*.x86_64.rpm` |
 | **Universal Linux** | `.AppImage` | `chmod +x zenohx.AppImage && ./zenohx.AppImage` |
 
 ---

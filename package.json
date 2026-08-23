@@ -32,7 +32,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node ./tests/run-tests.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "release:new": "bash scripts/release.sh"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",

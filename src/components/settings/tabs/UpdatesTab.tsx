@@ -13,6 +13,7 @@ import { useSettingsStore, type UpdateChannel } from '../../../stores/settingsSt
 import { APP_VERSION } from '../../../lib/version';
 import type { UpdateProgress } from '../../../lib/updater';
 import type { Update } from '@tauri-apps/plugin-updater';
+import zenohxIcon from '../../../assets/icon.png';
 
 export interface UpdatesTabProps {
   updateState: UpdateProgress;
@@ -45,12 +46,14 @@ export const UpdatesTab: React.FC<UpdatesTabProps> = ({
       <div className="rounded-xl border bg-card p-6 shadow-xs space-y-4">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary text-primary-foreground">
-              <Sparkles className="w-5 h-5" />
-            </div>
+            <img
+              src={zenohxIcon}
+              alt="ZenohX Icon"
+              className="w-10 h-10 rounded-lg object-contain shrink-0"
+            />
             <div>
               <h3 className="text-sm font-semibold text-foreground">
-                ZenohX Desktop
+                ZenohX
               </h3>
               <p className="text-xs text-muted-foreground">
                 Current Installed Version: <span className="font-mono font-medium text-foreground">v{APP_VERSION}</span>

@@ -68,6 +68,14 @@ Download pre-packaged installers directly from [**GitHub Releases**](https://git
 | **RHEL / Fedora / Rocky Linux** | `.rpm` | `sudo dnf install ./zenohx-*.x86_64.rpm` |
 | **Universal Linux** | `.AppImage` | `chmod +x zenohx.AppImage && ./zenohx.AppImage` |
 
+> [!TIP]
+> **First-Launch Notes for macOS & Windows:**
+> - **macOS (Gatekeeper):** If macOS prevents opening the downloaded app with a verification warning, run:
+>   ```bash
+>   xattr -cr /Applications/ZenohX.app
+>   ```
+> - **Windows (SmartScreen):** If Windows Defender SmartScreen appears, click **"More info"** &rarr; **"Run anyway"**.
+
 ---
 
 ## 🛠️ Building from Source
@@ -110,6 +118,24 @@ npm run build
 npm run tauri build
 ```
 Binaries will be output to `src-tauri/target/release/bundle/`.
+
+---
+
+## 🚀 Release Automation (Maintainers)
+
+ZenohX includes an automated release workflow that handles version synchronization (`package.json`, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`), conventional changelog generation, and tag creation:
+
+```bash
+# Bump version and generate release changelog (patch: 0.2.0 -> 0.2.1)
+npm run release:new -- patch
+
+# Or minor / major / explicit version:
+npm run release:new -- minor
+npm run release:new -- 1.0.0
+
+# Push changes and trigger cross-platform GitHub Actions build
+git push origin main --tags
+```
 
 ---
 

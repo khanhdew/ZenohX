@@ -37,14 +37,34 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     position: { x: number; y: number };
   } | null>(null);
 
-  // Auto-scout periodic trigger
+  // Auto-scout periodic trigger and initial scan
   useEffect(() => {
-    if (autoScoutInterval === 0) return;
-    const intervalId = setInterval(() => {
-      scout(2000).catch((err) => {
-        console.error('Topology periodic auto-scout error:', err);
+    // Initial scout if no nodes scouted yet
+    const currentScouted = useConnectionStore.getState().scoutedNodes;
+    if (currentScouted.length === 0 && !useConnectionStore.getState().isScouting) {
+      scout(2500).catch((err) => {
+        console.error('Topology initial scout error:', err);
       });
-    }, autoScoutInterval * 1000);
+    }
+
+    if (autoScoutInterval <= 0) return;
+
+    // Trigger immediate scout when interval is activated
+    const isCurrentlyScouting = useConnectionStore.getState().isScouting;
+    if (!isCurrentlyScouting) {
+      scout(Math.min(2500, autoScoutInterval)).catch((err) => {
+        console.error('Topology auto-scout initial error:', err);
+      });
+    }
+
+    const intervalId = setInterval(() => {
+      const isScoutingNow = useConnectionStore.getState().isScouting;
+      if (!isScoutingNow) {
+        scout(Math.min(2500, autoScoutInterval)).catch((err) => {
+          console.error('Topology periodic auto-scout error:', err);
+        });
+      }
+    }, autoScoutInterval);
 
     return () => clearInterval(intervalId);
   }, [autoScoutInterval, scout]);

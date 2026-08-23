@@ -132,8 +132,10 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
             });
           }}
           onNodeDoubleClick={(node) => {
-            if (node.type !== 'local') {
+            if (node.type === 'router') {
               handleConnectNode(node);
+            } else if (node.type === 'peer') {
+              setSelectedNodeId(node.id);
             }
           }}
         />

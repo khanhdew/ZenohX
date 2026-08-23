@@ -47,7 +47,7 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
 
       <div className="h-px bg-border my-1" />
 
-      {node.type !== 'local' && (
+      {node.type === 'router' && (
         <button
           type="button"
           onClick={() => {
@@ -57,7 +57,7 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
         >
           <Power className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Connect Directly</span>
+          <span>Connect to Router</span>
         </button>
       )}
 

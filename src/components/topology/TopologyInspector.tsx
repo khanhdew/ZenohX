@@ -214,7 +214,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
       {/* Action Buttons Footer */}
       <div className="p-3 border-t bg-muted/20 space-y-2">
-        {node.type !== 'local' && (
+        {node.type === 'router' && (
           <Button
             size="sm"
             onClick={handleConnectDirectly}
@@ -222,8 +222,15 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             className="w-full h-8 text-xs gap-1.5 font-medium"
           >
             <Power className="w-3.5 h-3.5" />
-            <span>{node.status === 'connected' ? 'Connected' : 'Connect Directly'}</span>
+            <span>{node.status === 'connected' ? 'Connected' : 'Connect to Router'}</span>
           </Button>
+        )}
+
+        {node.type === 'peer' && (
+          <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
+            <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span>Discovered LAN Peer. Automatically meshed in peer mode.</span>
+          </div>
         )}
 
         <div className="flex items-center gap-2">
@@ -233,6 +240,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
               size="sm"
               onClick={() => onOpenProfileEditor(node)}
               className="flex-1 h-7 text-xs gap-1"
+              title="Save discovered locator into connection profiles"
             >
               <Plus className="w-3 h-3" />
               <span>Save Profile</span>

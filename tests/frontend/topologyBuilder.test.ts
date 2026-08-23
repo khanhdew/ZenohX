@@ -184,4 +184,56 @@ describe('Topology Data Builder', () => {
     assert.equal(activeEdge?.isEncrypted, true);
     assert.equal(activeEdge?.animated, true);
   });
+
+  it('automatically meshes discovered LAN peers when ZenohX is active in peer mode', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: 'peer-abc-123',
+        what: 'Peer',
+        locators: ['udp/192.168.1.55:7447'],
+      },
+    ];
+
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-peer-local',
+        name: 'My Peer Session',
+        mode: 'peer',
+        connect_locators: [],
+        listen_locators: [],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-peer-local': {
+        id: 'sess-peer',
+        profile_id: 'prof-peer-local',
+        zid: 'local-zid-peer',
+        connected_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    const localNode = nodes.find((n) => n.id === 'local-zenohx');
+    assert.equal(localNode?.label, 'ZenohX (Peer Mesh)');
+    assert.equal(localNode?.mode, 'peer');
+
+    const peerNode = nodes.find((n) => n.zid === 'peer-abc-123');
+    assert.ok(peerNode);
+    assert.equal(peerNode?.status, 'connected'); // Meshed with local peer
+
+    const meshEdge = edges.find((e) => e.source === 'local-zenohx' && e.target === peerNode?.id);
+    assert.ok(meshEdge);
+    assert.equal(meshEdge?.status, 'active');
+    assert.equal(meshEdge?.animated, true);
+  });
 });

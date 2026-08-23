@@ -51,6 +51,8 @@ export function buildTopologyGraph({
 
   const activeProfileList = profiles.filter((p) => Boolean(activeSessions[p.id]));
   const isAnySessionActive = activeProfileList.length > 0;
+  const activeProfile = activeProfileList[0];
+  const localMode: 'client' | 'peer' = (activeProfile?.mode as 'client' | 'peer') || 'client';
 
   // 1. Local ZenohX Node
   const localId = 'local-zenohx';
@@ -60,11 +62,16 @@ export function buildTopologyGraph({
   const localNode: TopologyNode = {
     id: localId,
     zid: activeSessionEntry?.zid || 'local',
-    label: 'ZenohX (Client)',
+    label: isAnySessionActive
+      ? localMode === 'peer'
+        ? 'ZenohX (Peer Mesh)'
+        : 'ZenohX (Client)'
+      : 'ZenohX (Disconnected)',
     type: 'local',
     status: isAnySessionActive ? 'connected' : 'disconnected',
     locators: [],
     isTls: false,
+    mode: localMode,
     x: existingLocal ? existingLocal.x : 0,
     y: existingLocal ? existingLocal.y : 0,
     vx: existingLocal ? existingLocal.vx : 0,
@@ -114,7 +121,9 @@ export function buildTopologyGraph({
       )
     );
 
-    const isConnected = Boolean(matchedConnectedProfile);
+    // In Peer mode, discovered LAN peers automatically join the local peer mesh
+    const isPeerMeshMember = isAnySessionActive && localMode === 'peer' && type === 'peer';
+    const isConnected = Boolean(matchedConnectedProfile) || isPeerMeshMember;
     const shortZid =
       node.zid.length > 8 ? `${node.zid.substring(0, 4)}...${node.zid.slice(-4)}` : node.zid;
     const label = matchedAnyProfile ? matchedAnyProfile.name : `${node.what || 'Node'} (${shortZid})`;
@@ -147,7 +156,7 @@ export function buildTopologyGraph({
     };
     nodes.push(topologyNode);
 
-    // If connected or primary locator exists, generate edge to local node
+    // If connected router or active peer mesh member, generate edge to local node
     if (isConnected) {
       const primaryLoc = topologyNode.locators[0] || '';
       const protocol = extractLocatorProtocol(primaryLoc);

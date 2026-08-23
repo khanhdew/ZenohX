@@ -30,7 +30,13 @@ pub async fn scout_nodes(timeout_ms: u64) -> Result<Vec<ScoutedNode>, String> {
                 .collect::<Vec<String>>();
 
             // Avoid duplicate entries if same node replies multiple times
-            if !nodes.iter().any(|n: &ScoutedNode| n.zid == zid) {
+            if let Some(existing) = nodes.iter_mut().find(|n: &&mut ScoutedNode| n.zid == zid) {
+                for loc in locators {
+                    if !existing.locators.contains(&loc) {
+                        existing.locators.push(loc);
+                    }
+                }
+            } else {
                 nodes.push(ScoutedNode {
                     zid,
                     what,

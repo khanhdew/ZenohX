@@ -272,4 +272,58 @@ describe('Topology Data Builder', () => {
     assert.equal(nodes.length, 0);
     assert.equal(edges.length, 0);
   });
+
+  it('guarantees zero duplicate ZIDs across multiple scout replies and active profiles', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: 'duplicate-zid-12345678',
+        what: 'Peer',
+        locators: ['tcp/192.168.1.50:7447'],
+      },
+      {
+        zid: 'duplicate-zid-12345678',
+        what: 'Peer',
+        locators: ['udp/192.168.1.50:7447', 'tls/192.168.1.50:7446'],
+      },
+    ];
+
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-dup',
+        name: 'My LAN Peer',
+        mode: 'peer',
+        connect_locators: ['tcp/192.168.1.50:7447'],
+        listen_locators: [],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-dup': {
+        id: 'sess-dup',
+        profile_id: 'prof-dup',
+        zid: 'duplicate-zid-12345678',
+        connected_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    // Must be exactly 1 node with this ZID
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].zid, 'duplicate-zid-12345678');
+    assert.equal(nodes[0].status, 'connected');
+    assert.equal(nodes[0].label, 'My LAN Peer');
+    // Locators should be unioned
+    assert.ok(nodes[0].locators.includes('tcp/192.168.1.50:7447'));
+    assert.ok(nodes[0].locators.includes('udp/192.168.1.50:7447'));
+    assert.ok(nodes[0].locators.includes('tls/192.168.1.50:7446'));
+  });
 });

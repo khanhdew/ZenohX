@@ -83,16 +83,13 @@ export function buildTopologyGraph({
   existingNodes = [],
 }: BuildTopologyOptions): TopologyGraphData {
   const existingMap = new Map<string, TopologyNode>(existingNodes.map((n) => [n.id, n]));
-  const nodes: TopologyNode[] = [];
+  const zidNodeMap = new Map<string, TopologyNode>();
   const edges: TopologyEdge[] = [];
 
   const matchedScoutZids = new Set<string>();
 
   // 1. Process Saved Connection Profiles as Persistent Nodes
   profiles.forEach((profile, index) => {
-    const nodeId = `profile-${profile.id}`;
-    const existing = existingMap.get(nodeId);
-
     const isConnected = Boolean(activeSessions[profile.id]);
     const sessionInfo = activeSessions[profile.id];
     const sessionZid = sessionInfo?.zid;
@@ -130,6 +127,10 @@ export function buildTopologyGraph({
       return;
     }
 
+    const nodeZid = matchingScout?.zid || sessionZid || persistentZid;
+    const nodeId = `profile-${profile.id}`;
+    const existing = existingMap.get(nodeId) || existingMap.get(`scouted-${nodeZid}`);
+
     const type: TopologyNode['type'] = profile.mode === 'client' ? 'router' : 'peer';
     const locators = Array.from(
       new Set([
@@ -148,29 +149,47 @@ export function buildTopologyGraph({
     const defaultX = 180 + index * 60;
     const defaultY = -120 + index * 60;
 
-    const topologyNode: TopologyNode = {
-      id: nodeId,
-      zid: matchingScout?.zid || sessionZid || persistentZid,
-      label: profile.name,
-      type,
-      status: isConnected ? 'connected' : 'scouted',
-      locators,
-      isTls,
-      profileId: profile.id,
-      x: existing ? existing.x : defaultX,
-      y: existing ? existing.y : defaultY,
-      vx: existing ? existing.vx : 0,
-      vy: existing ? existing.vy : 0,
-      fx: existing?.fx ?? null,
-      fy: existing?.fy ?? null,
-      radius,
-    };
-    nodes.push(topologyNode);
+    const existingInZidMap = zidNodeMap.get(nodeZid);
+    if (existingInZidMap) {
+      if (isConnected) existingInZidMap.status = 'connected';
+      existingInZidMap.locators = Array.from(new Set([...existingInZidMap.locators, ...locators]));
+      existingInZidMap.label = profile.name || existingInZidMap.label;
+      existingInZidMap.profileId = profile.id;
+      existingInZidMap.isTls = existingInZidMap.isTls || isTls;
+      existingInZidMap.type = type;
+    } else {
+      const topologyNode: TopologyNode = {
+        id: nodeId,
+        zid: nodeZid,
+        label: profile.name,
+        type,
+        status: isConnected ? 'connected' : 'scouted',
+        locators,
+        isTls,
+        profileId: profile.id,
+        x: existing ? existing.x : defaultX,
+        y: existing ? existing.y : defaultY,
+        vx: existing ? existing.vx : 0,
+        vy: existing ? existing.vy : 0,
+        fx: existing?.fx ?? null,
+        fy: existing?.fy ?? null,
+        radius,
+      };
+      zidNodeMap.set(nodeZid, topologyNode);
+    }
   });
 
   // 2. Process Additional External Scouted Nodes (e.g. unknown external routers/peers on LAN)
   scoutedNodes.forEach((node, index) => {
-    if (matchedScoutZids.has(node.zid)) return;
+    if (matchedScoutZids.has(node.zid) || zidNodeMap.has(node.zid)) {
+      const existingInZidMap = zidNodeMap.get(node.zid);
+      if (existingInZidMap && node.locators) {
+        existingInZidMap.locators = Array.from(
+          new Set([...existingInZidMap.locators, ...node.locators])
+        );
+      }
+      return;
+    }
 
     // If this scouted node is an active client-mode session inside ZenohX, skip it
     const isLocalClientSession = profiles.some(
@@ -219,8 +238,10 @@ export function buildTopologyGraph({
       fy: existing?.fy ?? null,
       radius,
     };
-    nodes.push(topologyNode);
+    zidNodeMap.set(node.zid, topologyNode);
   });
+
+  const nodes = Array.from(zidNodeMap.values());
 
   // 3. Generate Inter-Node Topology Edges
   const routers = nodes.filter((n) => n.type === 'router');

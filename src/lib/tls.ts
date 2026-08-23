@@ -82,18 +82,36 @@ export function resolveTlsConfig(params: ResolveTlsConfigParams): TlsConfig | nu
 export function parseLocator(locator: string): ParsedLocator | null {
   if (!locator || typeof locator !== 'string') return null;
   const trimmed = locator.trim();
+  if (!trimmed) return null;
+
   const slashIdx = trimmed.indexOf('/');
-  if (slashIdx === -1) return null;
+  if (slashIdx === -1) {
+    const colonIdx = trimmed.lastIndexOf(':');
+    if (colonIdx !== -1) {
+      const host = trimmed.slice(0, colonIdx).trim();
+      const port = trimmed.slice(colonIdx + 1).trim();
+      if (host && port) {
+        return { protocol: 'tcp', host, port };
+      }
+    }
+    return null;
+  }
 
   const protocol = trimmed.slice(0, slashIdx).toLowerCase();
   const hostAndPort = trimmed.slice(slashIdx + 1);
   const colonIdx = hostAndPort.lastIndexOf(':');
-  if (colonIdx === -1) return null;
+  if (colonIdx === -1) {
+    const host = hostAndPort.trim();
+    if (host) {
+      return { protocol, host, port: '7447' };
+    }
+    return null;
+  }
 
   const host = hostAndPort.slice(0, colonIdx).trim();
-  const port = hostAndPort.slice(colonIdx + 1).trim();
+  const port = hostAndPort.slice(colonIdx + 1).trim() || '7447';
 
-  if (!host || !port) return null;
+  if (!host) return null;
 
   return { protocol, host, port };
 }
@@ -103,9 +121,17 @@ export function parseLocator(locator: string): ParsedLocator | null {
  */
 export function buildLocator(protocol: string, host: string, port: string): string {
   const h = host.trim();
+  if (!h) return '';
+
+  const parsed = parseLocator(h);
+  if (parsed) {
+    const proto = protocol.trim().toLowerCase() || parsed.protocol || 'tcp';
+    const p = port.trim() && port.trim() !== '7447' ? port.trim() : parsed.port || '7447';
+    return `${proto}/${parsed.host}:${p}`;
+  }
+
   const p = port.trim() || '7447';
   const proto = protocol.trim().toLowerCase() || 'tcp';
-  if (!h) return '';
   return `${proto}/${h}:${p}`;
 }
 

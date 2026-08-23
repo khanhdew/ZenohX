@@ -48,12 +48,11 @@ export function isLocatorMatch(loc1: string, loc2: string): boolean {
 
   const lastColon1 = hostPort1.lastIndexOf(':');
   const lastColon2 = hostPort2.lastIndexOf(':');
-  if (lastColon1 === -1 || lastColon2 === -1) return false;
 
-  const port1 = hostPort1.slice(lastColon1 + 1);
-  const port2 = hostPort2.slice(lastColon2 + 1);
-  const host1 = hostPort1.slice(0, lastColon1).replace(/^\[|\]$/g, '').toLowerCase();
-  const host2 = hostPort2.slice(0, lastColon2).replace(/^\[|\]$/g, '').toLowerCase();
+  const port1 = lastColon1 !== -1 ? hostPort1.slice(lastColon1 + 1) : '7447';
+  const port2 = lastColon2 !== -1 ? hostPort2.slice(lastColon2 + 1) : '7447';
+  const host1 = (lastColon1 !== -1 ? hostPort1.slice(0, lastColon1) : hostPort1).replace(/^\[|\]$/g, '').toLowerCase();
+  const host2 = (lastColon2 !== -1 ? hostPort2.slice(0, lastColon2) : hostPort2).replace(/^\[|\]$/g, '').toLowerCase();
 
   if (port1 === port2) {
     const isLocal1 = host1 === '127.0.0.1' || host1 === 'localhost' || host1 === '0.0.0.0' || host1 === '::1' || host1 === '';
@@ -95,8 +94,14 @@ export function buildTopologyGraph({
     const existing = existingMap.get(nodeId);
 
     const isConnected = Boolean(activeSessions[profile.id]);
-    const sessionZid = activeSessions[profile.id]?.zid;
+    const sessionInfo = activeSessions[profile.id];
+    const sessionZid = sessionInfo?.zid;
     const persistentZid = sessionZid || derivePersistentZid(profile.id);
+
+    const sessionLocators = [
+      ...(sessionInfo?.listen_locators || []),
+      ...(sessionInfo?.connect_locators || []),
+    ];
 
     // Find if a scouted node matches this profile by ZID or locators
     const matchingScout = scoutedNodes.find((scout) => {
@@ -106,8 +111,13 @@ export function buildTopologyGraph({
         );
       }
       if (scout.zid === sessionZid || scout.zid === persistentZid) return true;
-      return profile.connect_locators.some((loc) =>
-        (scout.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
+      return (
+        profile.connect_locators.some((loc) =>
+          (scout.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
+        ) ||
+        sessionLocators.some((loc) =>
+          (scout.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
+        )
       );
     });
 
@@ -116,14 +126,14 @@ export function buildTopologyGraph({
     }
 
     const type: TopologyNode['type'] = profile.mode === 'client' ? 'router' : 'peer';
-    const locators =
-      matchingScout?.locators?.length
-        ? matchingScout.locators
-        : profile.connect_locators.length
-        ? profile.connect_locators
-        : profile.listen_locators.length
-        ? profile.listen_locators
-        : [];
+    const locators = Array.from(
+      new Set([
+        ...(matchingScout?.locators || []),
+        ...sessionLocators,
+        ...profile.connect_locators,
+        ...profile.listen_locators,
+      ])
+    ).filter(Boolean);
 
     const isTls =
       locators.some((l) => extractLocatorProtocol(l) === 'tls') ||

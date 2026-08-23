@@ -151,6 +151,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <LocalConfigForm
               localName={form.localName}
               setLocalName={form.setLocalName}
+              enableTls={form.enableTls}
+              setEnableTls={form.setEnableTls}
+              useCustomTls={form.useCustomTls}
+              setUseCustomTls={form.setUseCustomTls}
+              caCert={form.caCert}
+              setCaCert={form.setCaCert}
+              clientCert={form.clientCert}
+              setClientCert={form.setClientCert}
+              clientKey={form.clientKey}
+              setClientKey={form.setClientKey}
             />
           )}
 

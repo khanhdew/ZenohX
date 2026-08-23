@@ -375,9 +375,15 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         finalName = localName.trim();
         finalMode = 'peer';
         finalScoutMulticast = true;
-        finalConnectLocators = [];
-        finalListenLocators = [];
-        finalTlsConfig = null;
+        finalConnectLocators = connectLocators.map((l) => l.trim()).filter(Boolean);
+        finalListenLocators = listenLocators.map((l) => l.trim()).filter(Boolean);
+        finalTlsConfig = resolveTlsConfig({
+          enableTls: enableTls || useCustomTls || Boolean(caCert || clientCert || clientKey),
+          useCustomTls: useCustomTls || Boolean(caCert || clientCert || clientKey),
+          caCert,
+          clientCert,
+          clientKey,
+        });
       } else {
         finalConnectLocators = connectLocators.map((l) => l.trim()).filter(Boolean);
         finalListenLocators = listenLocators.map((l) => l.trim()).filter(Boolean);

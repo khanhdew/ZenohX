@@ -128,6 +128,14 @@ impl SessionConfig {
             config
                 .insert_json5("listen/endpoints", &json)
                 .map_err(|e| format!("failed to set listen endpoints: {e}"))?;
+        } else if self.tls_config.is_some() && mode_str == "peer" {
+            // When TLS is configured on a peer without explicit listen locator, listen on TLS
+            let default_tls_listen = vec!["tls/0.0.0.0:7447".to_string()];
+            let json = serde_json::to_string(&default_tls_listen)
+                .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
+            config
+                .insert_json5("listen/endpoints", &json)
+                .map_err(|e| format!("failed to set tls listen endpoints: {e}"))?;
         }
 
         // 4. Multicast scouting
@@ -161,22 +169,39 @@ impl SessionConfig {
             }
         }
 
-        // 6. TLS configuration
+        // 6. TLS & mTLS configuration
         if let Some(tls) = &self.tls_config {
             if let Some(ca) = &tls.ca_cert {
-                config
-                    .insert_json5("transport/link/tls/root_ca_certificate", &format!("\"{ca}\""))
-                    .map_err(|e| format!("failed to set tls ca cert: {e}"))?;
+                if !ca.trim().is_empty() {
+                    config
+                        .insert_json5("transport/link/tls/root_ca_certificate", &format!("\"{ca}\""))
+                        .map_err(|e| format!("failed to set tls ca cert: {e}"))?;
+                }
             }
             if let Some(cert) = &tls.client_cert {
-                config
-                    .insert_json5("transport/link/tls/certificate", &format!("\"{cert}\""))
-                    .map_err(|e| format!("failed to set tls cert: {e}"))?;
+                if !cert.trim().is_empty() {
+                    config
+                        .insert_json5("transport/link/tls/connect_certificate", &format!("\"{cert}\""))
+                        .map_err(|e| format!("failed to set tls connect cert: {e}"))?;
+                    config
+                        .insert_json5("transport/link/tls/listen_certificate", &format!("\"{cert}\""))
+                        .map_err(|e| format!("failed to set tls listen cert: {e}"))?;
+                }
             }
             if let Some(key) = &tls.client_key {
-                config
-                    .insert_json5("transport/link/tls/private_key", &format!("\"{key}\""))
-                    .map_err(|e| format!("failed to set tls key: {e}"))?;
+                if !key.trim().is_empty() {
+                    config
+                        .insert_json5("transport/link/tls/connect_private_key", &format!("\"{key}\""))
+                        .map_err(|e| format!("failed to set tls connect key: {e}"))?;
+                    config
+                        .insert_json5("transport/link/tls/listen_private_key", &format!("\"{key}\""))
+                        .map_err(|e| format!("failed to set tls listen key: {e}"))?;
+                }
+            }
+
+            if tls.client_cert.is_some() || tls.client_key.is_some() || tls.ca_cert.is_some() {
+                let _ = config.insert_json5("transport/link/tls/enable_mtls", "true");
+                let _ = config.insert_json5("transport/link/tls/verify_name_on_connect", "false");
             }
         }
 

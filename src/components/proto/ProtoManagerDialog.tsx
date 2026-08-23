@@ -41,6 +41,14 @@ import { useProtoStore } from '../../stores/protoStore';
 import { parseProtoSchema, generateProtoSampleJson } from '../../lib/protobufEngine';
 import type { ProtoDefinition, ProtoTopicMapping } from '../../types/proto';
 
+export interface ProtoManagerViewProps {
+  isEmbedded?: boolean;
+  onClose?: () => void;
+  initialSelectedSchemaId?: string;
+  initialTab?: 'schemas' | 'mappings';
+  className?: string;
+}
+
 export interface ProtoManagerDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -204,11 +212,12 @@ function formatProtoCode(code: string): string {
     .trim() + '\n';
 }
 
-export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
-  isOpen,
+export const ProtoManagerView: React.FC<ProtoManagerViewProps> = ({
+  isEmbedded = false,
   onClose,
   initialSelectedSchemaId,
   initialTab = 'schemas',
+  className = '',
 }) => {
   const schemas = useProtoStore((s) => s.schemas);
   const mappings = useProtoStore((s) => s.mappings);
@@ -251,21 +260,17 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sync active tab on open
+  // Sync tab & errors on mount
   useEffect(() => {
-    if (isOpen) {
-      setActiveTab(initialTab);
-      setEditorError(null);
-      setSaveSuccessMsg(null);
-      setMappingError(null);
-      setMappingSuccessMsg(null);
-    }
-  }, [isOpen, initialTab]);
+    setActiveTab(initialTab);
+    setEditorError(null);
+    setSaveSuccessMsg(null);
+    setMappingError(null);
+    setMappingSuccessMsg(null);
+  }, [initialTab]);
 
   // Sync selected schema
   useEffect(() => {
-    if (!isOpen) return;
-
     if (initialSelectedSchemaId && schemas.some((s) => s.id === initialSelectedSchemaId)) {
       setSelectedSchemaId(initialSelectedSchemaId);
     } else if (selectedSchemaId && schemas.some((s) => s.id === selectedSchemaId)) {
@@ -275,7 +280,7 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
     } else {
       setSelectedSchemaId(null);
     }
-  }, [isOpen, schemas, initialSelectedSchemaId]);
+  }, [schemas, initialSelectedSchemaId]);
 
   const selectedSchema = useMemo(() => {
     return schemas.find((s) => s.id === selectedSchemaId) || null;
@@ -528,34 +533,29 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <>
-      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="max-w-5xl w-[95vw] h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
-          {/* Header */}
-          <DialogHeader className="px-5 py-3.5 border-b bg-card shrink-0">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
-                  <FileCode2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <DialogTitle className="text-base font-semibold flex items-center gap-2">
-                    Protobuf Schema Manager
-                    <Badge variant="outline" className="text-[10px] font-mono font-normal">
-                      v2 / v3
-                    </Badge>
-                  </DialogTitle>
-                  <DialogDescription className="text-xs text-muted-foreground mt-0.5">
-                    Register Protobuf definitions, inspect message types, and map Zenoh topic patterns to automatic decoders.
-                  </DialogDescription>
-                </div>
-              </div>
+    <div className={`flex flex-col h-full w-full overflow-hidden bg-background ${className}`}>
+      {/* Header */}
+      <div className="px-5 py-3.5 border-b bg-card shrink-0 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
+            <FileCode2 className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold flex items-center gap-2 text-foreground">
+              Protobuf Schema Manager
+              <Badge variant="outline" className="text-[10px] font-mono font-normal">
+                v2 / v3
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Register Protobuf definitions, inspect message types, and map Zenoh topic patterns to automatic decoders.
+            </div>
+          </div>
+        </div>
 
-              {/* Workspace Switcher Tabs */}
-              <div className="flex items-center rounded-md bg-muted p-0.5 mr-6">
+        {/* Workspace Switcher Tabs */}
+        <div className="flex items-center rounded-md bg-muted p-0.5 mr-2">
                 <button
                   type="button"
                   onClick={() => setActiveTab('schemas')}
@@ -591,7 +591,6 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
                 </button>
               </div>
             </div>
-          </DialogHeader>
 
           {/* Hidden File Input for .proto file upload */}
           <input
@@ -1155,8 +1154,8 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
             </div>
           )}
 
-          {/* Dialog Footer */}
-          <DialogFooter className="px-5 py-3 border-t bg-card shrink-0 flex items-center justify-between">
+          {/* Footer Bar */}
+          <div className="px-5 py-3 border-t bg-card shrink-0 flex items-center justify-between">
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <Info className="w-3.5 h-3.5" />
               <span>
@@ -1165,12 +1164,12 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
               </span>
             </div>
 
-            <Button variant="outline" size="sm" onClick={onClose} className="h-7 px-3 text-xs">
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            {!isEmbedded && onClose && (
+              <Button variant="outline" size="sm" onClick={onClose} className="h-7 px-3 text-xs">
+                Close
+              </Button>
+            )}
+          </div>
 
       {/* Delete Schema Confirmation Dialog */}
       <Dialog
@@ -1294,8 +1293,30 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
+    </div>
+  );
+};
+
+export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
+  isOpen,
+  onClose,
+  initialSelectedSchemaId,
+  initialTab = 'schemas',
+}) => {
+  if (!isOpen) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl w-[95vw] h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+        <ProtoManagerView
+          onClose={onClose}
+          initialSelectedSchemaId={initialSelectedSchemaId}
+          initialTab={initialTab}
+        />
+      </DialogContent>
+    </Dialog>
   );
 };
 
 export default ProtoManagerDialog;
+

@@ -31,6 +31,10 @@ export const ShortcutsTab: React.FC = () => {
           <span className="text-foreground font-medium">New Connection Profile</span>
           <kbd className="px-2 py-1 rounded bg-muted border font-mono text-[11px]">Ctrl + N</kbd>
         </div>
+        <div className="p-3.5 flex items-center justify-between">
+          <span className="text-foreground font-medium">Open Protobuf Schema Manager</span>
+          <kbd className="px-2 py-1 rounded bg-muted border font-mono text-[11px]">Ctrl + Shift + P</kbd>
+        </div>
       </div>
     </div>
   );

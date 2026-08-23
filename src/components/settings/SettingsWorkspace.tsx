@@ -4,26 +4,30 @@ import {
   RefreshCw,
   Sliders,
   Keyboard,
+  FileCode2,
 } from 'lucide-react';
 import { clearMessageHistory, queryMessages } from '../../lib/tauri';
 import { useUpdateStore } from '../../stores/updateStore';
+import { useProtoStore } from '../../stores/protoStore';
 import type { StoredMessage } from '../../types/zenoh';
 
 import { PreferencesTab } from './tabs/PreferencesTab';
 import { UpdatesTab } from './tabs/UpdatesTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ShortcutsTab } from './tabs/ShortcutsTab';
+import { ProtobufTab } from './tabs/ProtobufTab';
 
 export interface SettingsWorkspaceProps {
   className?: string;
 }
 
-type TabType = 'preferences' | 'updates' | 'history' | 'shortcuts';
+type TabType = 'preferences' | 'updates' | 'protobuf' | 'history' | 'shortcuts';
 
 export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className = '' }) => {
   const [activeTab, setActiveTab] = useState<TabType>('preferences');
 
   const updateStatus = useUpdateStore((state) => state.status);
+  const schemasCount = useProtoStore((state) => state.schemas.length);
 
   // History SQLite States
   const [historyProfileId, setHistoryProfileId] = useState<string>('');
@@ -109,6 +113,23 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('protobuf')}
+            className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+              activeTab === 'protobuf'
+                ? 'bg-background text-foreground shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <FileCode2 className="w-3.5 h-3.5" />
+            <span>Protobuf Manager</span>
+            {schemasCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
+                {schemasCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('updates')}
             className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               activeTab === 'updates'
@@ -152,6 +173,8 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
       {/* Main Content Area */}
       <main className="flex-1 min-h-0 overflow-y-auto">
         {activeTab === 'preferences' && <PreferencesTab />}
+
+        {activeTab === 'protobuf' && <ProtobufTab />}
 
         {activeTab === 'updates' && <UpdatesTab />}
 

@@ -66,6 +66,52 @@ export async function checkForAppUpdates(): Promise<CheckUpdateResult> {
 }
 
 /**
+ * Downloads the update package without restarting immediately.
+ */
+export async function downloadUpdate(
+  update: Update,
+  onProgress?: (progress: { downloaded: number; total: number; percentage: number }) => void
+): Promise<void> {
+  let downloaded = 0;
+  let contentLength = 0;
+
+  await update.download((event) => {
+    switch (event.event) {
+      case 'Started':
+        contentLength = event.data.contentLength || 0;
+        break;
+      case 'Progress':
+        downloaded += event.data.chunkLength;
+        if (contentLength > 0 && onProgress) {
+          onProgress({
+            downloaded,
+            total: contentLength,
+            percentage: Math.min(100, Math.round((downloaded / contentLength) * 100)),
+          });
+        }
+        break;
+      case 'Finished':
+        if (onProgress) {
+          onProgress({
+            downloaded: contentLength || downloaded,
+            total: contentLength || downloaded,
+            percentage: 100,
+          });
+        }
+        break;
+    }
+  });
+}
+
+/**
+ * Installs the already downloaded update package and restarts the application.
+ */
+export async function installDownloadedUpdate(update: Update): Promise<void> {
+  await update.install();
+  await relaunch();
+}
+
+/**
  * Downloads and installs the pending update with real-time byte progress.
  */
 export async function downloadAndInstallUpdate(

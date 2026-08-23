@@ -23,6 +23,9 @@ export interface SettingsState {
   maxMessageBuffer: number;
   defaultQueryTimeoutMs: number;
 
+  // Privacy & Telemetry
+  anonymousTelemetry: boolean;
+
   // Actions
   setTheme: (theme: ThemeMode) => void;
   setCompactMode: (compact: boolean) => void;
@@ -34,6 +37,7 @@ export interface SettingsState {
   setDefaultPayloadEncoding: (encoding: EncodingType) => void;
   setMaxMessageBuffer: (bufferSize: number) => void;
   setDefaultQueryTimeoutMs: (timeoutMs: number) => void;
+  setAnonymousTelemetry: (enabled: boolean) => void;
   resetToDefaults: () => void;
 }
 
@@ -43,11 +47,12 @@ const DEFAULT_SETTINGS = {
   codeFont: 'mono' as CodeFont,
   autoCheckUpdates: true,
   updateChannel: 'stable' as UpdateChannel,
-  autoDownload: false,
+  autoDownload: true,
   lastCheckedUpdate: null,
   defaultPayloadEncoding: 'json' as EncodingType,
   maxMessageBuffer: 1000,
   defaultQueryTimeoutMs: 3000,
+  anonymousTelemetry: true,
 };
 
 export function applyThemeToDom(theme: ThemeMode) {
@@ -102,6 +107,8 @@ export const useSettingsStore = create<SettingsState>()(
       setMaxMessageBuffer: (maxMessageBuffer) => set({ maxMessageBuffer }),
 
       setDefaultQueryTimeoutMs: (defaultQueryTimeoutMs) => set({ defaultQueryTimeoutMs }),
+
+      setAnonymousTelemetry: (anonymousTelemetry) => set({ anonymousTelemetry }),
 
       resetToDefaults: () => {
         applyThemeToDom(DEFAULT_SETTINGS.theme);

@@ -1,5 +1,14 @@
 import React from 'react';
-import { Sparkles, Loader2, RefreshCw, CheckCircle2, Download, AlertCircle, Clock, ShieldCheck } from 'lucide-react';
+import {
+  Sparkles,
+  Loader2,
+  RefreshCw,
+  CheckCircle2,
+  Download,
+  AlertCircle,
+  Clock,
+  ShieldCheck,
+} from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Switch } from '../../ui/switch';
 import {
@@ -10,26 +19,11 @@ import {
   SelectValue,
 } from '../../ui/select';
 import { useSettingsStore, type UpdateChannel } from '../../../stores/settingsStore';
+import { useUpdateStore } from '../../../stores/updateStore';
 import { APP_VERSION } from '../../../lib/version';
-import type { UpdateProgress } from '../../../lib/updater';
-import type { Update } from '@tauri-apps/plugin-updater';
 import zenohxIcon from '../../../assets/icon.png';
 
-export interface UpdatesTabProps {
-  updateState: UpdateProgress;
-  availableUpdate: Update | null;
-  updateSuccessNotice: string | null;
-  onCheckUpdates: () => void;
-  onInstallUpdate: () => void;
-}
-
-export const UpdatesTab: React.FC<UpdatesTabProps> = ({
-  updateState,
-  availableUpdate: _availableUpdate,
-  updateSuccessNotice,
-  onCheckUpdates,
-  onInstallUpdate,
-}) => {
+export const UpdatesTab: React.FC = () => {
   const {
     autoCheckUpdates,
     updateChannel,
@@ -39,6 +33,33 @@ export const UpdatesTab: React.FC<UpdatesTabProps> = ({
     setUpdateChannel,
     setAutoDownload,
   } = useSettingsStore();
+
+  const {
+    status: updateStatus,
+    version: updateVersion,
+    releaseDate,
+    notes,
+    percentage,
+    error: updateError,
+    notice: updateSuccessNotice,
+    checkForUpdates,
+    startDownload,
+    installAndRestart,
+  } = useUpdateStore();
+
+  const isDownloaded = updateStatus === 'downloaded';
+  const isChecking = updateStatus === 'checking';
+  const isDownloading = updateStatus === 'downloading';
+  const isInstalling = updateStatus === 'installing';
+  const isAvailable = updateStatus === 'available';
+
+  const handleTopButtonClick = () => {
+    if (isDownloaded) {
+      installAndRestart();
+    } else {
+      checkForUpdates(true);
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-8">
@@ -62,15 +83,34 @@ export const UpdatesTab: React.FC<UpdatesTabProps> = ({
           </div>
 
           <Button
-            onClick={onCheckUpdates}
-            disabled={updateState.status === 'checking' || updateState.status === 'downloading'}
+            onClick={handleTopButtonClick}
+            disabled={isChecking || isDownloading || isInstalling}
             size="sm"
-            className="gap-1.5 text-xs"
+            className={`gap-1.5 text-xs ${
+              isDownloaded
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                : ''
+            }`}
           >
-            {updateState.status === 'checking' ? (
+            {isChecking ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 Checking...
+              </>
+            ) : isDownloading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Downloading ({percentage || 0}%)...
+              </>
+            ) : isInstalling ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Updating...
+              </>
+            ) : isDownloaded ? (
+              <>
+                <Download className="w-3.5 h-3.5" />
+                Update
               </>
             ) : (
               <>
@@ -89,65 +129,113 @@ export const UpdatesTab: React.FC<UpdatesTabProps> = ({
           </div>
         )}
 
-        {updateState.status === 'available' && (
-          <div className="p-4 rounded-lg bg-secondary/80 border space-y-3">
+        {isDownloaded && (
+          <div className="p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-500" />
                 <span className="text-xs font-semibold text-foreground">
-                  New Version Available: v{updateState.version}
+                  Update Ready: v{updateVersion}
                 </span>
               </div>
-              {updateState.releaseDate && (
+              {releaseDate && (
                 <span className="text-[11px] text-muted-foreground font-mono">
-                  {updateState.releaseDate}
+                  {releaseDate}
                 </span>
               )}
             </div>
 
-            {updateState.notes && (
+            {notes && (
               <div className="p-2.5 rounded bg-background text-xs font-mono max-h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground border">
-                {updateState.notes}
+                {notes}
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-1">
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className="text-xs text-muted-foreground">
+                Update has been downloaded. Restart to apply.
+              </span>
               <Button
-                onClick={onInstallUpdate}
+                onClick={installAndRestart}
+                disabled={isInstalling}
                 size="sm"
                 className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                <Download className="w-3.5 h-3.5" />
-                Download & Install Update
+                {isInstalling ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Applying Update...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" />
+                    Restart & Update
+                  </>
+                )}
               </Button>
             </div>
           </div>
         )}
 
-        {updateState.status === 'downloading' && (
+        {isAvailable && (
+          <div className="p-4 rounded-lg bg-secondary/80 border space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-500" />
+                <span className="text-xs font-semibold text-foreground">
+                  New Version Available: v{updateVersion}
+                </span>
+              </div>
+              {releaseDate && (
+                <span className="text-[11px] text-muted-foreground font-mono">
+                  {releaseDate}
+                </span>
+              )}
+            </div>
+
+            {notes && (
+              <div className="p-2.5 rounded bg-background text-xs font-mono max-h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground border">
+                {notes}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                onClick={() => startDownload()}
+                size="sm"
+                className="gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download Update
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {isDownloading && (
           <div className="p-4 rounded-lg border bg-secondary/50 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium text-foreground">Downloading update...</span>
-              <span className="font-mono text-muted-foreground">{updateState.percentage || 0}%</span>
+              <span className="font-mono text-muted-foreground">{percentage || 0}%</span>
             </div>
             <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
               <div
                 className="bg-primary h-2 rounded-full transition-all duration-300"
-                style={{ width: `${updateState.percentage || 0}%` }}
+                style={{ width: `${percentage || 0}%` }}
               />
             </div>
           </div>
         )}
 
-        {updateState.status === 'error' && (
+        {updateStatus === 'error' && (
           <div className="flex items-start gap-2.5 p-3 rounded-lg bg-destructive/10 text-destructive border border-destructive/20 text-xs">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <span className="font-semibold block">Update check completed</span>
               <span className="text-muted-foreground text-[11px] leading-relaxed block">
-                {updateState.error?.includes('Could not fetch') || updateState.error?.includes('endpoint')
+                {updateError?.includes('Could not fetch') || updateError?.includes('endpoint')
                   ? 'Release endpoint reached. No newer production build published yet.'
-                  : updateState.error}
+                  : updateError}
               </span>
             </div>
           </div>

@@ -14,10 +14,11 @@ describe('Settings Store', () => {
     assert.equal(state.codeFont, 'mono');
     assert.equal(state.autoCheckUpdates, true);
     assert.equal(state.updateChannel, 'stable');
-    assert.equal(state.autoDownload, false);
+    assert.equal(state.autoDownload, true);
     assert.equal(state.defaultPayloadEncoding, 'json');
     assert.equal(state.maxMessageBuffer, 1000);
     assert.equal(state.defaultQueryTimeoutMs, 3000);
+    assert.equal(state.anonymousTelemetry, true);
   });
 
   test('updates appearance settings', () => {

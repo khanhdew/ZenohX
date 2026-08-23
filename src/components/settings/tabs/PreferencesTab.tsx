@@ -1,5 +1,5 @@
 import React from 'react';
-import { Moon, Sun, Laptop, Sliders, Check } from 'lucide-react';
+import { Moon, Sun, Laptop, Sliders, Check, ShieldCheck } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Switch } from '../../ui/switch';
 import {
@@ -20,12 +20,14 @@ export const PreferencesTab: React.FC = () => {
     defaultPayloadEncoding,
     maxMessageBuffer,
     defaultQueryTimeoutMs,
+    anonymousTelemetry,
     setTheme,
     setCompactMode,
     setCodeFont,
     setDefaultPayloadEncoding,
     setMaxMessageBuffer,
     setDefaultQueryTimeoutMs,
+    setAnonymousTelemetry,
     resetToDefaults,
   } = useSettingsStore();
 
@@ -250,6 +252,36 @@ export const PreferencesTab: React.FC = () => {
                 <SelectItem value="10000" className="text-xs font-mono">10,000ms (10.0s)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        </div>
+      </section>
+
+      {/* Privacy & Analytics Section */}
+      <section className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4" />
+            Privacy & Telemetry
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Manage anonymous diagnostics and active user analytics.
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-card divide-y shadow-xs">
+          <div className="p-4 flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <label className="text-xs font-medium text-foreground block">
+                Anonymous Usage Statistics
+              </label>
+              <span className="text-[11px] text-muted-foreground leading-relaxed block">
+                Send anonymous launch metrics (OS, app version, country) to help improve ZenohX. No personal data, IP addresses, or Zenoh message payloads are ever collected.
+              </span>
+            </div>
+            <Switch
+              checked={anonymousTelemetry}
+              onCheckedChange={setAnonymousTelemetry}
+            />
           </div>
         </div>
 

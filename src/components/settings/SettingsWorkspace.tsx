@@ -5,13 +5,9 @@ import {
   Sliders,
   Keyboard,
 } from 'lucide-react';
-import { Badge } from '../ui/badge';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { checkForAppUpdates, downloadAndInstallUpdate, type UpdateProgress } from '../../lib/updater';
-import { APP_VERSION } from '../../lib/version';
 import { clearMessageHistory, queryMessages } from '../../lib/tauri';
+import { useUpdateStore } from '../../stores/updateStore';
 import type { StoredMessage } from '../../types/zenoh';
-import type { Update } from '@tauri-apps/plugin-updater';
 
 import { PreferencesTab } from './tabs/PreferencesTab';
 import { UpdatesTab } from './tabs/UpdatesTab';
@@ -25,9 +21,9 @@ export interface SettingsWorkspaceProps {
 type TabType = 'preferences' | 'updates' | 'history' | 'shortcuts';
 
 export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className = '' }) => {
-  const setLastCheckedUpdate = useSettingsStore((state) => state.setLastCheckedUpdate);
-
   const [activeTab, setActiveTab] = useState<TabType>('preferences');
+
+  const updateStatus = useUpdateStore((state) => state.status);
 
   // History SQLite States
   const [historyProfileId, setHistoryProfileId] = useState<string>('');
@@ -37,11 +33,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
   const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string>('');
-
-  // Auto-Update States
-  const [updateState, setUpdateState] = useState<UpdateProgress>({ status: 'idle' });
-  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
-  const [updateSuccessNotice, setUpdateSuccessNotice] = useState<string | null>(null);
 
   // Load History on Mount or filter change
   useEffect(() => {
@@ -80,69 +71,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
     }
   };
 
-  // Check for updates handler
-  const handleCheckUpdates = async () => {
-    setUpdateState({ status: 'checking' });
-    setUpdateSuccessNotice(null);
-    const now = Date.now();
-    setLastCheckedUpdate(now);
-
-    try {
-      const result = await checkForAppUpdates();
-      if (result.updateAvailable && result.update) {
-        setAvailableUpdate(result.update);
-        setUpdateState({
-          status: 'available',
-          version: result.version,
-          releaseDate: result.date,
-          notes: result.body,
-        });
-      } else if (result.error) {
-        setUpdateState({
-          status: 'error',
-          error: result.error,
-        });
-      } else {
-        setUpdateState({
-          status: 'up-to-date',
-          version: APP_VERSION,
-        });
-        setUpdateSuccessNotice(`You are running the latest version of ZenohX (v${APP_VERSION}).`);
-        setTimeout(() => setUpdateSuccessNotice(null), 4000);
-      }
-    } catch (err) {
-      setUpdateState({
-        status: 'error',
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  };
-
-  // Download & Install update handler
-  const handleInstallUpdate = async () => {
-    if (!availableUpdate) return;
-    setUpdateState((prev) => ({ ...prev, status: 'downloading', percentage: 0 }));
-
-    try {
-      await downloadAndInstallUpdate(availableUpdate, (progress) => {
-        setUpdateState((prev) => ({
-          ...prev,
-          status: 'downloading',
-          downloadedBytes: progress.downloaded,
-          totalBytes: progress.total,
-          percentage: progress.percentage,
-        }));
-      });
-      setUpdateState((prev) => ({ ...prev, status: 'ready' }));
-    } catch (err) {
-      setUpdateState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: err instanceof Error ? err.message : String(err),
-      }));
-    }
-  };
-
   // Filtered History messages
   const filteredHistory = useMemo(() => {
     if (!searchHistory.trim()) return historyMessages;
@@ -163,9 +91,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           <h2 className="text-xs font-semibold text-foreground">
             Settings & Preferences
           </h2>
-          <Badge variant="outline" className="text-[10px] font-mono">
-            v0.1.0
-          </Badge>
         </div>
 
         {/* Tab switcher */}
@@ -193,7 +118,7 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Updates</span>
-            {updateState.status === 'available' && (
+            {(updateStatus === 'available' || updateStatus === 'downloaded') && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             )}
           </button>
@@ -228,15 +153,7 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
       <main className="flex-1 min-h-0 overflow-y-auto">
         {activeTab === 'preferences' && <PreferencesTab />}
 
-        {activeTab === 'updates' && (
-          <UpdatesTab
-            updateState={updateState}
-            availableUpdate={availableUpdate}
-            updateSuccessNotice={updateSuccessNotice}
-            onCheckUpdates={handleCheckUpdates}
-            onInstallUpdate={handleInstallUpdate}
-          />
-        )}
+        {activeTab === 'updates' && <UpdatesTab />}
 
         {activeTab === 'history' && (
           <HistoryTab

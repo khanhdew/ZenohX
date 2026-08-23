@@ -14,13 +14,16 @@ import {
   X,
   Lock,
   Activity,
+  Sparkles,
+  Download,
 } from 'lucide-react';
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
 import { useQueryStore } from './stores/queryStore';
 import { useTrafficStore, initTrafficTicker } from './stores/trafficStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
-import { checkForAppUpdates, downloadAndInstallUpdate } from './lib/updater';
+import { useUpdateStore } from './stores/updateStore';
+import { initTelemetry, trackAppStart } from './lib/telemetry';
 import { ConnectionProfile } from './types/zenoh';
 import { isTlsEnabled } from './lib/tls';
 import { formatThroughput } from './lib/trafficFormatters';
@@ -109,8 +112,12 @@ export function App() {
 
   const theme = useSettingsStore((s) => s.theme);
   const autoCheckUpdates = useSettingsStore((s) => s.autoCheckUpdates);
-  const autoDownload = useSettingsStore((s) => s.autoDownload);
-  const setLastCheckedUpdate = useSettingsStore((s) => s.setLastCheckedUpdate);
+
+  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
+  const showNotification = useUpdateStore((s) => s.showNotification);
+  const updateVersion = useUpdateStore((s) => s.version);
+  const installAndRestart = useUpdateStore((s) => s.installAndRestart);
+  const skipConsent = useUpdateStore((s) => s.skipConsent);
 
   // Apply active theme to DOM root and listen to OS theme if set to 'system'
   useEffect(() => {
@@ -127,21 +134,15 @@ export function App() {
   // Background auto-check for updates on launch
   useEffect(() => {
     if (autoCheckUpdates) {
-      checkForAppUpdates()
-        .then((res) => {
-          setLastCheckedUpdate(Date.now());
-          if (res.updateAvailable && res.update) {
-            console.log('ZenohX update available:', res.version);
-            if (autoDownload) {
-              downloadAndInstallUpdate(res.update).catch((err) => {
-                console.error('Failed to auto-download update:', err);
-              });
-            }
-          }
-        })
-        .catch(() => {});
+      checkForUpdates(false);
     }
-  }, [autoCheckUpdates, autoDownload, setLastCheckedUpdate]);
+  }, [autoCheckUpdates, checkForUpdates]);
+
+  // Initialize anonymous telemetry on application startup
+  useEffect(() => {
+    initTelemetry();
+    trackAppStart();
+  }, []);
 
   useEffect(() => {
     loadProfiles();
@@ -542,6 +543,57 @@ export function App() {
           >
             <X className="w-3.5 h-3.5" />
           </button>
+        </aside>
+      )}
+
+      {/* Auto-Update Ready Consent Notification Banner */}
+      {showNotification && (
+        <aside
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 right-4 max-w-md p-4 rounded-xl bg-card border shadow-xl flex items-start gap-3.5 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
+        >
+          <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-foreground">
+                ZenohX v{updateVersion} Ready
+              </p>
+              <button
+                type="button"
+                onClick={skipConsent}
+                className="text-muted-foreground hover:text-foreground p-0.5 rounded-sm transition-colors"
+                title="Skip for now"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              The update has finished downloading in the background. Would you like to restart and apply it now?
+            </p>
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={installAndRestart}
+                className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium gap-1.5"
+              >
+                <Download className="w-3 h-3" />
+                <span>Restart & Update</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={skipConsent}
+                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <span>Skip</span>
+              </Button>
+            </div>
+          </div>
         </aside>
       )}
 

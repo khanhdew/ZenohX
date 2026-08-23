@@ -49,5 +49,15 @@ export async function load(url, context, nextLoad) {
     };
   }
 
+  if (url.endsWith('.json')) {
+    const filePath = fileURLToPath(url);
+    const rawSource = fs.readFileSync(filePath, 'utf8');
+    return {
+      format: 'module',
+      shortCircuit: true,
+      source: `export default ${rawSource};`,
+    };
+  }
+
   return nextLoad(url, context);
 }

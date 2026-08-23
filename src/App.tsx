@@ -16,12 +16,14 @@ import {
   Activity,
   Sparkles,
   Download,
+  Network,
 } from 'lucide-react';
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
 import { useQueryStore } from './stores/queryStore';
 import { useTrafficStore, initTrafficTicker } from './stores/trafficStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
+import { useTopologyStore } from './stores/topologyStore';
 import { useUpdateStore } from './stores/updateStore';
 import { initTelemetry, trackAppStart } from './lib/telemetry';
 import { ConnectionProfile } from './types/zenoh';
@@ -34,6 +36,7 @@ import { ScoutModal } from './components/connections/ScoutModal';
 import { PubSubWorkspace } from './components/pubsub/PubSubWorkspace';
 import { QueryWorkspace } from './components/query/QueryWorkspace';
 import { TrafficWorkspace } from './components/traffic/TrafficWorkspace';
+import { TopologyWorkspace } from './components/topology/TopologyWorkspace';
 import { SettingsWorkspace } from './components/settings/SettingsWorkspace';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
@@ -44,7 +47,7 @@ import zenohxIcon from './assets/icon.png';
 import { formatFriendlyError } from './lib/errorUtils';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'pubsub' | 'query' | 'traffic' | 'settings'>('pubsub');
+  const [activeTab, setActiveTab] = useState<'pubsub' | 'query' | 'traffic' | 'topology' | 'settings'>('pubsub');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
@@ -68,6 +71,7 @@ export function App() {
   const selectedProfileId = useConnectionStore((s) => s.selectedProfileId);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
   const connectingProfileIds = useConnectionStore((s) => s.connectingProfileIds);
+  const scoutedNodes = useConnectionStore((s) => s.scoutedNodes);
   const loadProfiles = useConnectionStore((s) => s.loadProfiles);
   const initStatusListener = useConnectionStore((s) => s.initStatusListener);
   const cleanupStatusListener = useConnectionStore((s) => s.cleanupStatusListener);
@@ -76,6 +80,10 @@ export function App() {
   const disconnect = useConnectionStore((s) => s.disconnect);
   const connectionError = useConnectionStore((s) => s.error);
   const setConnectionError = useConnectionStore((s) => s.setError);
+
+  // Topology store state for node count & graph sync
+  const topologyNodes = useTopologyStore((s) => s.nodes);
+  const syncTopology = useTopologyStore((s) => s.syncFromContext);
 
   // Message & Query store states for badges
   const subscriptions = useMessageStore((s) => s.subscriptions);
@@ -164,6 +172,15 @@ export function App() {
     };
   }, [loadProfiles, initStatusListener, cleanupStatusListener]);
 
+  // Sync topology data whenever scouted nodes, sessions, or profiles change
+  useEffect(() => {
+    syncTopology({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+    });
+  }, [scoutedNodes, activeSessions, profiles, syncTopology]);
+
   // Initialize continuous global traffic ticker
   useEffect(() => {
     const cleanup = initTrafficTicker();
@@ -184,6 +201,9 @@ export function App() {
           e.preventDefault();
           setActiveTab('traffic');
         } else if (e.key === '4') {
+          e.preventDefault();
+          setActiveTab('topology');
+        } else if (e.key === '5') {
           e.preventDefault();
           setActiveTab('settings');
         } else if (e.key === 'b' || e.key === 'B') {
@@ -232,7 +252,7 @@ export function App() {
                 ? 'bg-muted text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            title="Settings & Preferences (Ctrl+4)"
+            title="Settings & Preferences (Ctrl+5)"
           >
             <Settings className="w-4 h-4" />
           </Button>
@@ -328,6 +348,26 @@ export function App() {
             {currentThroughputBps > 0 && (
               <span className="ml-1 inline-flex items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0 text-[10px] font-mono font-medium">
                 {formatThroughput(currentThroughputBps)}
+              </span>
+            )}
+          </button>
+
+          {/* Tab 4: Topology Graph */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('topology')}
+            className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+              activeTab === 'topology'
+                ? 'bg-background text-foreground shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            title="Network Topology Graph (Ctrl+4)"
+          >
+            <Network className="w-3.5 h-3.5" />
+            <span>Topology</span>
+            {topologyNodes.length > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 px-1.5 py-0 text-[10px] font-mono font-medium">
+                {topologyNodes.length}
               </span>
             )}
           </button>
@@ -442,6 +482,15 @@ export function App() {
         <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
           {activeTab === 'settings' ? (
             <SettingsWorkspace className="h-full" />
+          ) : activeTab === 'topology' ? (
+            <TopologyWorkspace
+              className="h-full"
+              onOpenProfileEditor={(prof) => {
+                setEditingProfile(prof);
+                setProfileModalOpen(true);
+              }}
+              onNavigateToPubSub={() => setActiveTab('pubsub')}
+            />
           ) : activeTab === 'traffic' ? (
             <TrafficWorkspace className="h-full" />
           ) : activeTab === 'query' ? (
@@ -491,7 +540,7 @@ export function App() {
               </div>
 
               {/* Feature Highlights Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-4 w-full text-left">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 pt-4 w-full text-left">
                 <div
                   className="p-3 rounded-md border bg-card space-y-1 cursor-pointer hover:border-foreground/40 transition-colors"
                   onClick={() => setActiveTab('pubsub')}
@@ -526,6 +575,18 @@ export function App() {
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     Live bandwidth chart, message rates, and per-key telemetry.
+                  </p>
+                </div>
+                <div
+                  className="p-3 rounded-md border bg-card space-y-1 cursor-pointer hover:border-foreground/40 transition-colors"
+                  onClick={() => setActiveTab('topology')}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                    <Network className="w-3.5 h-3.5 text-muted-foreground" />
+                    Topology
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Interactive mesh graph, live scouted peers, and node inspector.
                   </p>
                 </div>
               </div>

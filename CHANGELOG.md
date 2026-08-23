@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.3.0] - 2026-08-23
+
+### 🚀 Added & Enhanced
+- **error-handling:** format gentle and user-friendly error messages across stores and UI
+- **telemetry:** include client country, locale, and timezone metadata
+- **queryable,pubsub:** add recent keys to publish bar and JS script execution to queryables
+
+### 🐛 Fixed
+- **telemetry:** add safe env checks and dev debug logging
+- **telemetry:** include distinct_id in properties dictionary
+- **telemetry:** use canonical /i/v0/e/ endpoint and dual token fields
+- **telemetry:** add standard lib metadata to PostHog payload
+- **telemetry:** remove root token field to match PostHog Rust capture schema
+
+### 🔧 Maintenance
+- **telemetry:** remove debug console logging
+- update README with JS script queryables, recent keys, and add GitHub issue templates
+
+---
 ## [v0.2.3] - 2026-08-23
 
 ### 🚀 Added & Enhanced

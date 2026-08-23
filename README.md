@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/khanhdew/ZenohX/releases)
 [![Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-24C8D8?style=flat-square&logo=tauri)](https://tauri.app)
 
-[**Download ZenohX**](https://github.com/khanhdew/ZenohX/releases/latest) • [**Features**](#features) • [**Installation**](#installation) • [**Building from Source**](#building-from-source)
+[**Download ZenohX**](https://github.com/khanhdew/ZenohX/releases/latest) • [**Features**](#features) • [**Installation**](#installation) • [**Building from Source**](#building-from-source) • [**Contributing**](#contributing)
 
 <br/>
 
@@ -25,12 +25,18 @@
 ## ✨ Features
 
 - **🚀 Real-Time Pub / Sub Streaming:**
-  - Subscribe to multiple key expressions (`sensor/**`, `robot/*/telemetry`) with custom color tags.
+  - Subscribe to multiple key expressions (`sensor/**`, `robot/*/telemetry`) with custom color tags and wildcard resolution.
+  - Publish with **PUT** or **DELETE** sample kinds with expandable payload editor.
+  - **Recent Key Expressions**: Quick-access dropdown tracking your last 5 used key expressions.
   - Direction indicators: Left border for incoming (`IN`) samples, Right border for outgoing (`OUT`) samples.
-  - Virtualized message list handling 5,000+ live samples smoothly in memory.
-- **🔍 Distributed Query & RPC Evaluation:**
-  - Send queries across Zenoh routers and peers with latency tracking.
-  - Register queryables with automated JSON/CBOR reply responder.
+  - Virtualized message feed handling 5,000+ live samples smoothly in memory.
+- **🔍 Distributed Query & RPC Simulator:**
+  - Send queries across Zenoh routers and peers with latency tracking and multi-reply timeline.
+  - **Dynamic JavaScript Script Execution**: Run custom JS logic to dynamically compute replies from URL query parameters (`query.params`, `query.keyExpr`, `query.payload`) alongside static payloads.
+  - **Interactive Script Sandbox**: Test and debug your JavaScript RPC logic live before deploying.
+  - Built-in templates for RPC Calculators, Dynamic Telemetry Sensors, Echo Inspectors, and Health Status endpoints.
+- **📊 Traffic & Network Monitoring:**
+  - Real-time throughput metrics (bytes/sec, messages/sec) and key traffic breakdown tables.
 - **📡 Automatic Local LAN Multicast Scout:**
   - Discover Zenoh routers and peers announcing on UDP multicast (`224.0.0.224:7446`) with 1-click connect.
 - **🔒 TLS & Mutual TLS (mTLS) Support:**
@@ -123,6 +129,17 @@ npm run build
 npm run tauri build
 ```
 Binaries will be output to `src-tauri/target/release/bundle/`.
+
+---
+
+## 🤝 Contributing & Community
+
+ZenohX is a Free and Open Source Software (FOSS) project. We welcome contributions, bug reports, feature requests, and community discussions!
+
+- **🐛 Report a Bug:** Open an issue with our [Bug Report Template](https://github.com/khanhdew/ZenohX/issues/new?template=bug_report.yml).
+- **💡 Suggest a Feature:** Propose ideas using our [Feature Request Template](https://github.com/khanhdew/ZenohX/issues/new?template=feature_request.yml).
+- **💬 Discussions:** Join our community on [GitHub Discussions](https://github.com/khanhdew/ZenohX/discussions).
+- **Pull Requests:** Check that all tests pass (`npm test`) and typechecks pass (`npx tsc --noEmit`) before submitting a PR.
 
 ---
 

@@ -1,0 +1,89 @@
+name: "🐛 Bug Report"
+description: "Create a report to help us reproduce and fix a bug in ZenohX"
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out the details below to help us investigate.
+
+  - type: input
+    id: version
+    attributes:
+      label: "ZenohX Version"
+      description: "What version of ZenohX are you running? (Check Settings > Updates or App Header, e.g. v0.2.3)"
+      placeholder: "e.g. v0.2.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: "Operating System"
+      description: "What OS are you running ZenohX on?"
+      options:
+        - "Linux (Ubuntu / Debian / Mint)"
+        - "Linux (Fedora / RHEL / Arch / Other)"
+        - "macOS (Apple Silicon - M1/M2/M3/M4)"
+        - "macOS (Intel)"
+        - "Windows 11"
+        - "Windows 10"
+    validations:
+      required: true
+
+  - type: input
+    id: zenoh_version
+    attributes:
+      label: "Zenoh Router / Peer Version"
+      description: "If connecting to a remote or local Zenoh daemon (e.g. Zenoh 1.2.0, Zenoh 1.1.0, etc.)"
+      placeholder: "e.g. zenohd 1.2.0"
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "Describe the Bug"
+      description: "A clear and concise description of what the bug is."
+      placeholder: "When I click on ... the application crashes / does not respond."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to Reproduce"
+      description: "Step-by-step instructions to reproduce the issue."
+      value: |
+        1. Open ZenohX
+        2. Connect to profile '...'
+        3. Go to tab '...'
+        4. Perform action '...'
+        5. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected Behavior"
+      description: "What did you expect to happen?"
+      placeholder: "Expected the queryable to reply with computed response..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Logs & Terminal Output / Screenshots"
+      description: "Paste any relevant logs (run `zenohx` from terminal to see stdout/stderr) or attach screenshots/screen recordings."
+      render: shell
+
+  - type: checkboxes
+    id: checklists
+    attributes:
+      label: "Checklist"
+      options:
+        - label: "I have searched existing issues to make sure this is not a duplicate."
+          required: true
+        - label: "I have tested with the latest release of ZenohX."
+          required: false

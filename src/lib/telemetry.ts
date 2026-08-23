@@ -51,12 +51,6 @@ export function initTelemetry(customKey?: string, customHost?: string): void {
   if (host && typeof host === 'string' && host.trim()) {
     configuredHost = host.trim().replace(/\/+$/, '');
   }
-
-  if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && !configuredApiKey) {
-    console.info(
-      '[Telemetry] No VITE_POSTHOG_API_KEY found in .env. Telemetry is dormant during local development.'
-    );
-  }
 }
 
 /**
@@ -88,25 +82,14 @@ export async function trackEvent(
     };
 
     if (typeof fetch !== 'undefined') {
-      const res = await fetch(`${configuredHost}/capture/`, {
+      await fetch(`${configuredHost}/capture/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(payload),
         credentials: 'omit',
-      }).catch((err) => {
-        if (typeof import.meta !== 'undefined' && import.meta.env?.DEV) {
-          console.warn('[Telemetry] PostHog fetch error:', err);
-        }
-      });
-
-      if (typeof import.meta !== 'undefined' && import.meta.env?.DEV && res) {
-        console.info(
-          `[Telemetry] Sent event '${eventName}' to PostHog (${configuredHost}). Response status:`,
-          res.status
-        );
-      }
+      }).catch(() => {});
     }
   } catch {
     // Fail silently without affecting application performance

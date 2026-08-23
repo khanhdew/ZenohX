@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   Copy,
   Check,
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   WrapText,
   ListTree,
+  Boxes,
 } from 'lucide-react';
 import {
   bytesToUint8Array,
@@ -20,9 +21,22 @@ import {
   tryFormatCbor,
   detectEncoding,
 } from '../../lib/formatters';
+import { decodeProtobufPayload } from '../../lib/protobufEngine';
+import { useProtoStore } from '../../stores/protoStore';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
+import { Button } from '../ui/button';
+import { ProtoManagerDialog } from '../proto/ProtoManagerDialog';
 import type { EncodingType } from '../../types/zenoh';
 
-export type ViewerTab = 'json' | 'cbor' | 'text' | 'hex' | 'raw';
+export type ViewerTab = 'json' | 'cbor' | 'text' | 'protobuf' | 'hex' | 'raw';
 
 export interface PayloadViewerProps {
   payload?: Uint8Array | number[] | string | null;
@@ -31,6 +45,7 @@ export interface PayloadViewerProps {
   className?: string;
   showMetrics?: boolean;
   maxHeight?: string | number;
+  keyExpr?: string;
 }
 
 /**
@@ -341,22 +356,83 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
   className = '',
   showMetrics = true,
   maxHeight = '420px',
+  keyExpr,
 }) => {
   const bytes = useMemo(() => bytesToUint8Array(payload), [payload]);
   const byteCount = bytes.length;
+
+  // Protobuf store hooks
+  const schemas = useProtoStore((s) => s.schemas);
+  const mappings = useProtoStore((s) => s.mappings);
+  const findMappingForKey = useProtoStore((s) => s.findMappingForKey);
+  const getAllMessageTypes = useProtoStore((s) => s.getAllMessageTypes);
+  const getCompiledRoot = useProtoStore((s) => s.getCompiledRoot);
+  const getGlobalRoot = useProtoStore((s) => s.getGlobalRoot);
+
+  const [isProtoDialogOpen, setIsProtoDialogOpen] = useState<boolean>(false);
+
+  // All available message types
+  const allMessageTypes = useMemo(() => {
+    return getAllMessageTypes();
+  }, [schemas, getAllMessageTypes]);
+
+  // Find matching topic mapping if keyExpr is provided
+  const mappedType = useMemo(() => {
+    if (!keyExpr) return undefined;
+    const mapping = findMappingForKey(keyExpr);
+    return mapping?.messageTypeName;
+  }, [keyExpr, mappings, findMappingForKey]);
+
+  // Selected proto message type state
+  const [selectedProtoType, setSelectedProtoType] = useState<string>(() => {
+    if (mappedType) return mappedType;
+    const all = getAllMessageTypes();
+    return all.length > 0 ? all[0].typeName : '';
+  });
+
+  const prevKeyExprRef = useRef<string | undefined>(keyExpr);
+
+  // Sync selectedProtoType on keyExpr change, mapping change, or schema reload
+  useEffect(() => {
+    if (prevKeyExprRef.current !== keyExpr) {
+      prevKeyExprRef.current = keyExpr;
+      if (mappedType) {
+        setSelectedProtoType(mappedType);
+        return;
+      }
+    }
+
+    if (mappedType && !selectedProtoType) {
+      setSelectedProtoType(mappedType);
+      return;
+    }
+
+    if (!selectedProtoType || !allMessageTypes.some((t) => t.typeName === selectedProtoType)) {
+      if (mappedType) {
+        setSelectedProtoType(mappedType);
+      } else if (allMessageTypes.length > 0) {
+        setSelectedProtoType(allMessageTypes[0].typeName);
+      } else {
+        setSelectedProtoType('');
+      }
+    }
+  }, [keyExpr, mappedType, allMessageTypes, selectedProtoType]);
 
   // Auto-detect initial tab if not explicitly given
   const initialTab = useMemo<ViewerTab>(() => {
     if (defaultTab) return defaultTab;
     if (encoding) {
       const lower = encoding.toLowerCase();
-      if (lower === 'json' || lower === 'cbor' || lower === 'text' || lower === 'raw') {
+      if (['json', 'cbor', 'text', 'protobuf', 'hex', 'raw'].includes(lower)) {
         return lower as ViewerTab;
       }
+      if (lower === 'proto' || lower === 'application/protobuf' || lower === 'application/x-protobuf') {
+        return 'protobuf';
+      }
     }
-    const detected = detectEncoding(bytes);
+    const detected = detectEncoding(bytes, { keyExpr });
     return detected as ViewerTab;
-  }, [defaultTab, encoding, bytes]);
+  }, [defaultTab, encoding, bytes, keyExpr]);
 
   const [activeTab, setActiveTab] = useState<ViewerTab>(initialTab);
   const [viewMode, setViewMode] = useState<'tree' | 'code'>('code');
@@ -364,11 +440,13 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
 
   // Sync tab if encoding prop changes dynamically
-  React.useEffect(() => {
+  useEffect(() => {
     if (encoding) {
-      const enc = encoding.toLowerCase() as ViewerTab;
-      if (['json', 'cbor', 'text', 'hex', 'raw'].includes(enc)) {
-        setActiveTab(enc);
+      const enc = encoding.toLowerCase();
+      if (['json', 'cbor', 'text', 'protobuf', 'hex', 'raw'].includes(enc)) {
+        setActiveTab(enc as ViewerTab);
+      } else if (enc === 'proto' || enc === 'application/protobuf' || enc === 'application/x-protobuf') {
+        setActiveTab('protobuf');
       }
     }
   }, [encoding]);
@@ -398,11 +476,48 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
         };
       }
 
+      case 'protobuf': {
+        if (schemas.length === 0) {
+          return {
+            text: toHexDump(bytes),
+            parsedJson: null,
+            error: 'No Protobuf schemas registered. Open Schema Manager to add .proto schemas.',
+          };
+        }
+
+        if (!selectedProtoType) {
+          return {
+            text: toHexDump(bytes),
+            parsedJson: null,
+            error: 'No Protobuf message type selected or mapped for this topic.',
+          };
+        }
+
+        const matchedSchema = schemas.find((s) => s.messageTypes.includes(selectedProtoType));
+        const root = (matchedSchema ? getCompiledRoot(matchedSchema.id) : null) || getGlobalRoot();
+
+        try {
+          const decoded = decodeProtobufPayload(root, selectedProtoType, bytes);
+          const formatted = JSON.stringify(decoded, null, 2);
+          return {
+            text: formatted,
+            parsedJson: decoded,
+            error: null,
+          };
+        } catch (err: any) {
+          return {
+            text: toHexDump(bytes),
+            parsedJson: null,
+            error: err?.message || String(err),
+          };
+        }
+      }
+
       case 'text': {
         try {
           const text = new TextDecoder('utf-8').decode(bytes);
           return { text, parsedJson: null, error: null };
-        } catch (err) {
+        } catch {
           return {
             text: toHexDump(bytes),
             parsedJson: null,
@@ -423,7 +538,7 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
       default:
         return { text: '', parsedJson: null, error: null };
     }
-  }, [bytes, byteCount, activeTab]);
+  }, [bytes, byteCount, activeTab, selectedProtoType, schemas, getCompiledRoot, getGlobalRoot]);
 
   // Copy handler
   const handleCopy = useCallback(() => {
@@ -437,148 +552,217 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
   const tabs: { id: ViewerTab; label: string; icon: React.FC<{ className?: string }> }[] = [
     { id: 'json', label: 'JSON', icon: Braces },
     { id: 'cbor', label: 'CBOR', icon: Code },
+    { id: 'protobuf', label: 'PROTOBUF', icon: Boxes },
     { id: 'text', label: 'Text', icon: FileText },
     { id: 'hex', label: 'HEX', icon: Binary },
     { id: 'raw', label: 'RAW', icon: Binary },
   ];
 
+  const isStructuredTab = activeTab === 'json' || activeTab === 'cbor' || activeTab === 'protobuf';
+
   return (
-    <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
-      {/* Header Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
-        {/* Navigation Tabs */}
-        <div className="flex items-center space-x-1">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const isActive = activeTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                  isActive
-                    ? 'bg-background text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                }`}
-                type="button"
-              >
-                <Icon className="w-3 h-3" />
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
+    <>
+      <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
+        {/* Header Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
+          {/* Navigation Tabs */}
+          <div className="flex items-center space-x-1">
+            {tabs.map((t) => {
+              const Icon = t.icon;
+              const isActive = activeTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'bg-background text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  }`}
+                  type="button"
+                >
+                  <Icon className="w-3 h-3" />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Right Actions & Metrics */}
-        <div className="flex items-center gap-2">
-          {/* Tree vs Code Mode Toggle for JSON/CBOR */}
-          {(activeTab === 'json' || activeTab === 'cbor') && tabData.parsedJson !== null && (
-            <div className="flex items-center rounded border bg-muted p-0.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setViewMode('code')}
-                className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
-                  viewMode === 'code' ? 'bg-background font-medium text-foreground shadow-xs' : 'text-muted-foreground'
-                }`}
-                title="Code View"
-              >
-                <Code className="w-3 h-3" />
-                Code
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('tree')}
-                className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
-                  viewMode === 'tree' ? 'bg-background font-medium text-foreground shadow-xs' : 'text-muted-foreground'
-                }`}
-                title="Tree View"
-              >
-                <ListTree className="w-3 h-3" />
-                Tree
-              </button>
-            </div>
-          )}
+          {/* Right Actions, Message Type Selector & Metrics */}
+          <div className="flex items-center gap-2">
+            {/* Protobuf Controls: Message Type Selector & Schema Manager Button */}
+            {activeTab === 'protobuf' && (
+              <div className="flex items-center gap-1.5">
+                {schemas.length === 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsProtoDialogOpen(true)}
+                    className="h-6 text-[11px] px-2 gap-1 text-primary hover:text-primary border-dashed"
+                    title="Open Protobuf Schema Manager to add schemas"
+                  >
+                    <Boxes className="w-3 h-3" />
+                    <span>Add Schema</span>
+                  </Button>
+                ) : (
+                  <>
+                    <Select value={selectedProtoType} onValueChange={(val) => setSelectedProtoType(val)}>
+                      <SelectTrigger
+                        className="h-6 text-[11px] min-w-[130px] max-w-[200px] px-2 py-0 bg-background"
+                        title={`Protobuf Type: ${selectedProtoType || 'None selected'}`}
+                      >
+                        <SelectValue placeholder="Select proto type..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {schemas.map((schema) => {
+                          const types = schema.messageTypes || [];
+                          if (types.length === 0) return null;
+                          return (
+                            <SelectGroup key={schema.id}>
+                              <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase">
+                                {schema.name}
+                              </SelectLabel>
+                              {types.map((type) => (
+                                <SelectItem key={`${schema.id}-${type}`} value={type} className="text-xs font-mono">
+                                  {type}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
 
-          {/* Word Wrap Toggle */}
-          {(activeTab === 'text' || (viewMode === 'code' && (activeTab === 'json' || activeTab === 'cbor'))) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsProtoDialogOpen(true)}
+                      className="flex items-center gap-1 rounded bg-muted hover:bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                      title="Manage Protobuf Schemas & Topic Mappings"
+                    >
+                      <Boxes className="w-3 h-3 text-primary" />
+                      <span className="text-[11px] hidden sm:inline">Schemas</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Tree vs Code Mode Toggle for JSON/CBOR/Protobuf */}
+            {isStructuredTab && tabData.parsedJson !== null && (
+              <div className="flex items-center rounded border bg-muted p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('code')}
+                  className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
+                    viewMode === 'code' ? 'bg-background font-medium text-foreground shadow-xs' : 'text-muted-foreground'
+                  }`}
+                  title="Code View"
+                >
+                  <Code className="w-3 h-3" />
+                  Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('tree')}
+                  className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${
+                    viewMode === 'tree' ? 'bg-background font-medium text-foreground shadow-xs' : 'text-muted-foreground'
+                  }`}
+                  title="Tree View"
+                >
+                  <ListTree className="w-3 h-3" />
+                  Tree
+                </button>
+              </div>
+            )}
+
+            {/* Word Wrap Toggle */}
+            {(activeTab === 'text' || (viewMode === 'code' && isStructuredTab)) && (
+              <button
+                type="button"
+                onClick={() => setWordWrap(!wordWrap)}
+                className={`rounded p-1 text-xs hover:bg-muted ${
+                  wordWrap ? 'text-foreground bg-muted' : 'text-muted-foreground'
+                }`}
+                title="Toggle Word Wrap"
+              >
+                <WrapText className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Size Metric */}
+            {showMetrics && (
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                {formatByteSize(byteCount)}
+              </span>
+            )}
+
+            {/* Copy Button */}
             <button
               type="button"
-              onClick={() => setWordWrap(!wordWrap)}
-              className={`rounded p-1 text-xs hover:bg-muted ${
-                wordWrap ? 'text-foreground bg-muted' : 'text-muted-foreground'
-              }`}
-              title="Toggle Word Wrap"
+              onClick={handleCopy}
+              disabled={byteCount === 0}
+              className="flex items-center gap-1 rounded bg-muted hover:bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              title="Copy payload to clipboard"
             >
-              <WrapText className="w-3.5 h-3.5" />
+              {copied ? (
+                <>
+                  <Check className="w-3 h-3 text-emerald-500" />
+                  <span className="text-[11px] text-emerald-500 font-semibold">Copied</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" />
+                  <span className="text-[11px]">Copy</span>
+                </>
+              )}
             </button>
-          )}
-
-          {/* Size Metric */}
-          {showMetrics && (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-              {formatByteSize(byteCount)}
-            </span>
-          )}
-
-          {/* Copy Button */}
-          <button
-            type="button"
-            onClick={handleCopy}
-            disabled={byteCount === 0}
-            className="flex items-center gap-1 rounded bg-muted hover:bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-            title="Copy payload to clipboard"
-          >
-            {copied ? (
-              <>
-                <Check className="w-3 h-3 text-emerald-500" />
-                <span className="text-[11px] text-emerald-500 font-semibold">Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3" />
-                <span className="text-[11px]">Copy</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Error / Warning Notice if decode failed */}
-      {tabData.error && (
-        <div className="flex items-center gap-1.5 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          <span className="truncate">{tabData.error}</span>
-        </div>
-      )}
-
-      {/* Main Payload Content Body */}
-      <div
-        className="overflow-auto p-3 font-mono text-xs bg-background"
-        style={{ maxHeight }}
-      >
-        {byteCount === 0 ? (
-          <div className="flex items-center justify-center p-6 text-muted-foreground italic text-xs">
-            Payload is empty (0 bytes)
           </div>
-        ) : (activeTab === 'json' || activeTab === 'cbor') && viewMode === 'tree' && tabData.parsedJson !== null ? (
-          <div className="space-y-0.5">
-            <JsonTreeNode value={tabData.parsedJson} defaultExpanded={true} />
+        </div>
+
+        {/* Error / Warning Notice if decode failed */}
+        {tabData.error && (
+          <div className="flex items-center gap-1.5 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">{tabData.error}</span>
           </div>
-        ) : (
-          <pre
-            className={`font-mono text-xs text-foreground select-text ${
-              wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'
-            }`}
-          >
-            {(activeTab === 'json' || activeTab === 'cbor') && tabData.parsedJson !== null ? (
-              <JsonHighlightedCode code={tabData.text} />
-            ) : (
-              tabData.text
-            )}
-          </pre>
         )}
+
+        {/* Main Payload Content Body */}
+        <div
+          className="overflow-auto p-3 font-mono text-xs bg-background"
+          style={{ maxHeight }}
+        >
+          {byteCount === 0 ? (
+            <div className="flex items-center justify-center p-6 text-muted-foreground italic text-xs">
+              Payload is empty (0 bytes)
+            </div>
+          ) : isStructuredTab && viewMode === 'tree' && tabData.parsedJson !== null ? (
+            <div className="space-y-0.5">
+              <JsonTreeNode value={tabData.parsedJson} defaultExpanded={true} />
+            </div>
+          ) : (
+            <pre
+              className={`font-mono text-xs text-foreground select-text ${
+                wordWrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre overflow-x-auto'
+              }`}
+            >
+              {isStructuredTab && tabData.parsedJson !== null ? (
+                <JsonHighlightedCode code={tabData.text} />
+              ) : (
+                tabData.text
+              )}
+            </pre>
+          )}
+        </div>
       </div>
-    </div>
+
+      {/* Protobuf Schema Manager Dialog */}
+      <ProtoManagerDialog
+        isOpen={isProtoDialogOpen}
+        onClose={() => setIsProtoDialogOpen(false)}
+      />
+    </>
   );
 };
 

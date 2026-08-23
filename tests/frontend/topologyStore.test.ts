@@ -211,4 +211,14 @@ describe('Topology Store', () => {
     assert.ok(typeof transform.x === 'number');
     assert.ok(typeof transform.y === 'number');
   });
+
+  it('updates autoScoutInterval state', () => {
+    assert.equal(useTopologyStore.getState().autoScoutInterval, 0);
+
+    useTopologyStore.getState().setAutoScoutInterval(10000);
+    assert.equal(useTopologyStore.getState().autoScoutInterval, 10000);
+
+    useTopologyStore.getState().setAutoScoutInterval(0);
+    assert.equal(useTopologyStore.getState().autoScoutInterval, 0);
+  });
 });

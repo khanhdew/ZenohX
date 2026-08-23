@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useTopologyStore } from '../../stores/topologyStore';
 import { TopologyToolbar } from './TopologyToolbar';
@@ -26,12 +26,29 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
   const nodes = useTopologyStore((s) => s.nodes);
   const selectedNodeId = useTopologyStore((s) => s.selectedNodeId);
   const setSelectedNodeId = useTopologyStore((s) => s.setSelectedNodeId);
+  const autoScoutInterval = useTopologyStore((s) => s.autoScoutInterval);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
     node: TopologyNode;
     position: { x: number; y: number };
   } | null>(null);
+
+  // Periodic Auto-Scout background runner
+  useEffect(() => {
+    if (autoScoutInterval <= 0) return;
+
+    const intervalId = setInterval(() => {
+      const currentIsScouting = useConnectionStore.getState().isScouting;
+      if (!currentIsScouting) {
+        scout(Math.min(3000, autoScoutInterval)).catch((err) => {
+          console.error('Auto-scout error:', err);
+        });
+      }
+    }, autoScoutInterval);
+
+    return () => clearInterval(intervalId);
+  }, [autoScoutInterval, scout]);
 
   // Sync topology data is handled in App.tsx to ensure global state consistency
 

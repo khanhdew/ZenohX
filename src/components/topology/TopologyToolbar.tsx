@@ -1,12 +1,19 @@
-import React from 'react';
 import {
   Search,
   Radar,
   LayoutGrid,
   Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '../ui/select';
 import { useTopologyStore } from '../../stores/topologyStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 
@@ -19,10 +26,12 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
   const searchQuery = useTopologyStore((s) => s.searchQuery);
   const filterType = useTopologyStore((s) => s.filterType);
   const layoutMode = useTopologyStore((s) => s.layoutMode);
+  const autoScoutInterval = useTopologyStore((s) => s.autoScoutInterval);
 
   const setSearchQuery = useTopologyStore((s) => s.setSearchQuery);
   const setFilterType = useTopologyStore((s) => s.setFilterType);
   const setLayoutMode = useTopologyStore((s) => s.setLayoutMode);
+  const setAutoScoutInterval = useTopologyStore((s) => s.setAutoScoutInterval);
 
   const isScouting = useConnectionStore((s) => s.isScouting);
 
@@ -96,7 +105,7 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
         </button>
       </div>
 
-      {/* Right: Layout Switcher & Scout Trigger */}
+      {/* Right: Layout Switcher, Auto-Scout Dropdown & Scout Trigger */}
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-md bg-muted p-0.5">
           <Button
@@ -126,6 +135,43 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
           </Button>
         </div>
 
+        {/* Auto-Scout Interval Selector */}
+        <div className="flex items-center gap-1.5">
+          <Select
+            value={String(autoScoutInterval)}
+            onValueChange={(val) => setAutoScoutInterval(Number(val))}
+          >
+            <SelectTrigger
+              className={`h-8 w-28 text-xs bg-background gap-1 ${
+                autoScoutInterval > 0
+                  ? 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
+                  : 'text-muted-foreground'
+              }`}
+              title="Periodic Auto-Scout Interval"
+            >
+              <RefreshCw className={`w-3 h-3 ${autoScoutInterval > 0 ? 'text-emerald-500 animate-spin' : 'text-muted-foreground'}`} />
+              <SelectValue placeholder="Auto Scout" />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="0" className="text-xs">
+                Auto: Off
+              </SelectItem>
+              <SelectItem value="5000" className="text-xs">
+                Auto: 5s
+              </SelectItem>
+              <SelectItem value="10000" className="text-xs">
+                Auto: 10s
+              </SelectItem>
+              <SelectItem value="30000" className="text-xs">
+                Auto: 30s
+              </SelectItem>
+              <SelectItem value="60000" className="text-xs">
+                Auto: 60s
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         <Button
           variant="outline"
           size="sm"
@@ -133,7 +179,7 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
           disabled={isScouting}
           className="h-8 text-xs gap-1.5 font-medium"
         >
-          <Radar className={`w-3.5 h-3.5 ${isScouting ? 'animate-spin text-primary' : ''}`} />
+          <Radar className={`w-3.5 h-3.5 ${isScouting ? 'animate-spin text-primary' : autoScoutInterval > 0 ? 'text-emerald-500' : ''}`} />
           <span>{isScouting ? 'Scanning...' : 'Scout LAN'}</span>
         </Button>
       </div>

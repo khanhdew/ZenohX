@@ -19,6 +19,7 @@ export interface TopologyState {
   filterType: TopologyFilterType;
   layoutMode: TopologyLayoutMode;
   isSimulating: boolean;
+  autoScoutInterval: number; // 0 = Off, >0 milliseconds
   transform: ViewTransform;
 
   // Actions
@@ -29,6 +30,7 @@ export interface TopologyState {
   setFilterType: (filter: TopologyFilterType) => void;
   setLayoutMode: (mode: TopologyLayoutMode) => void;
   setIsSimulating: (simulating: boolean) => void;
+  setAutoScoutInterval: (interval: number) => void;
   setTransform: (transform: ViewTransform | ((prev: ViewTransform) => ViewTransform)) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -46,6 +48,7 @@ export const useTopologyStore = create<TopologyState>((set, get) => ({
   filterType: 'all',
   layoutMode: 'force',
   isSimulating: true,
+  autoScoutInterval: 0,
   transform: { x: 0, y: 0, k: 1 },
 
   syncFromContext: (opts) => {
@@ -76,6 +79,7 @@ export const useTopologyStore = create<TopologyState>((set, get) => ({
   },
 
   setIsSimulating: (isSimulating) => set({ isSimulating }),
+  setAutoScoutInterval: (autoScoutInterval) => set({ autoScoutInterval }),
 
   setTransform: (transformOrFn) => {
     set((state) => ({

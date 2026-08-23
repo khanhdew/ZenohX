@@ -79,6 +79,8 @@ export async function trackEvent(
       event: eventName,
       distinct_id: distinctId,
       properties: {
+        $lib: 'web',
+        $lib_version: '1.0.0',
         token: configuredApiKey,
         distinct_id: distinctId,
         app_version: APP_VERSION,

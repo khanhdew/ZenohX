@@ -30,6 +30,8 @@ import {
   getPreferredLocator,
   getLocatorProtocol,
   buildProfileFromScoutedNode,
+  DEFAULT_CLOUD_PROTOCOL,
+  SUPPORTED_CLOUD_PROTOCOLS,
 } from '../../src/lib/tls';
 
 describe('Connection Manager Integration & Helpers', () => {
@@ -515,6 +517,148 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.equal(profile.tls_config?.client_cert, '/certs/client.pem');
     assert.equal(profile.tls_config?.client_key, '/certs/client.key');
   });
+
+  test('DEFAULT_CLOUD_PROTOCOL defaults to tcp plain', () => {
+    assert.equal(DEFAULT_CLOUD_PROTOCOL, 'tcp');
+  });
+
+  test('SUPPORTED_CLOUD_PROTOCOLS has TCP Plain as the leftmost option', () => {
+    assert.equal(SUPPORTED_CLOUD_PROTOCOLS[0].id, 'tcp');
+    assert.equal(SUPPORTED_CLOUD_PROTOCOLS[0].label, 'TCP (Plain)');
+    assert.deepEqual(
+      SUPPORTED_CLOUD_PROTOCOLS.map((p) => p.id),
+      ['tcp', 'tls', 'quic', 'udp']
+    );
+  });
+
+  test('handleSessionStatus removes session and sets error on sudden disconnect', () => {
+    // Set up active session
+    useConnectionStore.setState({
+      profiles: [
+        {
+          id: 'prof-cloud-1',
+          name: 'Cloud Router',
+          mode: 'client',
+          connect_locators: ['tcp/router.lan:7447'],
+          listen_locators: [],
+          scout_multicast: false,
+          user_auth: null,
+          tls_config: null,
+          custom_config: null,
+          created_at: 1000,
+          updated_at: 1000,
+        },
+      ],
+      activeSessions: {
+        'prof-cloud-1': {
+          id: 'sess-uuid-999',
+          zid: '12345678',
+          mode: 'client',
+          created_at: 1000,
+          subscribers_count: 0,
+          queryables_count: 0,
+        },
+      },
+      sessionToProfile: {
+        'sess-uuid-999': 'prof-cloud-1',
+      },
+      error: null,
+    });
+
+    assert.equal(useConnectionStore.getState().isConnected('prof-cloud-1'), true);
+
+    // Simulate sudden disconnect event from backend watchdog
+    useConnectionStore.getState().handleSessionStatus({
+      sessionId: 'sess-uuid-999',
+      status: 'disconnected',
+      error: 'Connection to Zenoh router lost: server unreachable',
+      timestamp: 2000,
+    });
+
+    assert.equal(useConnectionStore.getState().isConnected('prof-cloud-1'), false);
+    assert.equal(useConnectionStore.getState().activeSessions['prof-cloud-1'], undefined);
+    assert.equal(useConnectionStore.getState().sessionToProfile['sess-uuid-999'], undefined);
+    assert.equal(
+      useConnectionStore.getState().error,
+      'Connection to Zenoh router lost: server unreachable'
+    );
+  });
+
+  test('handleSessionStatus handles error status on session', () => {
+    useConnectionStore.setState({
+      activeSessions: {
+        'prof-2': {
+          id: 'sess-err-1',
+          zid: '87654321',
+          mode: 'client',
+          created_at: 1000,
+          subscribers_count: 0,
+          queryables_count: 0,
+        },
+      },
+      sessionToProfile: {
+        'sess-err-1': 'prof-2',
+      },
+      error: null,
+    });
+
+    useConnectionStore.getState().handleSessionStatus({
+      sessionId: 'sess-err-1',
+      status: 'error',
+      error: 'Broken transport pipe',
+    });
+
+    assert.equal(useConnectionStore.getState().isConnected('prof-2'), false);
+    assert.equal(useConnectionStore.getState().error, 'Broken transport pipe');
+  });
+
+  test('loadProfiles prioritizes URL query parameter profileId when present', async () => {
+    const mockProfiles: ConnectionProfile[] = [
+      {
+        id: 'prof-alpha',
+        name: 'Alpha Profile',
+        mode: 'peer',
+        scout_multicast: true,
+        connect_locators: [],
+        listen_locators: [],
+        created_at: 1000,
+        updated_at: 1000,
+      },
+      {
+        id: 'prof-beta',
+        name: 'Beta Profile',
+        mode: 'client',
+        scout_multicast: false,
+        connect_locators: ['tcp/127.0.0.1:7447'],
+        listen_locators: [],
+        created_at: 1000,
+        updated_at: 1000,
+      },
+    ];
+
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'load_profiles') {
+        return mockProfiles;
+      }
+      return undefined;
+    };
+
+    // Mock window.location.search with ?profileId=prof-beta
+    // @ts-ignore
+    globalThis.window.location = { search: '?profileId=prof-beta' };
+
+    useConnectionStore.setState({ profiles: [], selectedProfileId: null });
+    await useConnectionStore.getState().loadProfiles();
+
+    assert.equal(useConnectionStore.getState().selectedProfileId, 'prof-beta');
+
+    // Clean up window.location
+    // @ts-ignore
+    globalThis.window.location = { search: '' };
+  });
 });
+
+
+
 
 

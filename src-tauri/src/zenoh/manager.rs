@@ -3,13 +3,18 @@ use super::query::{
     declare_queryable_with_handler, execute_query, ActiveQueryable, QueryHandle,
 };
 use super::scout::scout_nodes;
-use super::types::{InboundQuery, ReplySample, ScoutedNode, SessionConfig, SessionInfo, ZenohSample};
+use super::types::{
+    InboundQuery, ReplySample, ScoutedNode, SessionConfig, SessionInfo, SessionStatusEvent,
+    ZenohSample,
+};
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+
+pub type StatusCallback = Arc<dyn Fn(SessionStatusEvent) + Send + Sync>;
 
 /// Context representing an active Zenoh session and its associated metadata.
 pub struct SessionContext {
@@ -20,6 +25,7 @@ pub struct SessionContext {
     pub created_at: i64,
     pub subscribers: HashMap<Uuid, ActiveSubscriber>,
     pub queryables: HashMap<Uuid, ActiveQueryable>,
+    pub watchdog_stop_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 /// Centralized manager for handling multiple concurrent Zenoh sessions, pub/sub, and queries.
@@ -27,6 +33,7 @@ pub struct SessionContext {
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<Uuid, SessionContext>>>,
     pending_queries: Arc<RwLock<HashMap<Uuid, QueryHandle>>>,
+    status_callback: Arc<RwLock<Option<StatusCallback>>>,
 }
 
 impl Default for SessionManager {
@@ -41,7 +48,17 @@ impl SessionManager {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             pending_queries: Arc::new(RwLock::new(HashMap::new())),
+            status_callback: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Sets a callback to be notified when session connection statuses change.
+    pub async fn set_status_callback<F>(&self, callback: F)
+    where
+        F: Fn(SessionStatusEvent) + Send + Sync + 'static,
+    {
+        let mut lock = self.status_callback.write().await;
+        *lock = Some(Arc::new(callback));
     }
 
     /// Connects to a Zenoh network using the provided configuration.
@@ -57,18 +74,109 @@ impl SessionManager {
         let profile_id = config.profile_id.clone();
         let now = chrono::Utc::now().timestamp();
 
+        let (watchdog_stop_tx, mut watchdog_stop_rx) = tokio::sync::oneshot::channel::<()>();
+
         let context = SessionContext {
             id: session_id,
             profile_id,
-            session,
-            config,
+            session: session.clone(),
+            config: config.clone(),
             created_at: now,
             subscribers: HashMap::new(),
             queryables: HashMap::new(),
+            watchdog_stop_tx: Some(watchdog_stop_tx),
         };
 
-        let mut lock = self.sessions.write().await;
-        lock.insert(session_id, context);
+        {
+            let mut lock = self.sessions.write().await;
+            lock.insert(session_id, context);
+        }
+
+        // Spawn watchdog monitor to detect unexpected network drops or router crashes
+        let sessions_arc = self.sessions.clone();
+        let pending_queries_arc = self.pending_queries.clone();
+        let status_cb_arc = self.status_callback.clone();
+        let is_client = config.mode.to_lowercase() == "client";
+        let has_connect_locators = !config.connect_locators.is_empty();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_millis(1500));
+            interval.tick().await; // Consume immediate first tick
+
+            let mut had_connection = false;
+            let mut initial_grace_ticks = 3;
+
+            loop {
+                tokio::select! {
+                    _ = &mut watchdog_stop_rx => {
+                        // Clean manual disconnect; stop watchdog quietly
+                        break;
+                    }
+                    _ = interval.tick() => {
+                        if session.is_closed() {
+                            handle_unexpected_disconnect(
+                                session_id,
+                                &sessions_arc,
+                                &pending_queries_arc,
+                                &status_cb_arc,
+                                "Zenoh session closed unexpectedly",
+                            ).await;
+                            break;
+                        }
+
+                        if is_client {
+                            let mut router_count = 0;
+                            let mut routers = session.info().routers_zid().await;
+                            while let Some(_) = routers.next() {
+                                router_count += 1;
+                            }
+
+                            if router_count > 0 {
+                                had_connection = true;
+                            } else if had_connection {
+                                handle_unexpected_disconnect(
+                                    session_id,
+                                    &sessions_arc,
+                                    &pending_queries_arc,
+                                    &status_cb_arc,
+                                    "Connection to Zenoh router lost: router unreachable",
+                                ).await;
+                                break;
+                            } else if initial_grace_ticks > 0 {
+                                initial_grace_ticks -= 1;
+                            }
+                        } else if has_connect_locators {
+                            let mut peer_count = 0;
+                            let mut peers = session.info().peers_zid().await;
+                            while let Some(_) = peers.next() {
+                                peer_count += 1;
+                            }
+
+                            let mut router_count = 0;
+                            let mut routers = session.info().routers_zid().await;
+                            while let Some(_) = routers.next() {
+                                router_count += 1;
+                            }
+
+                            if peer_count > 0 || router_count > 0 {
+                                had_connection = true;
+                            } else if had_connection {
+                                handle_unexpected_disconnect(
+                                    session_id,
+                                    &sessions_arc,
+                                    &pending_queries_arc,
+                                    &status_cb_arc,
+                                    "Zenoh connection lost: remote endpoint unreachable",
+                                ).await;
+                                break;
+                            } else if initial_grace_ticks > 0 {
+                                initial_grace_ticks -= 1;
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         Ok(session_id)
     }
@@ -76,7 +184,12 @@ impl SessionManager {
     /// Disconnects and explicitly closes an active Zenoh session by its ID.
     pub async fn disconnect(&self, session_id: &Uuid) -> Result<(), String> {
         let mut lock = self.sessions.write().await;
-        if let Some(context) = lock.remove(session_id) {
+        if let Some(mut context) = lock.remove(session_id) {
+            // Signal watchdog task to stop cleanly without emitting unexpected disconnect
+            if let Some(tx) = context.watchdog_stop_tx.take() {
+                let _ = tx.send(());
+            }
+
             // Stop all active background subscriber tasks for this session
             for (_, sub) in context.subscribers {
                 sub.stop().await;
@@ -97,6 +210,7 @@ impl SessionManager {
             Err(format!("session with id '{session_id}' not found"))
         }
     }
+
 
     /// Subscribes to a key expression with a callback function for sample streaming.
     pub async fn subscribe<F>(
@@ -165,9 +279,34 @@ impl SessionManager {
         target: &str,
         timeout_ms: u64,
     ) -> Result<Vec<ReplySample>, String> {
-        let session = self.get_session(session_id).await?;
-        execute_query(&session, *session_id, selector, target, timeout_ms).await
+        self.query_get_advanced(session_id, selector, target, timeout_ms, None, None, None).await
     }
+
+    /// Executes a distributed query `session.get` with optional payload, encoding, and consolidation.
+    pub async fn query_get_advanced(
+        &self,
+        session_id: &Uuid,
+        selector: &str,
+        target: &str,
+        timeout_ms: u64,
+        payload: Option<Vec<u8>>,
+        encoding: Option<String>,
+        consolidation: Option<String>,
+    ) -> Result<Vec<ReplySample>, String> {
+        let session = self.get_session(session_id).await?;
+        execute_query(
+            &session,
+            *session_id,
+            selector,
+            target,
+            timeout_ms,
+            payload,
+            encoding,
+            consolidation,
+        )
+        .await
+    }
+
 
     /// Declares a queryable with a custom programmatic async handler.
     pub async fn declare_queryable<F, Fut>(
@@ -186,12 +325,15 @@ impl SessionManager {
             .get_mut(session_id)
             .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
 
-        // If an existing queryable with the same id exists, stop it first
+
+        // If an existing queryable with the same queryable_id exists, stop it first
         if let Some(old_q) = context.queryables.remove(&queryable_id) {
             old_q.stop().await;
         }
 
         let active_q = declare_queryable_with_handler(
+
+
             &context.session,
             *session_id,
             queryable_id,
@@ -350,3 +492,48 @@ impl SessionManager {
         scout_nodes(timeout_ms).await
     }
 }
+
+/// Helper function to clean up session context and broadcast status event when a sudden disconnect occurs.
+async fn handle_unexpected_disconnect(
+    session_id: Uuid,
+    sessions: &Arc<RwLock<HashMap<Uuid, SessionContext>>>,
+    pending_queries: &Arc<RwLock<HashMap<Uuid, QueryHandle>>>,
+    status_callback: &Arc<RwLock<Option<StatusCallback>>>,
+    reason: &str,
+) {
+    let mut lock = sessions.write().await;
+    if let Some(context) = lock.remove(&session_id) {
+        // Stop all active subscribers
+        for (_, sub) in context.subscribers {
+            sub.stop().await;
+        }
+        // Stop all active queryables
+        for (_, qable) in context.queryables {
+            qable.stop().await;
+        }
+        // Clean up pending queries
+        {
+            let mut pending = pending_queries.write().await;
+            pending.retain(|_, handle| handle.session_id != session_id);
+        }
+
+        // Close session in background
+        tokio::spawn(async move {
+            let _ = tokio::time::timeout(Duration::from_millis(1000), context.session.close()).await;
+        });
+
+        // Notify via status callback
+        let cb_lock = status_callback.read().await;
+        if let Some(ref cb) = *cb_lock {
+            let now = chrono::Utc::now().timestamp_millis();
+            let event = SessionStatusEvent {
+                session_id: session_id.to_string(),
+                status: "disconnected".to_string(),
+                error: Some(reason.to_string()),
+                timestamp: Some(now),
+            };
+            cb(event);
+        }
+    }
+}
+

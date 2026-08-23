@@ -289,6 +289,125 @@ describe('Message Store', () => {
     assert.equal(subscribedKey, 'demo/**');
   });
 
+  test('loadSubscriptions loads presets without active session (disconnected state)', async () => {
+    const mockPresets = [
+      {
+        id: 'preset-offline',
+        profile_id: 'prof-offline',
+        key_expr: 'sensor/telemetry/**',
+        default_encoding: 'json',
+        auto_subscribe: true,
+        color_tag: '#3b82f6',
+      },
+    ];
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'load_subscription_presets') {
+        assert.equal(args?.profileId, 'prof-offline');
+        return mockPresets;
+      }
+      return undefined;
+    };
+
+    // Load presets without passing activeSessionId
+    await useMessageStore.getState().loadSubscriptions('prof-offline', undefined);
+
+    const subs = useMessageStore.getState().subscriptions;
+    assert.equal(subs.length, 1);
+    assert.equal(subs[0].id, 'preset-offline');
+    assert.equal(subs[0].keyExpr, 'sensor/telemetry/**');
+    assert.equal(subs[0].profileId, 'prof-offline');
+    assert.equal(subs[0].active, false); // Inactive because session is not connected
+  });
+
+  test('subscribe creates and saves subscription preset when disconnected', async () => {
+    let savedPreset: any = null;
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'save_subscription_preset') {
+        savedPreset = args?.preset;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    useMessageStore.setState({ subscriptions: [] });
+
+    // Subscribe with empty sessionId
+    const subId = await useMessageStore
+      .getState()
+      .subscribe('', 'offline/topic', 'json', '#10b981', 'prof-offline-2');
+
+    assert.ok(subId);
+    assert.ok(savedPreset);
+    assert.equal(savedPreset.key_expr, 'offline/topic');
+    assert.equal(savedPreset.profile_id, 'prof-offline-2');
+
+    const subs = useMessageStore.getState().subscriptions;
+    assert.equal(subs.length, 1);
+    assert.equal(subs[0].keyExpr, 'offline/topic');
+    assert.equal(subs[0].profileId, 'prof-offline-2');
+    assert.equal(subs[0].active, false);
+  });
+
+  test('updateSubscription updates subscription preset and dynamic state', async () => {
+    let savedPreset: any = null;
+    let unsubscribedKey = '';
+    let resubscribedKey = '';
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'save_subscription_preset') {
+        savedPreset = args?.preset;
+        return undefined;
+      }
+      if (cmd === 'unsubscribe') {
+        unsubscribedKey = args?.subId;
+        return undefined;
+      }
+      if (cmd === 'subscribe') {
+        resubscribedKey = args?.keyExpr;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    useMessageStore.setState({
+      subscriptions: [
+        {
+          id: 'sub-edit-1',
+          sessionId: 'sess-active',
+          profileId: 'prof-1',
+          keyExpr: 'demo/old/**',
+          encoding: 'json',
+          colorTag: '#3b82f6',
+          count: 5,
+          active: true,
+          createdAt: 1000,
+        },
+      ],
+    });
+
+    // Update with key change while active
+    await useMessageStore.getState().updateSubscription(
+      'sub-edit-1',
+      {
+        keyExpr: 'demo/new/**',
+        encoding: 'cbor',
+        colorTag: '#10b981',
+        active: true,
+      },
+      'sess-active'
+    );
+
+    const updated = useMessageStore.getState().subscriptions[0];
+    assert.equal(updated.keyExpr, 'demo/new/**');
+    assert.equal(updated.encoding, 'cbor');
+    assert.equal(updated.colorTag, '#10b981');
+    assert.equal(unsubscribedKey, 'sub-edit-1');
+    assert.equal(resubscribedKey, 'demo/new/**');
+    assert.equal(savedPreset.key_expr, 'demo/new/**');
+    assert.equal(savedPreset.default_encoding, 'cbor');
+  });
+
   test('publish creates outgoing message and calls backend', async () => {
     let published = false;
     mockInvokeHandler = async (cmd, args) => {
@@ -597,6 +716,73 @@ describe('Query Store', () => {
     assert.equal(repliedToken, 'token-abc');
     assert.equal(useQueryStore.getState().inboundQueries.length, 0);
   });
+
+  test('replyInboundQuery removes expired or already answered query from queue on error', async () => {
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'reply_query') {
+        throw new Error('inbound query with token "token-expired" not found or already replied');
+      }
+      return undefined;
+    };
+
+    useQueryStore.setState({
+      inboundQueries: [
+        {
+          token: 'token-expired',
+          session_id: 's1',
+          queryable_id: 'q1',
+          key_expr: 'demo/rpc/call',
+          parameters: '',
+          payload: null,
+          encoding: null,
+          timestamp: 1000,
+        },
+      ],
+    });
+
+    assert.equal(useQueryStore.getState().inboundQueries.length, 1);
+    await assert.rejects(
+      async () => {
+        await useQueryStore.getState().replyInboundQuery('token-expired', 'demo/rpc/call', [1]);
+      },
+      /already replied/
+    );
+
+    // Should be removed from pending queue despite backend error
+    assert.equal(useQueryStore.getState().inboundQueries.length, 0);
+  });
+
+  test('dismissInboundQuery removes specific query from queue', () => {
+    useQueryStore.setState({
+      inboundQueries: [
+        {
+          token: 'token-1',
+          session_id: 's1',
+          queryable_id: 'q1',
+          key_expr: 'demo/rpc/1',
+          parameters: '',
+          payload: null,
+          encoding: null,
+          timestamp: 1000,
+        },
+        {
+          token: 'token-2',
+          session_id: 's1',
+          queryable_id: 'q1',
+          key_expr: 'demo/rpc/2',
+          parameters: '',
+          payload: null,
+          encoding: null,
+          timestamp: 2000,
+        },
+      ],
+    });
+
+    useQueryStore.getState().dismissInboundQuery('token-1');
+    assert.equal(useQueryStore.getState().inboundQueries.length, 1);
+    assert.equal(useQueryStore.getState().inboundQueries[0].token, 'token-2');
+  });
+
 
   test('runQuery and replyInboundQuery record events in traffic store', async () => {
     const mockReplies: ReplySample[] = [

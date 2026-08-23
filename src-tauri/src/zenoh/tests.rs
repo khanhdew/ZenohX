@@ -123,4 +123,45 @@ mod tests {
             "custom_config must be a JSON object of key-value overrides"
         );
     }
+
+    #[test]
+    fn test_session_status_event_serialization() {
+        let event = SessionStatusEvent {
+            session_id: "sess-1234".to_string(),
+            status: "disconnected".to_string(),
+            error: Some("Server connection lost".to_string()),
+            timestamp: Some(1700000000),
+        };
+
+        let json = serde_json::to_string(&event).expect("serialize event");
+        assert!(json.contains("\"sessionId\":\"sess-1234\""));
+        assert!(json.contains("\"status\":\"disconnected\""));
+        assert!(json.contains("\"error\":\"Server connection lost\""));
+
+        let deserialized: SessionStatusEvent =
+            serde_json::from_str(&json).expect("deserialize event");
+        assert_eq!(deserialized, event);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_session_manager_status_callback_registration() {
+        let manager = SessionManager::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<SessionStatusEvent>(10);
+
+        manager
+            .set_status_callback(move |event| {
+                let _ = tx.try_send(event);
+            })
+            .await;
+
+        let config = SessionConfig::default_peer();
+        let session_id = manager.connect(config).await.expect("connect");
+
+        // Clean disconnect should NOT trigger unexpected disconnect event
+        manager.disconnect(&session_id).await.expect("disconnect");
+
+        // Verify channel is empty since disconnect was clean
+        assert!(rx.try_recv().is_err());
+    }
 }
+

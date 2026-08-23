@@ -5,13 +5,16 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type {
   ConnectionProfile,
   EncodingType,
   InboundQuery,
   PutKind,
+  QueryConsolidation,
   QueryTarget,
   ReplySample,
+
   ScoutedNode,
   QueryablePreset,
   SessionConfig,
@@ -128,15 +131,22 @@ export async function runQuery(
   sessionId: string,
   selector: string,
   target: QueryTarget | string = 'all',
-  timeoutMs: number = 2000
+  timeoutMs: number = 2000,
+  payload?: number[] | Uint8Array | null,
+  encoding?: EncodingType | string | null,
+  consolidation?: QueryConsolidation | string | null
 ): Promise<ReplySample[]> {
   return invoke<ReplySample[]>('query_get', {
     sessionId,
     selector,
     target,
     timeoutMs,
+    payload: payload ? normalizePayload(payload) : undefined,
+    encoding: encoding || undefined,
+    consolidation: consolidation && consolidation !== 'auto' ? consolidation : undefined,
   });
 }
+
 
 /**
  * Declares a queryable on a Zenoh session.
@@ -367,3 +377,35 @@ export async function onSessionStatus(
     callback(event.payload);
   });
 }
+
+/**
+ * Opens a dedicated desktop window for a specific connection profile.
+ */
+export async function openProfileInNewWindow(profile: ConnectionProfile): Promise<void> {
+  const cleanId = profile.id.replace(/[^a-zA-Z0-9-_]/g, '');
+  const windowLabel = `zenohx-win-${cleanId}-${Date.now()}`;
+  try {
+    const webview = new WebviewWindow(windowLabel, {
+      url: `index.html?profileId=${encodeURIComponent(profile.id)}`,
+      title: `ZenohX - ${profile.name}`,
+      width: 1200,
+      height: 800,
+      minWidth: 800,
+      minHeight: 600,
+      center: true,
+    });
+
+    webview.once('tauri://error', (e) => {
+      console.warn('WebviewWindow creation error, falling back:', e);
+      if (typeof window !== 'undefined') {
+        window.open(`/?profileId=${encodeURIComponent(profile.id)}`, '_blank');
+      }
+    });
+  } catch (err) {
+    console.warn('Failed to invoke WebviewWindow, fallback to window.open:', err);
+    if (typeof window !== 'undefined') {
+      window.open(`/?profileId=${encodeURIComponent(profile.id)}`, '_blank');
+    }
+  }
+}
+

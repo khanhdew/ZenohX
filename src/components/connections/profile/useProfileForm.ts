@@ -8,6 +8,8 @@ import {
   parseLocator,
   buildLocator,
   detectProfilePreset,
+  DEFAULT_CLOUD_PROTOCOL,
+  type CloudProtocol,
   type ConnectionPreset,
 } from '../../../lib/tls';
 
@@ -33,7 +35,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const [cloudName, setCloudName] = useState<string>('Cloud Router');
   const [cloudHost, setCloudHost] = useState<string>('');
   const [cloudPort, setCloudPort] = useState<string>('7447');
-  const [cloudProtocol, setCloudProtocol] = useState<'tls' | 'tcp' | 'quic' | 'udp'>('tls');
+  const [cloudProtocol, setCloudProtocol] = useState<CloudProtocol>(DEFAULT_CLOUD_PROTOCOL);
 
   // Simplified Local Form State
   const [localName, setLocalName] = useState<string>('Local Peer');
@@ -98,16 +100,16 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
           if (parsed) {
             setCloudHost(parsed.host);
             setCloudPort(parsed.port);
-            setCloudProtocol((parsed.protocol as 'tls' | 'tcp' | 'quic' | 'udp') || 'tls');
+            setCloudProtocol((parsed.protocol as CloudProtocol) || DEFAULT_CLOUD_PROTOCOL);
           } else {
             setCloudHost('');
             setCloudPort('7447');
-            setCloudProtocol('tls');
+            setCloudProtocol(DEFAULT_CLOUD_PROTOCOL);
           }
         } else {
           setCloudHost('');
           setCloudPort('7447');
-          setCloudProtocol(isTlsOn ? 'tls' : 'tcp');
+          setCloudProtocol(isTlsOn ? 'tls' : DEFAULT_CLOUD_PROTOCOL);
         }
 
         setCloudName(profile.name || 'Cloud Router');
@@ -126,7 +128,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setCloudName('Cloud Router');
         setCloudHost('');
         setCloudPort('7447');
-        setCloudProtocol('tls');
+        setCloudProtocol(DEFAULT_CLOUD_PROTOCOL);
 
         setLocalName('Local Peer');
 

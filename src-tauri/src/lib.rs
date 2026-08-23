@@ -4,6 +4,7 @@ pub mod zenoh;
 
 use commands::*;
 use db::Database;
+use tauri::Emitter;
 use zenoh::SessionManager;
 
 pub struct AppState {
@@ -14,6 +15,7 @@ pub struct AppState {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let session_manager = SessionManager::new();
+    let sm_clone = session_manager.clone();
     let db = Database::new("zenohx.db")
         .or_else(|_| Database::new_in_memory())
         .expect("failed to initialize SQLite database");
@@ -22,6 +24,17 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(move |app| {
+            let app_handle = app.handle().clone();
+            let sm = sm_clone.clone();
+            tauri::async_runtime::spawn(async move {
+                sm.set_status_callback(move |event| {
+                    let _ = app_handle.emit("zenohx://session-status", event);
+                })
+                .await;
+            });
+            Ok(())
+        })
         .manage(AppState {
             session_manager,
             db,

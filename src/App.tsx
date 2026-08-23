@@ -64,6 +64,8 @@ export function App() {
   const activeSessions = useConnectionStore((s) => s.activeSessions);
   const connectingProfileIds = useConnectionStore((s) => s.connectingProfileIds);
   const loadProfiles = useConnectionStore((s) => s.loadProfiles);
+  const initStatusListener = useConnectionStore((s) => s.initStatusListener);
+  const cleanupStatusListener = useConnectionStore((s) => s.cleanupStatusListener);
   const selectProfile = useConnectionStore((s) => s.selectProfile);
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
@@ -143,7 +145,11 @@ export function App() {
 
   useEffect(() => {
     loadProfiles();
-  }, [loadProfiles]);
+    initStatusListener();
+    return () => {
+      cleanupStatusListener();
+    };
+  }, [loadProfiles, initStatusListener, cleanupStatusListener]);
 
   // Initialize continuous global traffic ticker
   useEffect(() => {

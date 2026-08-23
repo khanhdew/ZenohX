@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   Play,
+
   Loader2,
   Clock,
   Target,
@@ -15,6 +16,8 @@ import {
   X,
   ChevronDown,
   ChevronUp,
+  FileCode2,
+  Layers,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -25,9 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
+import { PayloadEditor } from '../viewer/PayloadEditor';
 import { useQueryStore } from '../../stores/queryStore';
-import { formatTimeWithMs } from '../../lib/formatters';
-import type { QueryTarget, QueryExecution } from '../../types/zenoh';
+import { formatTimeWithMs, encodePayload } from '../../lib/formatters';
+import type { QueryTarget, QueryExecution, QueryConsolidation, EncodingType } from '../../types/zenoh';
+
 
 export interface QuerierPanelProps {
   sessionId?: string;
@@ -90,14 +95,24 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
 
   const [selector, setSelector] = useState<string>('demo/**');
   const [target, setTarget] = useState<QueryTarget>('all');
+  const [consolidation, setConsolidation] = useState<QueryConsolidation>('auto');
   const [timeoutMs, setTimeoutMs] = useState<number>(2000);
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Active view: 'none' | 'params' | 'body'
+  const [activeSection, setActiveSection] = useState<'none' | 'params' | 'body'>('none');
+
   // Parameter Builder state
-  const [showParamsBuilder, setShowParamsBuilder] = useState<boolean>(false);
   const [paramKey, setParamKey] = useState<string>('');
   const [paramValue, setParamValue] = useState<string>('');
+
+  // Request Payload state
+  const [requestEncoding, setRequestEncoding] = useState<EncodingType>('json');
+  const [requestPayloadText, setRequestPayloadText] = useState<string>(
+    JSON.stringify({ query: 'status', verbose: true }, null, 2)
+  );
+  const [includePayload, setIncludePayload] = useState<boolean>(false);
 
   // History list expansion
   const [showHistory, setShowHistory] = useState<boolean>(true);
@@ -175,17 +190,47 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
       return;
     }
 
+    let payloadBytes: number[] | undefined = undefined;
+    if (includePayload && requestPayloadText.trim()) {
+      const encResult = encodePayload(requestPayloadText, requestEncoding);
+      if (!encResult.isValid) {
+        setErrorMessage(encResult.error || 'Invalid request payload format');
+        return;
+      }
+      payloadBytes = encResult.bytes;
+    }
+
     setIsRunning(true);
     setErrorMessage(null);
 
     try {
-      await runQuery(sessionId, selector.trim(), target, timeoutMs, profileId);
+      await runQuery(
+        sessionId,
+        selector.trim(),
+        target,
+        timeoutMs,
+        profileId,
+        payloadBytes,
+        includePayload ? requestEncoding : undefined,
+        consolidation
+      );
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRunning(false);
     }
-  }, [selector, sessionId, profileId, target, timeoutMs, runQuery]);
+  }, [
+    selector,
+    sessionId,
+    profileId,
+    target,
+    timeoutMs,
+    includePayload,
+    requestPayloadText,
+    requestEncoding,
+    consolidation,
+    runQuery,
+  ]);
 
   return (
     <div
@@ -254,14 +299,42 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
             <label className="text-[11px] font-medium text-muted-foreground">
               Key Expression / Selector
             </label>
-            <button
-              type="button"
-              onClick={() => setShowParamsBuilder(!showParamsBuilder)}
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground hover:underline"
-            >
-              <Sliders className="w-3 h-3 text-muted-foreground" />
-              <span>{showParamsBuilder ? 'Hide Params' : 'Query Params'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveSection(activeSection === 'params' ? 'none' : 'params')}
+                className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors ${
+                  activeSection === 'params'
+                    ? 'text-foreground underline font-semibold'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Sliders className="w-3 h-3" />
+                <span>Params ({parsedParams.length})</span>
+              </button>
+              <span className="text-muted-foreground/40">•</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeSection !== 'body') {
+                    setActiveSection('body');
+                    setIncludePayload(true);
+                  } else {
+                    setActiveSection('none');
+                  }
+                }}
+                className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors ${
+                  activeSection === 'body'
+                    ? 'text-foreground underline font-semibold'
+                    : includePayload
+                    ? 'text-primary font-medium'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <FileCode2 className="w-3 h-3" />
+                <span>Body {includePayload ? '(On)' : ''}</span>
+              </button>
+            </div>
           </div>
 
           <div className="relative">
@@ -285,8 +358,8 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
           </div>
         </div>
 
-        {/* 2. Interactive Query Parameters Builder (Collapsible) */}
-        {showParamsBuilder && (
+        {/* 2. Interactive Query Parameters Builder */}
+        {activeSection === 'params' && (
           <div className="rounded-md border bg-muted/20 p-2.5 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-foreground">
@@ -323,7 +396,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
               </div>
             ) : (
               <p className="text-[11px] text-muted-foreground italic">
-                No parameters added.
+                No parameters added to selector.
               </p>
             )}
 
@@ -360,12 +433,47 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
           </div>
         )}
 
-        {/* 3. Query Target & Timeout Settings */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* 3. Request Payload / Body Editor (Zenoh 1.0+ RPC) */}
+        {activeSection === 'body' && (
+          <div className="rounded-md border bg-muted/20 p-2.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-foreground">
+                  Request Payload (Body)
+                </span>
+                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includePayload}
+                    onChange={(e) => setIncludePayload(e.target.checked)}
+                    className="rounded border-input text-primary focus:ring-primary h-3.5 w-3.5"
+                  />
+                  <span>Attach to query</span>
+                </label>
+              </div>
+            </div>
+
+            {includePayload && (
+              <div className="space-y-2 pt-1">
+                <PayloadEditor
+                  value={requestPayloadText}
+                  onChange={setRequestPayloadText}
+                  encoding={requestEncoding}
+                  onEncodingChange={setRequestEncoding}
+                  rows={5}
+                />
+
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 4. Query Target, Consolidation & Timeout Settings */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           {/* Target Dropdown */}
           <div className="space-y-1">
             <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-              <Target className="w-3.5 h-3.5" />
+              <Target className="w-3 h-3" />
               <span>Target</span>
             </label>
             <Select
@@ -374,17 +482,48 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
               disabled={isRunning}
             >
               <SelectTrigger className="h-8 text-xs bg-background">
-                <SelectValue placeholder="Select target" />
+                <SelectValue placeholder="Target" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all" className="text-xs">
-                  All Queryables
-                </SelectItem>
-                <SelectItem value="complete" className="text-xs">
-                  Complete Set
+                  All
                 </SelectItem>
                 <SelectItem value="best_matching" className="text-xs">
                   Best Matching
+                </SelectItem>
+                <SelectItem value="complete" className="text-xs">
+                  Complete
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Consolidation Dropdown */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+              <Layers className="w-3 h-3" />
+              <span>Consolidation</span>
+            </label>
+            <Select
+              value={consolidation}
+              onValueChange={(val) => setConsolidation(val as QueryConsolidation)}
+              disabled={isRunning}
+            >
+              <SelectTrigger className="h-8 text-xs bg-background">
+                <SelectValue placeholder="Consolidation" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto" className="text-xs">
+                  Auto
+                </SelectItem>
+                <SelectItem value="none" className="text-xs">
+                  None
+                </SelectItem>
+                <SelectItem value="latest" className="text-xs">
+                  Latest
+                </SelectItem>
+                <SelectItem value="monotonic" className="text-xs">
+                  Monotonic
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -394,14 +533,14 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
+                <Clock className="w-3 h-3" />
                 <span>Timeout</span>
               </label>
-              <span className="font-mono text-xs font-medium text-foreground">
-                {timeoutMs} ms
+              <span className="font-mono text-[10px] text-muted-foreground">
+                {timeoutMs}ms
               </span>
             </div>
-            <div className="flex items-center gap-2 h-8">
+            <div className="flex items-center gap-1.5 h-8">
               <input
                 type="range"
                 min={100}
@@ -416,7 +555,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
           </div>
         </div>
 
-        {/* 4. Action Button: Run Query */}
+        {/* 5. Action Button: Run Query */}
         <div className="pt-1">
           <Button
             type="button"
@@ -438,6 +577,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
             )}
           </Button>
         </div>
+
 
         {/* 5. Past Query Executions History */}
         <div className="pt-3 border-t space-y-2">

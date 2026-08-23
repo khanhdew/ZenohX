@@ -21,6 +21,7 @@ interface QueryWorkspaceProps {
 
 export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }) => {
   const [activeTab, setActiveTab] = useState<'querier' | 'queryable' | 'split'>('querier');
+  const [clientSubTab, setClientSubTab] = useState<'both' | 'querier' | 'replies'>('both');
 
   // Resizable Querier Form Panel (Left)
   const {
@@ -35,18 +36,69 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
     storageKey: 'zenohx_query_querier_width',
   });
 
-  // Resizable Split Stage Left Column
-  const {
-    size: splitLeftWidth,
-    isDragging: isSplitDragging,
-    startDragging: startSplitDragging,
-    resetToDefault: resetSplitWidth,
-  } = useResizable({
-    initialSize: 550,
-    minSize: 350,
-    maxSize: 900,
-    storageKey: 'zenohx_query_split_width',
+  // Resizable Split Stage Ratio (Percentage: 25% to 75%, default 50% balanced)
+  const splitContainerRef = React.useRef<HTMLDivElement>(null);
+  const [splitRatio, setSplitRatio] = useState<number>(() => {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const saved = Number(localStorage.getItem('zenohx_query_split_ratio'));
+        if (!isNaN(saved) && saved >= 25 && saved <= 75) {
+          return saved;
+        }
+      } catch {}
+    }
+    return 50; // Balanced 50% Client, 50% Simulator by default
   });
+  const [isSplitDragging, setIsSplitDragging] = useState<boolean>(false);
+
+  const startSplitDragging = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsSplitDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  const resetSplitRatio = () => {
+    setSplitRatio(50);
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem('zenohx_query_split_ratio');
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    if (!isSplitDragging) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const percent = ((e.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.max(25, Math.min(75, percent));
+      setSplitRatio(clamped);
+    };
+
+    const handleMouseUp = () => {
+      setIsSplitDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.setItem('zenohx_query_split_ratio', String(splitRatio));
+        } catch {}
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isSplitDragging, splitRatio]);
+
 
   // Connection store state
   const selectedProfileId = useConnectionStore((s) => s.selectedProfileId);
@@ -234,65 +286,147 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
         )}
 
         {activeTab === 'split' && (
-          <div className="flex-1 flex flex-col lg:flex-row min-h-0 w-full overflow-hidden">
-            {/* Left: Querier & Reply Feed */}
+          <div
+            ref={splitContainerRef}
+            className="flex-1 flex flex-col lg:flex-row min-h-0 w-full overflow-hidden"
+          >
+            {/* Left: Querier & Reply Feed (Balanced 50% ratio by default) */}
             <div
-              style={{ width: `${splitLeftWidth}px` }}
-              className="w-full lg:w-auto shrink-0 flex flex-col min-h-0 h-full overflow-hidden border-r border-border"
+              style={{
+                flex: `0 0 ${splitRatio}%`,
+                maxWidth: '75%',
+                minWidth: '25%',
+              }}
+              className="w-full lg:w-auto shrink-0 flex flex-col min-h-0 h-full overflow-hidden border-b lg:border-b-0 lg:border-r border-border"
             >
-              <div className="p-2 border-b bg-muted/30 flex items-center justify-between text-xs font-medium text-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Activity className="w-3.5 h-3.5 text-muted-foreground" />
-                  Client Querier
-                </span>
-                <Badge variant="outline" className="text-[10px]">
-                  session.get
-                </Badge>
+              {/* Header with Sub-tab Switcher */}
+              <div className="p-2 border-b bg-muted/30 flex items-center justify-between text-xs font-medium text-foreground gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="truncate">Client Querier</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center rounded-md bg-muted p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setClientSubTab('both')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        clientSubTab === 'both'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Split
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClientSubTab('querier')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        clientSubTab === 'querier'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Form
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClientSubTab('replies')}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        clientSubTab === 'replies'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Timeline
+                    </button>
+                  </div>
+
+                  <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
+                    session.get
+                  </Badge>
+                </div>
               </div>
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                <div className="h-1/2 border-b border-border overflow-y-auto">
+
+              {/* Client Body View */}
+              {clientSubTab === 'both' && (
+                <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                  <div className="h-1/2 min-h-[160px] border-b border-border overflow-y-auto">
+                    <QuerierPanel
+                      sessionId={sessionId}
+                      profileId={profile?.id}
+                      className="h-full"
+                    />
+                  </div>
+                  <div className="h-1/2 min-h-[160px] overflow-hidden">
+                    <ReplyTimeline
+                      sessionId={sessionId}
+                      className="h-full"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {clientSubTab === 'querier' && (
+                <div className="flex-1 overflow-y-auto min-h-0">
                   <QuerierPanel
                     sessionId={sessionId}
                     profileId={profile?.id}
                     className="h-full"
                   />
                 </div>
-                <div className="h-1/2 overflow-hidden">
+              )}
+
+              {clientSubTab === 'replies' && (
+                <div className="flex-1 overflow-hidden min-h-0">
                   <ReplyTimeline
                     sessionId={sessionId}
                     className="h-full"
                   />
                 </div>
-              </div>
+              )}
             </div>
 
-            <ResizeHandle
-              isDragging={isSplitDragging}
-              onMouseDown={startSplitDragging}
-              onReset={resetSplitWidth}
-            />
+            <div className="hidden lg:flex">
+              <ResizeHandle
+                isDragging={isSplitDragging}
+                onMouseDown={startSplitDragging}
+                onReset={resetSplitRatio}
+              />
+            </div>
 
-            {/* Right: Queryable Simulator Server */}
-            <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
-              <div className="p-2 border-b bg-muted/30 flex items-center justify-between text-xs font-medium text-foreground">
-                <span className="flex items-center gap-1.5">
-                  <Server className="w-3.5 h-3.5 text-muted-foreground" />
-                  Queryable Server Simulator
+            {/* Right: Queryable Simulator Server (Balanced 50% ratio by default) */}
+            <div
+              style={{
+                flex: `0 0 ${100 - splitRatio}%`,
+                maxWidth: '75%',
+                minWidth: '25%',
+              }}
+              className="w-full lg:w-auto flex-1 flex flex-col min-h-0 h-full overflow-hidden"
+            >
+              <div className="p-2 border-b bg-muted/30 flex items-center justify-between text-xs font-medium text-foreground shrink-0">
+                <span className="flex items-center gap-1.5 truncate">
+                  <Server className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span>Queryable Server Simulator</span>
                 </span>
-                <Badge variant="outline" className="text-[10px]">
+                <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
                   session.declare_queryable
                 </Badge>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-hidden min-h-0">
                 <QueryablePanel
                   sessionId={sessionId}
                   profileId={profile?.id}
+                  compact={true}
                   className="h-full"
                 />
               </div>
             </div>
           </div>
         )}
+
+
       </div>
     </div>
   );

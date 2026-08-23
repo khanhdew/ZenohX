@@ -8,10 +8,12 @@ import type {
   ActiveQueryable,
   EncodingType,
   InboundQuery,
+  QueryConsolidation,
   QueryExecution,
   QueryTarget,
   ReplySample,
 } from '../types/zenoh';
+
 import {
   clearQueryHistory as clearQueryHistoryIpc,
   declareQueryable as declareQueryableIpc,
@@ -64,8 +66,12 @@ export interface QueryState {
     selector: string,
     target?: QueryTarget | string,
     timeoutMs?: number,
-    profileId?: string
+    profileId?: string,
+    payload?: number[] | Uint8Array | null,
+    encoding?: EncodingType | string | null,
+    consolidation?: QueryConsolidation | string | null
   ) => Promise<ReplySample[]>;
+
 
   declareQueryable: (
     sessionId: string,
@@ -90,6 +96,8 @@ export interface QueryState {
     encoding?: EncodingType | string
   ) => Promise<void>;
 
+  dismissInboundQuery: (token: string) => void;
+
   loadQueryHistory: (profileId?: string, limit?: number, offset?: number) => Promise<void>;
   loadQueryables: (profileId: string, activeSessionId?: string) => Promise<void>;
   clearExecutions: (sessionId?: string, profileId?: string) => Promise<void>;
@@ -105,6 +113,9 @@ export interface QueryState {
   getActiveExecution: () => QueryExecution | undefined;
 }
 
+let isInitializingQueryListener = false;
+
+
 export const useQueryStore = create<QueryState>((set, get) => ({
   activeQueryables: [],
   inboundQueries: [],
@@ -115,11 +126,17 @@ export const useQueryStore = create<QueryState>((set, get) => ({
   error: null,
 
   initListener: async () => {
-    if (get().isListening && get().unlistenFn) {
+    if (get().isListening || isInitializingQueryListener) {
       return;
     }
+    isInitializingQueryListener = true;
 
     try {
+      if (get().unlistenFn) {
+        get().unlistenFn?.();
+        set({ unlistenFn: null, isListening: false });
+      }
+
       const unlisten = await onInboundQuery(async (inbound: InboundQuery) => {
         useTrafficStore.getState().recordEvent({
           sessionId: inbound.session_id,
@@ -129,40 +146,53 @@ export const useQueryStore = create<QueryState>((set, get) => ({
           bytes: inbound.parameters?.length || 0,
         });
 
-        // Check if there is an active queryable matching queryable_id with autoReply enabled
+        // Check if there is an active queryable matching queryable_id or keyExpr with autoReply enabled
         const matchingQueryable = get().activeQueryables.find(
-          (q) => q.id === inbound.queryable_id && q.autoReply
+          (q) => (q.id === inbound.queryable_id || q.keyExpr === inbound.key_expr) && q.autoReply
         );
 
-        if (matchingQueryable && matchingQueryable.replyPayload) {
+        if (matchingQueryable) {
           try {
-            const bytes = encodeStringToBytes(matchingQueryable.replyPayload);
+            const replyText = matchingQueryable.replyPayload !== undefined
+              ? matchingQueryable.replyPayload
+              : '{"status":"ok"}';
+            const bytes = encodeStringToBytes(replyText);
             const enc = matchingQueryable.replyEncoding || 'json';
-            await replyQueryIpc(inbound.token, inbound.key_expr, bytes, enc);
+            const replyKey = matchingQueryable.keyExpr || inbound.key_expr;
+
+            await replyQueryIpc(inbound.token, replyKey, bytes, enc);
             useTrafficStore.getState().recordEvent({
               sessionId: inbound.session_id,
               profileId: matchingQueryable.profileId,
               direction: 'outbound',
               opType: 'queryable_out',
-              keyExpr: inbound.key_expr,
+              keyExpr: replyKey,
               bytes: bytes.length,
             });
-            return; // Successfully auto-replied, no need to keep in pending list
           } catch (autoErr) {
             console.error('Auto-reply failed:', autoErr);
           }
+          // When autoReply is enabled on the matching queryable, do NOT add to pending manual queue
+          return;
         }
 
-        // Add to pending inbound queries list
-        set((state) => ({
-          inboundQueries: [inbound, ...state.inboundQueries].slice(0, 500),
-        }));
-      });
 
+        // Add to pending inbound queries list for manual response (deduplicate by token)
+        set((state) => {
+          if (state.inboundQueries.some((q) => q.token === inbound.token)) {
+            return state;
+          }
+          return {
+            inboundQueries: [inbound, ...state.inboundQueries].slice(0, 500),
+          };
+        });
+      });
 
       set({ isListening: true, unlistenFn: unlisten });
     } catch (err) {
       set({ error: `Failed to initialize inbound query listener: ${err}` });
+    } finally {
+      isInitializingQueryListener = false;
     }
   },
 
@@ -172,19 +202,30 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       unlisten();
     }
     set({ isListening: false, unlistenFn: null });
+    isInitializingQueryListener = false;
   },
+
 
   runQuery: async (
     sessionId: string,
     selector: string,
     target: QueryTarget | string = 'all',
     timeoutMs: number = 2000,
-    profileId?: string
+    profileId?: string,
+    payload?: number[] | Uint8Array | null,
+    encoding?: EncodingType | string | null,
+    consolidation?: QueryConsolidation | string | null
   ) => {
     const execId = generateId();
     const startedAt = Date.now();
     const targetProfileId =
       profileId || useConnectionStore.getState().sessionToProfile[sessionId] || '';
+
+    const payloadBytes = payload
+      ? payload instanceof Uint8Array
+        ? Array.from(payload)
+        : payload
+      : undefined;
 
     const execution: QueryExecution = {
       id: execId,
@@ -192,7 +233,10 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       profileId: targetProfileId,
       selector,
       target,
+      consolidation: consolidation || undefined,
       timeoutMs,
+      requestPayload: payloadBytes,
+      requestEncoding: encoding || undefined,
       status: 'running',
       replies: [],
       startedAt,
@@ -204,7 +248,7 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       direction: 'outbound',
       opType: 'query_req',
       keyExpr: selector,
-      bytes: selector.length,
+      bytes: selector.length + (payloadBytes?.length || 0),
     });
 
     set((state) => ({
@@ -214,8 +258,17 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     }));
 
     try {
-      const replies = await runQueryIpc(sessionId, selector, target, timeoutMs);
+      const replies = await runQueryIpc(
+        sessionId,
+        selector,
+        target,
+        timeoutMs,
+        payload,
+        encoding,
+        consolidation
+      );
       const durationMs = Date.now() - startedAt;
+
 
       for (const r of replies) {
         useTrafficStore.getState().recordEvent({
@@ -419,12 +472,23 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
       }));
     } catch (err) {
+      // Remove query from pending list on error as well (e.g., already replied or expired on backend)
+      set((state) => ({
+        inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
+      }));
 
       const msg = `Failed to reply to inbound query: ${err}`;
       set({ error: msg });
       throw new Error(msg);
     }
   },
+
+  dismissInboundQuery: (token: string) => {
+    set((state) => ({
+      inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
+    }));
+  },
+
 
   loadQueryHistory: async (profileId?: string, limit: number = 50, offset: number = 0) => {
     try {

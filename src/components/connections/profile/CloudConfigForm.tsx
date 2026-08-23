@@ -2,6 +2,7 @@ import React from 'react';
 import { Lock, Globe, Zap, Radio, Shield } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
+import { type CloudProtocol, SUPPORTED_CLOUD_PROTOCOLS } from '../../../lib/tls';
 
 export interface CloudConfigFormProps {
   cloudName: string;
@@ -10,8 +11,8 @@ export interface CloudConfigFormProps {
   setCloudHost: (val: string) => void;
   cloudPort: string;
   setCloudPort: (val: string) => void;
-  cloudProtocol: 'tls' | 'tcp' | 'quic' | 'udp';
-  setCloudProtocol: (val: 'tls' | 'tcp' | 'quic' | 'udp') => void;
+  cloudProtocol: CloudProtocol;
+  setCloudProtocol: (val: CloudProtocol) => void;
   username: string;
   setUsername: (val: string) => void;
   password: string;
@@ -77,18 +78,20 @@ export const CloudConfigForm: React.FC<CloudConfigFormProps> = ({
       <div className="space-y-1.5">
         <Label className="text-xs font-semibold">Transport Protocol</Label>
         <div className="grid grid-cols-4 gap-2">
-          {[
-            { id: 'tls', label: 'TLS (Secure)', icon: Lock },
-            { id: 'tcp', label: 'TCP (Plain)', icon: Globe },
-            { id: 'quic', label: 'QUIC', icon: Zap },
-            { id: 'udp', label: 'UDP', icon: Radio },
-          ].map((p) => {
-            const Icon = p.icon;
+          {SUPPORTED_CLOUD_PROTOCOLS.map((p) => {
+            const Icon =
+              p.id === 'tcp'
+                ? Globe
+                : p.id === 'tls'
+                  ? Lock
+                  : p.id === 'quic'
+                    ? Zap
+                    : Radio;
             return (
               <button
                 key={p.id}
                 type="button"
-                onClick={() => setCloudProtocol(p.id as typeof cloudProtocol)}
+                onClick={() => setCloudProtocol(p.id)}
                 className={`h-8 px-2 rounded-md border text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
                   cloudProtocol === p.id
                     ? 'border-primary bg-primary/10 text-foreground font-semibold'

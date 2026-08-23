@@ -9,6 +9,7 @@ import type {
   ScoutedNode,
   SessionConfig,
   SessionInfo,
+  SessionStatusEvent,
 } from '../types/zenoh';
 import {
   connectSession,
@@ -17,9 +18,11 @@ import {
   getAllSessions,
   getSessionInfo,
   loadProfiles as loadProfilesIpc,
+  onSessionStatus,
   saveProfile as saveProfileIpc,
   scoutNodes,
 } from '../lib/tauri';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 
 export interface ConnectionState {
   profiles: ConnectionProfile[];
@@ -33,6 +36,8 @@ export interface ConnectionState {
   scoutedNodes: ScoutedNode[];
   isScouting: boolean;
   isLoadingProfiles: boolean;
+  isListeningStatus: boolean;
+  statusUnlistenFn: UnlistenFn | null;
   error: string | null;
 
   // Actions
@@ -47,6 +52,9 @@ export interface ConnectionState {
   scout: (timeoutMs?: number) => Promise<ScoutedNode[]>;
   refreshSessions: () => Promise<void>;
   setError: (error: string | null) => void;
+  handleSessionStatus: (status: SessionStatusEvent) => void;
+  initStatusListener: () => Promise<void>;
+  cleanupStatusListener: () => void;
 
   // Helpers
   isConnected: (profileId: string) => boolean;
@@ -64,6 +72,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   scoutedNodes: [],
   isScouting: false,
   isLoadingProfiles: false,
+  isListeningStatus: false,
+  statusUnlistenFn: null,
   error: null,
 
   loadProfiles: async () => {
@@ -72,7 +82,14 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const profiles = await loadProfilesIpc();
       set((state) => {
         let selectedId = state.selectedProfileId;
-        if (!selectedId && profiles.length > 0) {
+        const search =
+          typeof window !== 'undefined' && window.location?.search ? window.location.search : '';
+        const urlParams = search ? new URLSearchParams(search) : null;
+        const queryProfileId = urlParams?.get('profileId');
+
+        if (queryProfileId && profiles.some((p) => p.id === queryProfileId)) {
+          selectedId = queryProfileId;
+        } else if (!selectedId && profiles.length > 0) {
           selectedId = profiles[0].id;
         } else if (selectedId && !profiles.some((p) => p.id === selectedId)) {
           selectedId = profiles.length > 0 ? profiles[0].id : null;
@@ -315,6 +332,65 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   setError: (error: string | null) => set({ error }),
+
+  handleSessionStatus: (event: SessionStatusEvent) => {
+    const { sessionId, status, error } = event;
+    const profileId = get().sessionToProfile[sessionId];
+
+    if (status === 'disconnected' || status === 'error') {
+      set((state) => {
+        const nextActive = { ...state.activeSessions };
+        if (profileId) {
+          delete nextActive[profileId];
+        } else {
+          for (const [pId, sess] of Object.entries(nextActive)) {
+            if (sess.id === sessionId) {
+              delete nextActive[pId];
+            }
+          }
+        }
+
+        const nextSessionToProfile = { ...state.sessionToProfile };
+        delete nextSessionToProfile[sessionId];
+
+        const nextConnecting = { ...state.connectingProfileIds };
+        if (profileId) {
+          delete nextConnecting[profileId];
+        }
+
+        const errorMsg = error || 'Connection to Zenoh router lost unexpectedly.';
+        return {
+          activeSessions: nextActive,
+          sessionToProfile: nextSessionToProfile,
+          connectingProfileIds: nextConnecting,
+          error: errorMsg,
+        };
+      });
+    }
+  },
+
+  initStatusListener: async () => {
+    if (get().isListeningStatus && get().statusUnlistenFn) {
+      return;
+    }
+
+    try {
+      const unlisten = await onSessionStatus((event: SessionStatusEvent) => {
+        get().handleSessionStatus(event);
+      });
+      set({ isListeningStatus: true, statusUnlistenFn: unlisten });
+    } catch (err) {
+      set({ error: `Failed to initialize session status listener: ${err}` });
+    }
+  },
+
+  cleanupStatusListener: () => {
+    const unlisten = get().statusUnlistenFn;
+    if (unlisten) {
+      unlisten();
+    }
+    set({ isListeningStatus: false, statusUnlistenFn: null });
+  },
 
   isConnected: (profileId: string) => {
     return Boolean(get().activeSessions[profileId]);

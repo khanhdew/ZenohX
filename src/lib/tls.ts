@@ -2,8 +2,19 @@ import type { ConnectionProfile, ScoutedNode, TlsConfig } from '../types/zenoh';
 
 export type ConnectionPreset = 'cloud' | 'local' | 'custom';
 
+export type CloudProtocol = 'tcp' | 'tls' | 'quic' | 'udp';
+
+export const DEFAULT_CLOUD_PROTOCOL: CloudProtocol = 'tcp';
+
+export const SUPPORTED_CLOUD_PROTOCOLS = [
+  { id: 'tcp', label: 'TCP (Plain)' },
+  { id: 'tls', label: 'TLS (Secure)' },
+  { id: 'quic', label: 'QUIC' },
+  { id: 'udp', label: 'UDP' },
+] as const;
+
 export interface ParsedLocator {
-  protocol: 'tls' | 'tcp' | 'quic' | 'udp' | string;
+  protocol: CloudProtocol | string;
   host: string;
   port: string;
 }

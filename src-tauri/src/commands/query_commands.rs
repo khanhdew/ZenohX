@@ -12,12 +12,24 @@ pub async fn query_get(
     selector: String,
     target: String,
     timeout_ms: u64,
+    payload: Option<Vec<u8>>,
+    encoding: Option<String>,
+    consolidation: Option<String>,
 ) -> Result<Vec<ReplySample>, String> {
     state
         .session_manager
-        .query_get(&session_id, &selector, &target, timeout_ms)
+        .query_get_advanced(
+            &session_id,
+            &selector,
+            &target,
+            timeout_ms,
+            payload,
+            encoding,
+            consolidation,
+        )
         .await
 }
+
 
 /// Declares a queryable on a Zenoh session and routes inbound queries to the frontend via the `zenohx://query` Tauri event.
 #[tauri::command]

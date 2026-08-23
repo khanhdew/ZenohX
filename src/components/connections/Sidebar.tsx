@@ -17,15 +17,26 @@ import {
   Server,
   FolderOpen,
   Lock,
+  ExternalLink,
+  Link,
+  Check,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { ConnectionProfile } from '../../types/zenoh';
 import { isTlsEnabled } from '../../lib/tls';
+import { openProfileInNewWindow } from '../../lib/tauri';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '../ui/context-menu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,6 +66,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
   const [deleteConfirmProfile, setDeleteConfirmProfile] = useState<ConnectionProfile | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [copiedLocatorProfileId, setCopiedLocatorProfileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Store state
@@ -89,6 +101,28 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
   const handleOpenNewProfile = () => {
     setEditingProfile(null);
     setProfileModalOpen(true);
+  };
+
+  const handleOpenInNewWindow = async (p: ConnectionProfile, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      await openProfileInNewWindow(p);
+    } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const handleCopyLocator = (p: ConnectionProfile, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const locators =
+      p.connect_locators && p.connect_locators.length > 0
+        ? p.connect_locators.join(', ')
+        : p.scout_multicast
+        ? 'Multicast'
+        : `${p.mode || 'peer'} (local)`;
+    navigator.clipboard.writeText(locators);
+    setCopiedLocatorProfileId(p.id);
+    setTimeout(() => setCopiedLocatorProfileId((curr) => (curr === p.id ? null : curr)), 2000);
   };
 
   const handleEditProfile = (p: ConnectionProfile, e?: React.MouseEvent) => {
@@ -282,6 +316,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
             const session = activeSessions[p.id];
             const isConnected = Boolean(session);
             const isConnecting = Boolean(connectingProfileIds[p.id]);
+            const isLocatorCopied = copiedLocatorProfileId === p.id;
 
             // Mode icon
             const mode = (p.mode || 'peer').toLowerCase();
@@ -296,154 +331,228 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
                 : 'Local Peer';
 
             return (
-              <div
-                key={p.id}
-                onClick={() => handleSelect(p)}
-                className={`group rounded-md border p-2 transition-colors cursor-pointer ${
-                  isSelected
-                    ? 'border-foreground/30 bg-muted/60'
-                    : 'border-transparent hover:bg-muted/40'
-                }`}
-              >
-                {/* Top Row: Status Dot, Name, Action Controls */}
-                <div className="flex items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {/* Status Dot */}
-                    <div className="relative flex items-center justify-center shrink-0">
-                      {isConnecting ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
-                      ) : isConnected ? (
-                        <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                      ) : (
-                        <span className="inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground/30"></span>
-                      )}
+              <ContextMenu key={p.id}>
+                <ContextMenuTrigger asChild>
+                  <div
+                    onClick={() => handleSelect(p)}
+                    className={`group rounded-md border p-2 transition-colors cursor-pointer select-none ${
+                      isSelected
+                        ? 'border-foreground/30 bg-muted/60'
+                        : 'border-transparent hover:bg-muted/40'
+                    }`}
+                  >
+                    {/* Top Row: Status Dot, Name, Action Controls */}
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {/* Status Dot */}
+                        <div className="relative flex items-center justify-center shrink-0">
+                          {isConnecting ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
+                          ) : isConnected ? (
+                            <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          ) : (
+                            <span className="inline-flex rounded-full h-1.5 w-1.5 bg-muted-foreground/30"></span>
+                          )}
+                        </div>
+
+                        {/* Name */}
+                        <span
+                          className={`text-xs truncate ${
+                            isSelected
+                              ? 'font-semibold text-foreground'
+                              : 'font-medium text-foreground/90'
+                          }`}
+                          title={p.name}
+                        >
+                          {p.name}
+                        </span>
+                      </div>
+
+                      {/* Right Actions: Connect/Disconnect toggle + Context Dropdown */}
+                      <div
+                        className="flex items-center gap-1 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Quick Connect / Disconnect Button */}
+                        <Button
+                          type="button"
+                          variant={isConnected ? 'destructive' : 'ghost'}
+                          size="iconSm"
+                          onClick={(e) => handleToggleConnect(p.id, e)}
+                          disabled={isConnecting}
+                          className="h-5 w-5 rounded p-0"
+                          title={
+                            isConnecting
+                              ? 'Connecting...'
+                              : isConnected
+                              ? 'Disconnect session'
+                              : 'Connect session'
+                          }
+                        >
+                          {isConnecting ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
+                          ) : isConnected ? (
+                            <PowerOff className="w-3 h-3" />
+                          ) : (
+                            <Power className="w-3 h-3 text-muted-foreground group-hover:text-foreground" />
+                          )}
+                        </Button>
+
+                        {/* More Menu Dropdown */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="iconSm"
+                              className="h-5 w-5 rounded p-0 text-muted-foreground hover:text-foreground opacity-60 group-hover:opacity-100"
+                              title="More options"
+                            >
+                              <MoreVertical className="w-3 h-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 text-xs">
+                            <DropdownMenuItem onClick={(e) => handleOpenInNewWindow(p, e)}>
+                              <ExternalLink className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              <span>Open in New Window</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => handleToggleConnect(p.id, e)}>
+                              {isConnected ? (
+                                <>
+                                  <PowerOff className="w-3.5 h-3.5 mr-2 text-destructive" />
+                                  <span className="text-destructive">Disconnect</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Power className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                                  <span>Connect</span>
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={(e) => handleEditProfile(p, e)}>
+                              <Pencil className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              <span>Edit Profile...</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => handleDuplicateProfile(p, e)}>
+                              <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              <span>Duplicate</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={(e) => handleCopyLocator(p, e)}>
+                              {isLocatorCopied ? (
+                                <Check className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                              ) : (
+                                <Link className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              )}
+                              <span>Copy Locator(s)</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirmProfile(p);
+                              }}
+                              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-2" />
+                              <span>Delete Profile...</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
 
-                    {/* Name */}
-                    <span
-                      className={`text-xs truncate ${
-                        isSelected ? 'font-semibold text-foreground' : 'font-medium text-foreground/90'
-                      }`}
-                      title={p.name}
-                    >
-                      {p.name}
-                    </span>
-                  </div>
+                    {/* Subtitle / Details Row */}
+                    <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+                      {/* Mode Badge, SSL Badge & Locator Info */}
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
+                        <Badge
+                          variant="outline"
+                          className="text-[9px] px-1 py-0 h-3.5 capitalize font-mono"
+                        >
+                          <ModeIcon className="w-2.5 h-2.5 mr-0.5 inline-block" />
+                          {mode}
+                        </Badge>
+                        {isTlsEnabled(p.tls_config, p.connect_locators) && (
+                          <Badge
+                            variant="secondary"
+                            className="text-[9px] px-1 py-0 h-3.5 font-mono gap-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                            title="TLS / SSL Encrypted Connection"
+                          >
+                            <Lock className="w-2.5 h-2.5 inline-block" />
+                            SSL
+                          </Badge>
+                        )}
+                        <span className="truncate font-mono" title={locatorPreview}>
+                          {locatorPreview}
+                        </span>
+                      </div>
 
-                  {/* Right Actions: Connect/Disconnect toggle + Context Dropdown */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Quick Connect / Disconnect Button */}
-                    <Button
-                      type="button"
-                      variant={isConnected ? 'destructive' : 'ghost'}
-                      size="iconSm"
-                      onClick={(e) => handleToggleConnect(p.id, e)}
-                      disabled={isConnecting}
-                      className="h-5 w-5 rounded p-0"
-                      title={
-                        isConnecting
-                          ? 'Connecting...'
-                          : isConnected
-                          ? 'Disconnect session'
-                          : 'Connect session'
-                      }
-                    >
-                      {isConnecting ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-amber-500" />
-                      ) : isConnected ? (
-                        <PowerOff className="w-3 h-3" />
+                      {/* Connected ZID pill or locators count */}
+                      {isConnected && session?.zid ? (
+                        <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded shrink-0">
+                          {session.zid.slice(0, 6)}
+                        </span>
                       ) : (
-                        <Power className="w-3 h-3 text-muted-foreground group-hover:text-foreground" />
+                        p.connect_locators &&
+                        p.connect_locators.length > 1 && (
+                          <span className="text-[10px] text-muted-foreground shrink-0">
+                            +{p.connect_locators.length - 1}
+                          </span>
+                        )
                       )}
-                    </Button>
-
-                    {/* More Menu Dropdown */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          variant="ghost"
-                          size="iconSm"
-                          className="h-5 w-5 rounded p-0 text-muted-foreground hover:text-foreground"
-                          title="More options"
-                        >
-                          <MoreVertical className="w-3 h-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-36 text-xs">
-                        <DropdownMenuItem onClick={(e) => handleEditProfile(p, e)}>
-                          <Pencil className="w-3.5 h-3.5 mr-2" />
-                          Edit Profile
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => handleDuplicateProfile(p, e)}>
-                          <Copy className="w-3.5 h-3.5 mr-2" />
-                          Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => handleToggleConnect(p.id, e)}>
-                          {isConnected ? (
-                            <>
-                              <PowerOff className="w-3.5 h-3.5 mr-2 text-destructive" />
-                              <span className="text-destructive">Disconnect</span>
-                            </>
-                          ) : (
-                            <>
-                              <Power className="w-3.5 h-3.5 mr-2" />
-                              <span>Connect</span>
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirmProfile(p);
-                          }}
-                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    </div>
                   </div>
-                </div>
+                </ContextMenuTrigger>
 
-                {/* Subtitle / Details Row */}
-                <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
-                  {/* Mode Badge, SSL Badge & Locator Info */}
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
-                    <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 capitalize font-mono">
-                      <ModeIcon className="w-2.5 h-2.5 mr-0.5 inline-block" />
-                      {mode}
-                    </Badge>
-                    {isTlsEnabled(p.tls_config, p.connect_locators) && (
-                      <Badge
-                        variant="secondary"
-                        className="text-[9px] px-1 py-0 h-3.5 font-mono gap-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
-                        title="TLS / SSL Encrypted Connection"
-                      >
-                        <Lock className="w-2.5 h-2.5 inline-block" />
-                        SSL
-                      </Badge>
+                {/* Right-click Context Menu */}
+                <ContextMenuContent className="w-48 text-xs">
+                  <ContextMenuItem onClick={(e) => handleOpenInNewWindow(p, e)}>
+                    <ExternalLink className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <span>Open in New Window</span>
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={(e) => handleToggleConnect(p.id, e)}>
+                    {isConnected ? (
+                      <>
+                        <PowerOff className="w-3.5 h-3.5 mr-2 text-destructive" />
+                        <span className="text-destructive">Disconnect</span>
+                      </>
+                    ) : (
+                      <>
+                        <Power className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                        <span>Connect</span>
+                      </>
                     )}
-                    <span className="truncate font-mono" title={locatorPreview}>
-                      {locatorPreview}
-                    </span>
-                  </div>
-
-                  {/* Connected ZID pill or locators count */}
-                  {isConnected && session?.zid ? (
-                    <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded shrink-0">
-                      {session.zid.slice(0, 6)}
-                    </span>
-                  ) : (
-                    p.connect_locators && p.connect_locators.length > 1 && (
-                      <span className="text-[10px] text-muted-foreground shrink-0">
-                        +{p.connect_locators.length - 1}
-                      </span>
-                    )
-                  )}
-                </div>
-              </div>
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={(e) => handleEditProfile(p, e)}>
+                    <Pencil className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <span>Edit Profile...</span>
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={(e) => handleDuplicateProfile(p, e)}>
+                    <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <span>Duplicate</span>
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={(e) => handleCopyLocator(p, e)}>
+                    {isLocatorCopied ? (
+                      <Check className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                    ) : (
+                      <Link className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    )}
+                    <span>Copy Locator(s)</span>
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmProfile(p);
+                    }}
+                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-2" />
+                    <span>Delete Profile...</span>
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })
         )}

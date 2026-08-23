@@ -17,7 +17,10 @@ export type MessageDirection = 'incoming' | 'outgoing';
 
 export type QueryTarget = 'all' | 'complete' | 'best_matching';
 
+export type QueryConsolidation = 'auto' | 'none' | 'latest' | 'monotonic';
+
 export type QueryStatus = 'idle' | 'running' | 'completed' | 'error';
+
 
 // ============================================================================
 // Backend Configuration & DTO Models
@@ -269,10 +272,14 @@ export interface QueryExecution {
   profileId?: string;
   selector: string;
   target: QueryTarget | string;
+  consolidation?: QueryConsolidation | string;
   timeoutMs: number;
+  requestPayload?: number[] | null;
+  requestEncoding?: EncodingType | string;
   status: QueryStatus;
   replies: ReplySample[];
   startedAt: number;
   durationMs?: number;
   error?: string | null;
 }
+

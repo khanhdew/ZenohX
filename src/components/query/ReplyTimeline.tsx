@@ -144,8 +144,25 @@ export const ReplyTimeline: React.FC<ReplyTimelineProps> = ({
                 )}
               </div>
               {activeExecution ? (
-                <div className="font-mono text-xs text-foreground font-medium truncate">
-                  {activeExecution.selector}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono text-xs text-foreground font-medium truncate">
+                    {activeExecution.selector}
+                  </span>
+                  <div className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+                    <span className="bg-muted px-1.5 py-0.5 rounded">
+                      target: {activeExecution.target}
+                    </span>
+                    {activeExecution.consolidation && (
+                      <span className="bg-muted px-1.5 py-0.5 rounded">
+                        consolidation: {activeExecution.consolidation}
+                      </span>
+                    )}
+                    {activeExecution.requestPayload && activeExecution.requestPayload.length > 0 && (
+                      <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+                        body: {formatByteSize(activeExecution.requestPayload.length)} ({activeExecution.requestEncoding || 'json'})
+                      </span>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <p className="text-[11px] text-muted-foreground">
@@ -154,6 +171,7 @@ export const ReplyTimeline: React.FC<ReplyTimelineProps> = ({
               )}
             </div>
           </div>
+
 
           {/* Quick filter & sorting */}
           {replies.length > 0 && (

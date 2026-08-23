@@ -78,6 +78,16 @@ export interface MessageState {
 
   unsubscribe: (sessionId: string, subId: string) => Promise<void>;
   toggleSubscription: (sessionId: string, subId: string) => Promise<void>;
+  updateSubscription: (
+    subId: string,
+    updates: {
+      keyExpr?: string;
+      encoding?: EncodingType | string;
+      colorTag?: string;
+      active?: boolean;
+    },
+    activeSessionId?: string
+  ) => Promise<void>;
   loadSubscriptions: (profileId: string, activeSessionId?: string) => Promise<void>;
 
   publish: (
@@ -351,6 +361,88 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
     } catch (err) {
       const msg = `Failed to toggle subscription '${subId}': ${err}`;
+      set({ error: msg });
+      throw new Error(msg);
+    }
+  },
+
+  updateSubscription: async (
+    subId: string,
+    updates: {
+      keyExpr?: string;
+      encoding?: EncodingType | string;
+      colorTag?: string;
+      active?: boolean;
+    },
+    activeSessionId?: string
+  ) => {
+    const sub = get().subscriptions.find((s) => s.id === subId);
+    if (!sub) return;
+
+    set({ error: null });
+    try {
+      const newKeyExpr = updates.keyExpr !== undefined ? updates.keyExpr.trim() : sub.keyExpr;
+      const newEncoding = (updates.encoding !== undefined ? updates.encoding : sub.encoding) as EncodingType;
+      const newColorTag = updates.colorTag !== undefined ? updates.colorTag : sub.colorTag;
+      const newActive = updates.active !== undefined ? updates.active : sub.active;
+
+      const keyChanged = newKeyExpr !== sub.keyExpr;
+      const targetSessionId = activeSessionId || sub.sessionId;
+
+      // If active session is connected, handle dynamic resubscription
+      if (targetSessionId) {
+        if (sub.active && keyChanged) {
+          try {
+            await unsubscribeKey(targetSessionId, subId);
+          } catch {
+            // Ignore
+          }
+          if (newActive) {
+            await subscribeKey(targetSessionId, subId, newKeyExpr);
+            if (!get().isListening) {
+              await get().initListener();
+            }
+          }
+        } else if (!sub.active && newActive) {
+          await subscribeKey(targetSessionId, subId, newKeyExpr);
+          if (!get().isListening) {
+            await get().initListener();
+          }
+        } else if (sub.active && !newActive) {
+          try {
+            await unsubscribeKey(targetSessionId, subId);
+          } catch {
+            // Ignore
+          }
+        }
+      }
+
+      const updatedSub: SubscriptionItem = {
+        ...sub,
+        keyExpr: newKeyExpr,
+        encoding: newEncoding,
+        colorTag: newColorTag,
+        active: newActive,
+        sessionId: targetSessionId || sub.sessionId,
+      };
+
+      // Persist changes in SQLite
+      if (sub.profileId) {
+        await saveSubscriptionPreset({
+          id: sub.id,
+          profile_id: sub.profileId,
+          key_expr: newKeyExpr,
+          default_encoding: newEncoding,
+          auto_subscribe: newActive,
+          color_tag: newColorTag,
+        });
+      }
+
+      set((state) => ({
+        subscriptions: state.subscriptions.map((s) => (s.id === subId ? updatedSub : s)),
+      }));
+    } catch (err) {
+      const msg = `Failed to update subscription '${subId}': ${err}`;
       set({ error: msg });
       throw new Error(msg);
     }

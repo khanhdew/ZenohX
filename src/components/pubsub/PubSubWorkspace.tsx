@@ -17,9 +17,11 @@ import {
   Check,
   CopyPlus,
   Trash2,
+  ExternalLink,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useMessageStore } from '../../stores/messageStore';
+import { openProfileInNewWindow } from '../../lib/tauri';
 import { SubscriptionList } from './SubscriptionList';
 import { MessageList } from './MessageList';
 import { PublishBar } from './PublishBar';
@@ -291,6 +293,11 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                       )}
                     </DropdownMenuItem>
                   )}
+
+                  <DropdownMenuItem onClick={() => profile && openProfileInNewWindow(profile)}>
+                    <ExternalLink className="w-3.5 h-3.5 mr-2" />
+                    <span>Open in New Window</span>
+                  </DropdownMenuItem>
 
                   <DropdownMenuItem onClick={() => setIsEditModalOpen(true)}>
                     <Settings2 className="w-3.5 h-3.5 mr-2" />

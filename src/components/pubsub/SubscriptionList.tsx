@@ -12,6 +12,10 @@ import {
   Hash,
   Search,
   Check,
+  Edit2,
+  Copy,
+  MoreVertical,
+  Code,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -23,6 +27,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '../ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import { EditSubscriptionModal } from './EditSubscriptionModal';
 import { useMessageStore } from '../../stores/messageStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 import type { EncodingType, SubscriptionItem } from '../../types/zenoh';
@@ -117,6 +136,10 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [searchFilter, setSearchFilter] = useState<string>('');
 
+  // Editing & Copying State
+  const [editingSub, setEditingSub] = useState<SubscriptionItem | null>(null);
+  const [copiedSubId, setCopiedSubId] = useState<string | null>(null);
+
   // Filter subscriptions by local search
   const displayedSubscriptions = useMemo(() => {
     if (!searchFilter.trim()) return sessionSubscriptions;
@@ -175,8 +198,36 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
     }
   };
 
-  const handleToggle = async (sub: SubscriptionItem, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleCopyKey = (sub: SubscriptionItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (sub.keyExpr) {
+      navigator.clipboard.writeText(sub.keyExpr);
+      setCopiedSubId(sub.id);
+      setTimeout(() => setCopiedSubId((curr) => (curr === sub.id ? null : curr)), 2000);
+    }
+  };
+
+  const handleCopyJson = (sub: SubscriptionItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const exportData = {
+      keyExpr: sub.keyExpr,
+      encoding: sub.encoding,
+      colorTag: sub.colorTag,
+      active: sub.active,
+      profileId: sub.profileId,
+    };
+    navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
+    setCopiedSubId(sub.id);
+    setTimeout(() => setCopiedSubId((curr) => (curr === sub.id ? null : curr)), 2000);
+  };
+
+  const handleEdit = (sub: SubscriptionItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingSub(sub);
+  };
+
+  const handleToggle = async (sub: SubscriptionItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     try {
       await toggleSubscription(activeSessionId || sub.sessionId, sub.id);
     } catch (err) {
@@ -184,8 +235,8 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
     }
   };
 
-  const handleUnsubscribe = async (sub: SubscriptionItem, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleUnsubscribe = async (sub: SubscriptionItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     try {
       await unsubscribe(activeSessionId || sub.sessionId, sub.id);
       if (activeFilterKey === sub.keyExpr) {
@@ -229,12 +280,12 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
                 setShowAddForm(!showAddForm);
                 setFormError(null);
               }}
-              disabled={!activeSessionId}
+              disabled={!currentProfileId && !activeSessionId}
               className="h-7 px-2 text-xs gap-1"
               title={
-                !activeSessionId
-                  ? 'Connect to a Zenoh session to subscribe'
-                  : 'Subscribe to a new key expression'
+                !currentProfileId && !activeSessionId
+                  ? 'Select a profile to manage subscriptions'
+                  : 'Subscribe or add a subscription preset'
               }
             >
               <Plus className="w-3.5 h-3.5" />
@@ -406,36 +457,30 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
 
       {/* Subscriptions List Container */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {!activeSessionId ? (
-          /* Disconnected State Notice */
-          <div className="flex flex-col items-center justify-center text-center p-5 space-y-2 mt-4 text-muted-foreground">
-            <Radio className="w-6 h-6 opacity-40" />
-            <p className="text-xs font-medium text-foreground">
-              No Active Zenoh Session
-            </p>
-            <p className="text-[11px] leading-relaxed max-w-[200px]">
-              Connect to a Zenoh session to declare subscriptions.
-            </p>
-          </div>
-        ) : sessionSubscriptions.length === 0 ? (
+        {sessionSubscriptions.length === 0 ? (
           /* Empty Subscriptions State */
           <div className="flex flex-col items-center justify-center text-center p-5 space-y-2.5 mt-4 border border-dashed rounded-md bg-muted/20">
             <div className="p-2.5 rounded-full bg-muted text-muted-foreground">
               <Layers className="w-5 h-5" />
             </div>
             <div className="space-y-0.5">
-              <p className="text-xs font-medium">No Subscriptions</p>
+              <p className="text-xs font-medium">
+                {activeSessionId ? 'No Subscriptions' : 'No Saved Subscriptions'}
+              </p>
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Subscribe to key expressions (e.g. <code className="bg-muted px-1 rounded">demo/**</code>).
+                {activeSessionId
+                  ? 'Subscribe to key expressions (e.g. demo/**).'
+                  : 'Add key expressions to save subscription presets for this profile.'}
               </p>
             </div>
             <Button
               size="sm"
               variant="default"
               onClick={() => setShowAddForm(true)}
+              disabled={!currentProfileId && !activeSessionId}
               className="h-6 px-2 text-xs gap-1"
             >
-              <Plus className="w-3 h-3" />
+              <Plus className="w-3.5 h-3.5" />
               Add
             </Button>
           </div>
@@ -447,78 +492,214 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
           displayedSubscriptions.map((sub) => {
             const isFiltered = activeFilterKey === sub.keyExpr;
             const color = sub.colorTag || '#3b82f6';
+            const isCopied = copiedSubId === sub.id;
 
             return (
-              <div
-                key={sub.id}
-                onClick={() => handleFilterClick(sub)}
-                style={{ borderLeftColor: color, borderLeftWidth: '3px' }}
-                className={`group rounded-md border p-2 transition-colors cursor-pointer select-none ${
-                  isFiltered
-                    ? 'border-foreground/30 bg-muted/60'
-                    : 'border-transparent hover:bg-muted/40'
-                } ${!sub.active ? 'opacity-50' : ''}`}
-              >
-                {/* Top Row: Key Expression + Controls */}
-                <div className="flex items-start justify-between gap-1.5">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    <span
-                      className="h-2 w-2 rounded-full shrink-0 shadow-xs"
-                      style={{ backgroundColor: color }}
-                    />
-                    <div className="min-w-0 flex-1 truncate" title={sub.keyExpr}>
-                      {renderKeyExprWithWildcards(sub.keyExpr)}
+              <ContextMenu key={sub.id}>
+                <ContextMenuTrigger asChild>
+                  <div
+                    onClick={() => handleFilterClick(sub)}
+                    style={{ borderLeftColor: color, borderLeftWidth: '3px' }}
+                    className={`group relative rounded-md border p-2 transition-colors cursor-pointer select-none ${
+                      isFiltered
+                        ? 'border-foreground/30 bg-muted/60'
+                        : 'border-transparent hover:bg-muted/40'
+                    } ${!sub.active && activeSessionId ? 'opacity-50' : ''}`}
+                  >
+                    {/* Top Row: Key Expression + Controls */}
+                    <div className="flex items-start justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span
+                          className="h-2 w-2 rounded-full shrink-0 shadow-xs"
+                          style={{ backgroundColor: color }}
+                        />
+                        <div className="min-w-0 flex-1 truncate" title={sub.keyExpr}>
+                          {renderKeyExprWithWildcards(sub.keyExpr)}
+                        </div>
+                      </div>
+
+                      {/* Right Actions: Pause/Resume Toggle + 3-dots Action Menu */}
+                      <div
+                        className="flex items-center gap-0.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {/* Toggle Active Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggle(sub, e)}
+                          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                          title={
+                            activeSessionId
+                              ? sub.active
+                                ? 'Pause subscription'
+                                : 'Resume subscription'
+                              : sub.active
+                                ? 'Auto-subscribe on connect: enabled'
+                                : 'Auto-subscribe on connect: disabled'
+                          }
+                        >
+                          {sub.active ? (
+                            <Power className="w-3 h-3 text-emerald-500" />
+                          ) : (
+                            <PowerOff className="w-3 h-3 text-muted-foreground" />
+                          )}
+                        </button>
+
+                        {/* 3-dots Action Menu */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-60 group-hover:opacity-100"
+                              title="Subscription actions"
+                            >
+                              <MoreVertical className="w-3 h-3" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 text-xs">
+                            <DropdownMenuItem onClick={() => handleEdit(sub)}>
+                              <Edit2 className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              <span>Edit Subscription...</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleCopyKey(sub)}>
+                              {isCopied ? (
+                                <Check className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              )}
+                              <span>Copy Key Expression</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleCopyJson(sub)}>
+                              <Code className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              <span>Copy as JSON</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={(e) => handleToggle(sub, e)}>
+                              {sub.active ? (
+                                <>
+                                  <PowerOff className="w-3.5 h-3.5 mr-2 text-amber-500" />
+                                  <span>
+                                    {activeSessionId
+                                      ? 'Pause Subscription'
+                                      : 'Disable Auto-Subscribe'}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <Power className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                                  <span>
+                                    {activeSessionId
+                                      ? 'Resume Subscription'
+                                      : 'Enable Auto-Subscribe'}
+                                  </span>
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleFilterClick(sub)}>
+                              <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                              <span>
+                                {isFiltered ? 'Clear Topic Filter' : 'Filter Feed by Topic'}
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => handleUnsubscribe(sub, e)}
+                              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-2" />
+                              <span>
+                                {activeSessionId ? 'Unsubscribe' : 'Delete Preset'}
+                              </span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+
+                    {/* Bottom Row: Metadata Badges */}
+                    <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {activeSessionId ? (
+                          <span className="rounded bg-muted px-1 py-0.2 font-mono text-[9px]">
+                            {sub.count} {sub.count === 1 ? 'msg' : 'msgs'}
+                          </span>
+                        ) : (
+                          <span className="rounded bg-muted/60 text-muted-foreground px-1 py-0.2 text-[9px]">
+                            {sub.active ? 'Auto-subscribe' : 'Paused preset'}
+                          </span>
+                        )}
+
+                        <span className="rounded border px-1 py-0.2 text-[9px] uppercase font-mono">
+                          {sub.encoding || 'raw'}
+                        </span>
+                      </div>
+
+                      {isFiltered && (
+                        <Badge variant="outline" className="text-[9px] gap-1 px-1 py-0 font-normal">
+                          <Filter className="w-2.5 h-2.5" />
+                          Filtered
+                        </Badge>
+                      )}
                     </div>
                   </div>
+                </ContextMenuTrigger>
 
-                  {/* Right Actions: Pause/Resume Toggle + Delete */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {/* Toggle Active Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleToggle(sub, e)}
-                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                      title={sub.active ? 'Pause subscription' : 'Resume subscription'}
-                    >
-                      {sub.active ? (
-                        <Power className="w-3 h-3 text-emerald-500" />
-                      ) : (
-                        <PowerOff className="w-3 h-3 text-muted-foreground" />
-                      )}
-                    </button>
-
-                    {/* Unsubscribe Button */}
-                    <button
-                      type="button"
-                      onClick={(e) => handleUnsubscribe(sub, e)}
-                      className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      title="Unsubscribe"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Bottom Row: Metadata Badges */}
-                <div className="mt-1 flex items-center justify-between gap-1 text-[10px] text-muted-foreground">
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <span className="rounded bg-muted px-1 py-0.2 font-mono text-[9px]">
-                      {sub.count} {sub.count === 1 ? 'msg' : 'msgs'}
+                {/* Right-click Context Menu */}
+                <ContextMenuContent className="w-48 text-xs">
+                  <ContextMenuItem onClick={() => handleEdit(sub)}>
+                    <Edit2 className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <span>Edit Subscription...</span>
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => handleCopyKey(sub)}>
+                    {isCopied ? (
+                      <Check className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    )}
+                    <span>Copy Key Expression</span>
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => handleCopyJson(sub)}>
+                    <Code className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <span>Copy as JSON</span>
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={(e) => handleToggle(sub, e)}>
+                    {sub.active ? (
+                      <>
+                        <PowerOff className="w-3.5 h-3.5 mr-2 text-amber-500" />
+                        <span>
+                          {activeSessionId
+                            ? 'Pause Subscription'
+                            : 'Disable Auto-Subscribe'}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Power className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                        <span>
+                          {activeSessionId
+                            ? 'Resume Subscription'
+                            : 'Enable Auto-Subscribe'}
+                        </span>
+                      </>
+                    )}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => handleFilterClick(sub)}>
+                    <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
+                    <span>
+                      {isFiltered ? 'Clear Topic Filter' : 'Filter Feed by Topic'}
                     </span>
-
-                    <span className="rounded border px-1 py-0.2 text-[9px] uppercase font-mono">
-                      {sub.encoding || 'raw'}
-                    </span>
-                  </div>
-
-                  {isFiltered && (
-                    <Badge variant="outline" className="text-[9px] gap-1 px-1 py-0 font-normal">
-                      <Filter className="w-2.5 h-2.5" />
-                      Filtered
-                    </Badge>
-                  )}
-                </div>
-              </div>
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    onClick={(e) => handleUnsubscribe(sub, e)}
+                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-2" />
+                    <span>{activeSessionId ? 'Unsubscribe' : 'Delete Preset'}</span>
+                  </ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })
         )}
@@ -530,9 +711,21 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
           {sessionSubscriptions.length} topic{sessionSubscriptions.length === 1 ? '' : 's'}
         </span>
         <span className="font-mono text-[10px]">
-          {totalSamplesReceived.toLocaleString()} msgs
+          {activeSessionId
+            ? `${totalSamplesReceived.toLocaleString()} msgs`
+            : `${sessionSubscriptions.length} saved`}
         </span>
       </div>
+
+      {/* Edit Subscription Preset Modal */}
+      <EditSubscriptionModal
+        open={Boolean(editingSub)}
+        onOpenChange={(open) => {
+          if (!open) setEditingSub(null);
+        }}
+        subscription={editingSub}
+        sessionId={activeSessionId}
+      />
     </div>
   );
 };

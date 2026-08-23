@@ -5,9 +5,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 use uuid::Uuid;
-use zenoh::query::{Query, QueryTarget};
+use zenoh::query::{Query, QueryConsolidation, QueryTarget};
 
 /// Active queryable context holding the background listener task and stop channel.
+
 pub struct ActiveQueryable {
     pub queryable_id: Uuid,
     pub key_expr: String,
@@ -31,6 +32,7 @@ pub struct QueryHandle {
     pub token: Uuid,
     pub session_id: Uuid,
     pub queryable_id: Uuid,
+    pub queryable_key_expr: String,
     pub key_expr: String,
     pub parameters: String,
     pub payload: Option<Vec<u8>>,
@@ -39,12 +41,41 @@ pub struct QueryHandle {
     query: Arc<parking_lot::Mutex<Option<Query>>>,
 }
 
+/// Sanitizes a key expression for query reply by stripping query parameters and wildcards if present,
+/// ensuring Zenoh receives a valid non-wildcard concrete key expression.
+pub fn sanitize_reply_key_expr(key_expr: &str, fallback_key: &str) -> String {
+    let base = key_expr.split('?').next().unwrap_or(key_expr).trim();
+    if !base.contains('*') && !base.contains('$') && !base.is_empty() {
+        return base.to_string();
+    }
+
+    let fallback_base = fallback_key.split('?').next().unwrap_or(fallback_key).trim();
+    if !fallback_base.contains('*') && !fallback_base.contains('$') && !fallback_base.is_empty() {
+        return fallback_base.to_string();
+    }
+
+    let mut clean = fallback_base
+        .replace("/**", "")
+        .replace("/*", "")
+        .replace('*', "");
+    while clean.ends_with('/') {
+        clean.pop();
+    }
+
+    if !clean.is_empty() {
+        clean
+    } else {
+        "reply".to_string()
+    }
+}
+
 impl QueryHandle {
     /// Creates a new `QueryHandle` and its corresponding `InboundQuery` data transfer object.
     pub fn new(
         token: Uuid,
         session_id: Uuid,
         queryable_id: Uuid,
+        queryable_key_expr: String,
         query: Query,
     ) -> (Self, InboundQuery) {
         let key_expr = query.key_expr().to_string();
@@ -53,11 +84,12 @@ impl QueryHandle {
         let encoding = query.encoding().map(|e| e.to_string());
         let timestamp = chrono::Utc::now().timestamp_millis();
 
+        // InboundQuery key_expr uses the concrete queryable_key_expr so frontend can reply accurately
         let inbound = InboundQuery {
             token,
             session_id,
             queryable_id,
-            key_expr: key_expr.clone(),
+            key_expr: queryable_key_expr.clone(),
             parameters: parameters.clone(),
             payload: payload.clone(),
             encoding: encoding.clone(),
@@ -68,6 +100,7 @@ impl QueryHandle {
             token,
             session_id,
             queryable_id,
+            queryable_key_expr,
             key_expr,
             parameters,
             payload,
@@ -94,11 +127,12 @@ impl QueryHandle {
         let query_opt = self.query.lock().take();
         if let Some(query) = query_opt {
             let enc = parse_encoding(encoding);
+            let clean_key = sanitize_reply_key_expr(key_expr, &self.queryable_key_expr);
             query
-                .reply(key_expr, payload)
+                .reply(&clean_key, payload)
                 .encoding(enc)
                 .await
-                .map_err(|e| format!("failed to send query reply on '{key_expr}': {e}"))?;
+                .map_err(|e| format!("failed to send query reply on '{clean_key}': {e}"))?;
             Ok(())
         } else {
             Err("query already replied or expired".to_string())
@@ -123,15 +157,18 @@ impl QueryHandle {
     pub async fn reply_del(&self, key_expr: &str) -> Result<(), String> {
         let query_opt = self.query.lock().take();
         if let Some(query) = query_opt {
+            let clean_key = sanitize_reply_key_expr(key_expr, &self.queryable_key_expr);
             query
-                .reply_del(key_expr)
+                .reply_del(&clean_key)
                 .await
-                .map_err(|e| format!("failed to send query delete reply on '{key_expr}': {e}"))?;
+                .map_err(|e| format!("failed to send query delete reply on '{clean_key}': {e}"))?;
             Ok(())
         } else {
             Err("query already replied or expired".to_string())
         }
     }
+
+
 }
 
 /// Parses target selector string into a Zenoh `QueryTarget`.
@@ -143,6 +180,17 @@ pub fn parse_query_target(target: &str) -> QueryTarget {
     }
 }
 
+/// Parses consolidation mode string into a Zenoh `QueryConsolidation`.
+pub fn parse_query_consolidation(consolidation: Option<&str>) -> QueryConsolidation {
+    match consolidation.map(|s| s.to_lowercase().trim().to_string()).as_deref() {
+        Some("none") => QueryConsolidation::from(zenoh::query::ConsolidationMode::None),
+        Some("latest") => QueryConsolidation::from(zenoh::query::ConsolidationMode::Latest),
+        Some("monotonic") => QueryConsolidation::from(zenoh::query::ConsolidationMode::Monotonic),
+        _ => QueryConsolidation::AUTO,
+    }
+}
+
+
 /// Executes a Zenoh `get` query and collects all responses until timeout or completion.
 pub async fn execute_query(
     session: &zenoh::Session,
@@ -150,17 +198,34 @@ pub async fn execute_query(
     selector: &str,
     target: &str,
     timeout_ms: u64,
+    payload: Option<Vec<u8>>,
+    encoding: Option<String>,
+    consolidation: Option<String>,
 ) -> Result<Vec<ReplySample>, String> {
     let start_time = Instant::now();
     let query_target = parse_query_target(target);
+    let query_consolidation = parse_query_consolidation(consolidation.as_deref());
     let timeout = Duration::from_millis(timeout_ms.max(100));
 
-    let receiver = session
+    let mut get_builder = session
         .get(selector)
         .target(query_target)
-        .timeout(timeout)
+        .consolidation(query_consolidation)
+        .timeout(timeout);
+
+    if let Some(p) = payload {
+        get_builder = get_builder.payload(p);
+    }
+
+    if let Some(enc_str) = encoding {
+        let enc = parse_encoding(&enc_str);
+        get_builder = get_builder.encoding(enc);
+    }
+
+    let receiver = get_builder
         .await
         .map_err(|e| format!("failed to execute get query on '{selector}': {e}"))?;
+
 
     let mut replies = Vec::new();
     while let Ok(reply) = receiver.recv_async().await {
@@ -233,6 +298,7 @@ where
     let (stop_tx, mut stop_rx) = oneshot::channel::<()>();
     let handler_arc = Arc::new(handler);
     let key_expr_str = key_expr.to_string();
+    let task_key_expr = key_expr.to_string();
 
     let task_handle = tokio::spawn(async move {
         loop {
@@ -245,12 +311,20 @@ where
                     match query_res {
                         Ok(query) => {
                             let token = Uuid::new_v4();
-                            let (handle, _) = QueryHandle::new(token, session_id, queryable_id, query);
+                            let (handle, _) = QueryHandle::new(
+                                token,
+                                session_id,
+                                queryable_id,
+                                task_key_expr.clone(),
+                                query,
+                            );
                             let h = handler_arc.clone();
                             tokio::spawn(async move {
                                 (h)(handle).await;
                             });
                         }
+
+
                         Err(_) => {
                             break;
                         }

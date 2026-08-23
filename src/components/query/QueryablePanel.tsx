@@ -11,6 +11,7 @@ import {
   ToggleLeft,
   ToggleRight,
   X,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -31,6 +32,7 @@ export interface QueryablePanelProps {
   sessionId?: string;
   profileId?: string;
   className?: string;
+  compact?: boolean;
 }
 
 export interface MockTemplate {
@@ -81,6 +83,7 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
   sessionId,
   profileId,
   className = '',
+  compact = false,
 }) => {
   const {
     activeQueryables,
@@ -88,10 +91,13 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
     declareQueryable,
     undeclareQueryable,
     replyInboundQuery,
+    dismissInboundQuery,
     clearInboundQueries,
     updateQueryableConfig,
     error: storeError,
   } = useQueryStore();
+
+  const [viewMode, setViewMode] = useState<'all' | 'form' | 'inbound'>(compact ? 'all' : 'all');
 
   // Form State: Declare Queryable
   const [keyExpr, setKeyExpr] = useState<string>('rpc/calculator/**');
@@ -122,8 +128,16 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
   }, [activeQueryables, profileId, sessionId]);
 
   const sessionInboundQueries = useMemo(() => {
-    if (!sessionId) return inboundQueries;
-    return inboundQueries.filter((q) => !q.session_id || q.session_id === sessionId);
+    const list = sessionId
+      ? inboundQueries.filter((q) => !q.session_id || q.session_id === sessionId)
+      : inboundQueries;
+    // Strict deduplication by unique token to prevent duplicate React keys and reconciliation bugs
+    const seen = new Set<string>();
+    return list.filter((q) => {
+      if (!q.token || seen.has(q.token)) return false;
+      seen.add(q.token);
+      return true;
+    });
   }, [inboundQueries, sessionId]);
 
   // Declare Queryable Handler
@@ -165,6 +179,7 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
   // Send Manual Inbound Reply Handler
   const handleSendManualReply = async () => {
     if (!activeReplyQuery) return;
+    const targetQuery = activeReplyQuery;
 
     setManualReplyError(null);
     setIsSendingManualReply(true);
@@ -176,8 +191,8 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
       }
 
       await replyInboundQuery(
-        activeReplyQuery.token,
-        activeReplyQuery.key_expr,
+        targetQuery.token,
+        targetQuery.key_expr,
         encoded.bytes,
         manualReplyEncoding
       );
@@ -190,10 +205,11 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
     }
   };
 
+
   return (
     <div className={`flex flex-col h-full bg-background text-foreground overflow-hidden ${className}`}>
       {/* Top Header Bar */}
-      <div className="flex flex-wrap items-center justify-between border-b bg-card px-4 py-2.5 shrink-0 gap-2">
+      <div className="flex flex-wrap items-center justify-between border-b bg-card px-4 py-2 shrink-0 gap-2">
         <div className="flex items-center gap-2">
           <div className="p-1 rounded-md bg-muted text-muted-foreground">
             <Server className="w-3.5 h-3.5" />
@@ -208,14 +224,48 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
           </div>
         </div>
 
-        {/* Inbound Queries Counter Badge */}
+        {/* View Switcher & Actions */}
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 bg-muted px-2.5 py-1 rounded-md text-xs">
-            <Inbox className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="font-medium text-foreground">Inbound Queue:</span>
-            <span className="font-mono px-1 rounded text-[11px] bg-background text-foreground border">
-              {sessionInboundQueries.length}
-            </span>
+          {/* Sub-view switcher tabs for compact / split modes */}
+          <div className="flex items-center rounded-md bg-muted p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('all')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                viewMode === 'all'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('form')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                viewMode === 'form'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Declare ({sessionQueryables.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('inbound')}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
+                viewMode === 'inbound'
+                  ? 'bg-background text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <span>Queue</span>
+              {sessionInboundQueries.length > 0 && (
+                <span className="font-mono text-[9px] bg-primary text-primary-foreground px-1 rounded-full">
+                  {sessionInboundQueries.length}
+                </span>
+              )}
+            </button>
           </div>
 
           {sessionInboundQueries.length > 0 && (
@@ -224,19 +274,27 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
               variant="outline"
               size="sm"
               onClick={() => clearInboundQueries(sessionId)}
-              className="h-7 text-xs px-2 text-muted-foreground hover:text-destructive"
+              className="h-6 text-[11px] px-2 text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="w-3 h-3 mr-1" />
-              Clear Queue
+              Clear
             </Button>
           )}
         </div>
       </div>
 
-      {/* Main Stage Grid: 2 Column Layout */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">
+      {/* Main Stage Grid: Responsive Column Layout */}
+      <div
+        className={`flex-1 min-h-0 overflow-hidden ${
+          viewMode === 'all'
+            ? 'grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border'
+            : 'flex flex-col'
+        }`}
+      >
         {/* Left Column: Register Queryable Form + Active Queryables List */}
+        {(viewMode === 'all' || viewMode === 'form') && (
         <div className="flex flex-col h-full overflow-y-auto p-3.5 space-y-3.5 bg-card/40">
+
           {/* Error notification */}
           {(formError || storeError) && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-2.5 text-xs text-destructive">
@@ -395,16 +453,16 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                         onClick={() =>
                           updateQueryableConfig(q.id, { autoReply: !q.autoReply })
                         }
-                        className="text-xs flex items-center gap-1"
-                        title={q.autoReply ? 'Disable auto-reply' : 'Enable auto-reply'}
+                        className="text-xs flex items-center gap-1 focus:outline-none"
+                        title={q.autoReply ? 'Auto-reply is ON. Click to switch to Manual mode' : 'Manual mode. Click to enable Auto-reply'}
                       >
                         {q.autoReply ? (
-                          <Badge variant="secondary" className="text-[9px] px-1 py-0 uppercase">
-                            Auto ON
+                          <Badge className="text-[9px] px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer">
+                            Auto Reply ON
                           </Badge>
                         ) : (
-                          <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
-                            Manual
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 transition-colors cursor-pointer">
+                            Manual (Queue)
                           </Badge>
                         )}
                       </button>
@@ -440,22 +498,39 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
             )}
           </div>
         </div>
+        )}
 
         {/* Right Column: Inbound Queries Queue & Manual Responder */}
+        {(viewMode === 'all' || viewMode === 'inbound') && (
         <div className="flex flex-col h-full overflow-y-auto p-3.5 space-y-3.5 bg-card/20">
           <div className="flex items-center justify-between">
+
             <div>
               <h4 className="text-xs font-semibold text-foreground">
-                Inbound Queries Stream
+                Inbound Queries (Manual Mode)
               </h4>
               <p className="text-[11px] text-muted-foreground">
-                Live queue of queries received from remote nodes awaiting response
+                Live queue of queries arriving for queryables set to Manual mode
               </p>
             </div>
-            <span className="font-mono text-xs text-muted-foreground">
-              {sessionInboundQueries.length} pending
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs text-muted-foreground">
+                {sessionInboundQueries.length} pending
+              </span>
+              {sessionInboundQueries.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => clearInboundQueries(sessionId)}
+                  className="h-6 text-[11px] px-2 text-muted-foreground hover:text-foreground"
+                >
+                  Clear Queue
+                </Button>
+              )}
+            </div>
           </div>
+
 
           {/* List of Inbound Queries */}
           {sessionInboundQueries.length === 0 ? (
@@ -472,6 +547,7 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
             <div className="space-y-2">
               {sessionInboundQueries.map((inbound: InboundQuery) => {
                 const isReplying = activeReplyQuery?.token === inbound.token;
+                const isStale = Date.now() - inbound.timestamp > 8000;
 
                 return (
                   <div
@@ -488,6 +564,11 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                         <Badge variant="secondary" className="text-[9px] uppercase font-mono px-1 py-0">
                           Query
                         </Badge>
+                        {isStale && (
+                          <Badge variant="outline" className="text-[9px] font-mono text-amber-500 border-amber-500/30 px-1 py-0">
+                            Stale
+                          </Badge>
+                        )}
                         <span className="font-mono text-xs font-medium text-foreground truncate">
                           {inbound.key_expr}
                         </span>
@@ -506,8 +587,10 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                           onClick={() => {
                             if (isReplying) {
                               setActiveReplyQuery(null);
+                              setManualReplyError(null);
                             } else {
                               setActiveReplyQuery(inbound);
+                              setManualReplyError(null);
                             }
                           }}
                           className="h-6 text-xs px-2 gap-1"
@@ -515,8 +598,26 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                           <Send className="w-3 h-3" />
                           <span>{isReplying ? 'Cancel' : 'Reply'}</span>
                         </Button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            if (isReplying) {
+                              setActiveReplyQuery(null);
+                              setManualReplyError(null);
+                            }
+                            dismissInboundQuery(inbound.token);
+                          }}
+                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                          title="Dismiss query from queue"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </div>
+
 
                     {/* Parameters if any */}
                     {inbound.parameters && (
@@ -594,7 +695,10 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => setActiveReplyQuery(null)}
+                            onClick={() => {
+                              setActiveReplyQuery(null);
+                              setManualReplyError(null);
+                            }}
                             className="h-7 text-xs"
                           >
                             Cancel
@@ -607,8 +711,12 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                             onClick={handleSendManualReply}
                             className="h-7 text-xs font-medium gap-1.5"
                           >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>Dispatch Reply</span>
+                            {isSendingManualReply ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5" />
+                            )}
+                            <span>{isSendingManualReply ? 'Dispatching...' : 'Dispatch Reply'}</span>
                           </Button>
                         </div>
                       </div>
@@ -619,9 +727,12 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );
 };
+
+
 
 export default QueryablePanel;

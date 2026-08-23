@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [v0.2.0] - 2026-08-23
+
+### 🚀 Added & Enhanced
+- **Real-time Traffic Monitor Workspace:** Dedicated telemetry tab visualizing network throughput (`KB/s`, `MB/s`) and message rates (`msgs/s`) with live Inbound vs. Outbound breakdown.
+- **Responsive Dual-Stream Time-Series Chart:** Custom SVG-based area chart using Catmull-Rom cubic Bézier curves, auto-scaling Y-axis, live crosshair hover tooltips, and `ResizeObserver` dynamic viewport tracking.
+- **Per-Topic Telemetry Breakdown:** Real-time filterable and sortable table tracking cumulative bandwidth share, message frequency, and relative timestamps per key expression.
+- **Global Background Telemetry Interception:** Non-blocking rate instrumentation across all Pub/Sub and Query operations with continuous background 1-second time bucketing.
+- **Top Navigation & Keyboard Shortcuts:** Added `Ctrl+3` / `Cmd+3` shortcut for Traffic Monitor workspace and real-time throughput indicator pill in the application header.
+
+---
+
 ## [v0.1.1] - 2026-08-23
 
 ### 🚀 Added & Enhanced

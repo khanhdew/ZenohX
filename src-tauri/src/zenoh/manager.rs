@@ -65,6 +65,25 @@ impl SessionManager {
     ///
     /// Returns the unique `Uuid` identifier assigned to this session.
     pub async fn connect(&self, config: SessionConfig) -> Result<Uuid, String> {
+        // If a session for this profile_id is already running, disconnect it first to ensure exactly 1 session per profile
+        if let Some(pid) = &config.profile_id {
+            let existing_ids: Vec<Uuid> = {
+                let lock = self.sessions.read().await;
+                lock.iter()
+                    .filter_map(|(id, ctx)| {
+                        if ctx.profile_id.as_ref() == Some(pid) {
+                            Some(*id)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            };
+            for id in existing_ids {
+                let _ = self.disconnect(&id).await;
+            }
+        }
+
         let zenoh_config = config.to_zenoh_config()?;
         let session = zenoh::open(zenoh_config)
             .await

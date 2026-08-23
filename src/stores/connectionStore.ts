@@ -241,6 +241,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       throw new Error(msg);
     }
 
+    if (get().connectingProfileIds[profileId]) {
+      return get().activeSessions[profileId]?.id;
+    }
+
     set((state) => ({
       connectingProfileIds: { ...state.connectingProfileIds, [profileId]: true },
       error: null,

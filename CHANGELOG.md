@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 
+
+## [v0.2.2] - 2026-08-23
+
+### 🚀 Added & Enhanced
+- **query:** enhance Query/RPC workspace, multi-node replies, and responsive split stage
+
+### 🔧 Maintenance
+- add application demo screenshot to README
+- add total release downloads badge to README
+
+---
 ## [v0.2.1] - 2026-08-23
 
 ### 🚀 Added & Enhanced

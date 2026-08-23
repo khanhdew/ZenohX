@@ -1,6 +1,6 @@
 {
   "name": "zenohx",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "ZenohX - Modern, high-performance desktop GUI client for Eclipse Zenoh",
   "license": "Apache-2.0",
   "repository": {

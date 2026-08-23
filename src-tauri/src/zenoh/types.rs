@@ -85,6 +85,18 @@ impl SessionConfig {
     pub fn to_zenoh_config(&self) -> Result<zenoh::Config, String> {
         let mut config = zenoh::Config::default();
 
+        // 0. Persistent Node ID (ZID)
+        // If profile_id is provided, derive a deterministic 128-bit hex Zenoh ID so this profile always uses the exact same node ID
+        if let Some(pid) = &self.profile_id {
+            let zid_hex = if let Ok(u) = uuid::Uuid::parse_str(pid) {
+                format!("{:032x}", u.as_u128())
+            } else {
+                let u = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, pid.as_bytes());
+                format!("{:032x}", u.as_u128())
+            };
+            let _ = config.insert_json5("id", &format!("\"{zid_hex}\""));
+        }
+
         // 1. Mode configuration ("peer", "client", "router")
         let mode_str = self.mode.to_lowercase();
         match mode_str.as_str() {

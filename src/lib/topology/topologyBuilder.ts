@@ -63,6 +63,20 @@ export function isLocatorMatch(loc1: string, loc2: string): boolean {
   return false;
 }
 
+export function derivePersistentZid(profileId: string): string {
+  const clean = profileId.replace(/-/g, '').toLowerCase();
+  if (/^[0-9a-f]{32}$/.test(clean)) {
+    return clean;
+  }
+  let hash = 0;
+  for (let i = 0; i < profileId.length; i++) {
+    hash = (hash << 5) - hash + profileId.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, '0');
+  return `${hex}${hex}${hex}${hex}`.substring(0, 32);
+}
+
 export function buildTopologyGraph({
   scoutedNodes,
   activeSessions,
@@ -73,21 +87,81 @@ export function buildTopologyGraph({
   const nodes: TopologyNode[] = [];
   const edges: TopologyEdge[] = [];
 
-  const activeProfileList = profiles.filter((p) => Boolean(activeSessions[p.id]));
-  const matchedProfileIds = new Set<string>();
-  const processedZids = new Set<string>();
+  const matchedScoutZids = new Set<string>();
 
-  // 1. Process Scouted Nodes
+  // 1. Process Saved Connection Profiles as Persistent Nodes
+  profiles.forEach((profile, index) => {
+    const nodeId = `profile-${profile.id}`;
+    const existing = existingMap.get(nodeId);
+
+    const isConnected = Boolean(activeSessions[profile.id]);
+    const sessionZid = activeSessions[profile.id]?.zid;
+    const persistentZid = sessionZid || derivePersistentZid(profile.id);
+
+    // Find if a scouted node matches this profile by ZID or locators
+    const matchingScout = scoutedNodes.find((scout) => {
+      if (profile.mode === 'client') {
+        return profile.connect_locators.some((loc) =>
+          (scout.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
+        );
+      }
+      if (scout.zid === sessionZid || scout.zid === persistentZid) return true;
+      return profile.connect_locators.some((loc) =>
+        (scout.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
+      );
+    });
+
+    if (matchingScout) {
+      matchedScoutZids.add(matchingScout.zid);
+    }
+
+    const type: TopologyNode['type'] = profile.mode === 'client' ? 'router' : 'peer';
+    const locators =
+      matchingScout?.locators?.length
+        ? matchingScout.locators
+        : profile.connect_locators.length
+        ? profile.connect_locators
+        : profile.listen_locators.length
+        ? profile.listen_locators
+        : [];
+
+    const isTls =
+      locators.some((l) => extractLocatorProtocol(l) === 'tls') ||
+      Boolean(profile.tls_config);
+
+    const radius = type === 'router' ? 34 : 28;
+    const defaultX = 180 + index * 60;
+    const defaultY = -120 + index * 60;
+
+    const topologyNode: TopologyNode = {
+      id: nodeId,
+      zid: matchingScout?.zid || sessionZid || persistentZid,
+      label: profile.name,
+      type,
+      status: isConnected ? 'connected' : matchingScout ? 'scouted' : 'disconnected',
+      locators,
+      isTls,
+      profileId: profile.id,
+      x: existing ? existing.x : defaultX,
+      y: existing ? existing.y : defaultY,
+      vx: existing ? existing.vx : 0,
+      vy: existing ? existing.vy : 0,
+      fx: existing?.fx ?? null,
+      fy: existing?.fy ?? null,
+      radius,
+    };
+    nodes.push(topologyNode);
+  });
+
+  // 2. Process Additional External Scouted Nodes (e.g. unknown external routers/peers on LAN)
   scoutedNodes.forEach((node, index) => {
-    if (processedZids.has(node.zid)) return;
+    if (matchedScoutZids.has(node.zid)) return;
 
-    // If this scouted node is an active client-mode session inside ZenohX connecting to a router, skip it
-    const isLocalClientSession = activeProfileList.some(
+    // If this scouted node is an active client-mode session inside ZenohX, skip it
+    const isLocalClientSession = profiles.some(
       (prof) => prof.mode === 'client' && activeSessions[prof.id]?.zid === node.zid
     );
     if (isLocalClientSession) return;
-
-    processedZids.add(node.zid);
 
     const nodeId = `scouted-${node.zid}`;
     const existing = existingMap.get(nodeId);
@@ -103,31 +177,9 @@ export function buildTopologyGraph({
       ? 'peer'
       : 'client';
 
-    // Check if this scouted node matches any connected profile (by session ZID or locators)
-    const matchedConnectedProfile = activeProfileList.find((prof) => {
-      const sessionZid = activeSessions[prof.id]?.zid;
-      if (sessionZid && sessionZid === node.zid) return true;
-      return prof.connect_locators.some((loc) =>
-        (node.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
-      );
-    });
-
-    if (matchedConnectedProfile) {
-      matchedProfileIds.add(matchedConnectedProfile.id);
-    }
-
-    const matchedAnyProfile = profiles.find((prof) => {
-      const sessionZid = activeSessions[prof.id]?.zid;
-      if (sessionZid && sessionZid === node.zid) return true;
-      return prof.connect_locators.some((loc) =>
-        (node.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
-      );
-    });
-
-    const isConnected = Boolean(matchedConnectedProfile);
     const shortZid =
       node.zid.length > 8 ? `${node.zid.substring(0, 4)}...${node.zid.slice(-4)}` : node.zid;
-    const label = matchedAnyProfile ? matchedAnyProfile.name : `${node.what || 'Node'} (${shortZid})`;
+    const label = `${node.what || 'Node'} (${shortZid})`;
 
     const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
 
@@ -141,47 +193,9 @@ export function buildTopologyGraph({
       zid: node.zid,
       label,
       type,
-      status: isConnected ? 'connected' : 'scouted',
+      status: 'scouted',
       locators: node.locators || [],
       isTls,
-      profileId: matchedAnyProfile?.id,
-      x: existing ? existing.x : defaultX,
-      y: existing ? existing.y : defaultY,
-      vx: existing ? existing.vx : 0,
-      vy: existing ? existing.vy : 0,
-      fx: existing?.fx ?? null,
-      fy: existing?.fy ?? null,
-      radius,
-    };
-    nodes.push(topologyNode);
-  });
-
-  // 2. Unmatched Active Sessions (e.g. connected remote/cloud routers or peers that haven't responded to multicast scout yet)
-  activeProfileList.forEach((profile, index) => {
-    if (matchedProfileIds.has(profile.id)) return;
-
-    const sessionZid = activeSessions[profile.id]?.zid;
-    if (sessionZid && processedZids.has(sessionZid)) return;
-
-    const nodeId = `profile-${profile.id}`;
-    const existing = existingMap.get(nodeId);
-
-    const type: TopologyNode['type'] = profile.mode === 'client' ? 'router' : 'peer';
-    const isTls = profile.connect_locators.some((loc) => extractLocatorProtocol(loc) === 'tls');
-    const radius = type === 'router' ? 34 : 28;
-
-    const defaultX = 180 + index * 60;
-    const defaultY = -120 + index * 60;
-
-    const topologyNode: TopologyNode = {
-      id: nodeId,
-      zid: sessionZid || `remote-${profile.id}`,
-      label: profile.name,
-      type,
-      status: 'connected',
-      locators: profile.connect_locators,
-      isTls,
-      profileId: profile.id,
       x: existing ? existing.x : defaultX,
       y: existing ? existing.y : defaultY,
       vx: existing ? existing.vx : 0,

@@ -202,14 +202,14 @@ export function buildTopologyGraph({
         const primaryLoc = router.locators[0] || peer.locators[0] || '';
         let protocol = extractLocatorProtocol(primaryLoc);
         if (protocol === 'unknown') {
-          protocol = 'tcp';
+          protocol = 'mesh';
         }
         edges.push({
           id: edgeId,
           source: router.id,
           target: peer.id,
           protocol,
-          locator: primaryLoc || 'tcp/auto',
+          locator: primaryLoc || 'auto/mesh',
           status: router.status === 'connected' || peer.status === 'connected' ? 'active' : 'scouted',
           isEncrypted: router.isTls || peer.isTls,
           animated: router.status === 'connected' || peer.status === 'connected',
@@ -225,14 +225,14 @@ export function buildTopologyGraph({
         const primaryLoc = n1.locators[0] || n2.locators[0] || '';
         let protocol = extractLocatorProtocol(primaryLoc);
         if (protocol === 'unknown') {
-          protocol = 'tcp';
+          protocol = 'mesh';
         }
         edges.push({
           id: `${n1.id}<->${n2.id}`,
           source: n1.id,
           target: n2.id,
           protocol,
-          locator: primaryLoc || 'tcp/mesh',
+          locator: primaryLoc || 'auto/mesh',
           status: n1.status === 'connected' || n2.status === 'connected' ? 'active' : 'scouted',
           isEncrypted: n1.isTls || n2.isTls,
           animated: n1.status === 'connected' || n2.status === 'connected',

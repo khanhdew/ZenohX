@@ -6,7 +6,7 @@ import type { ScoutedNode, ConnectionProfile, ActiveSession } from './zenoh';
 
 export type TopologyNodeType = 'router' | 'peer' | 'client';
 export type TopologyNodeStatus = 'connected' | 'scouted' | 'connecting' | 'disconnected';
-export type TopologyProtocol = 'tcp' | 'tls' | 'udp' | 'quic' | 'ws' | 'unix' | 'unknown';
+export type TopologyProtocol = 'tcp' | 'tls' | 'udp' | 'quic' | 'ws' | 'unix' | 'mesh' | 'unknown';
 
 export interface TopologyNode {
   id: string;

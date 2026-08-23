@@ -144,6 +144,21 @@ export interface SessionInfo {
 }
 
 /**
+ * Active Zenoh session representation.
+ */
+export interface ActiveSession {
+  id: string;
+  profile_id?: string | null;
+  zid?: string;
+  mode?: ConnectionMode | string;
+  scout_multicast?: boolean;
+  connect_locators?: string[];
+  listen_locators?: string[];
+  connected_at?: string | number;
+  created_at?: string | number;
+}
+
+/**
  * A Zenoh peer or router discovered via multicast scouting.
  */
 export interface ScoutedNode {

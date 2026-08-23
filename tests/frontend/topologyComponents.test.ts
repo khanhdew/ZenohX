@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { TopologyControls } from '../../src/components/topology/TopologyControls';
 import { TopologyCanvas } from '../../src/components/topology/TopologyCanvas';
+import { TopologyToolbar } from '../../src/components/topology/TopologyToolbar';
 import { useTopologyStore } from '../../src/stores/topologyStore';
 import type { TopologyNode } from '../../src/types/topology';
 
@@ -28,6 +29,23 @@ describe('Topology UI Components Exports & Types', () => {
 
   it('exports TopologyCanvas as React component', () => {
     assert.equal(typeof TopologyCanvas, 'function');
+  });
+
+  it('exports TopologyToolbar as React component', () => {
+    assert.equal(typeof TopologyToolbar, 'function');
+  });
+
+  it('TopologyToolbar renders element tree correctly with expected structure', () => {
+    let scoutTriggered = false;
+    const element = React.createElement(TopologyToolbar, {
+      onTriggerScout: () => {
+        scoutTriggered = true;
+      },
+    });
+
+    assert.ok(React.isValidElement(element));
+    assert.equal(element.type, TopologyToolbar);
+    assert.equal(typeof element.props.onTriggerScout, 'function');
   });
 
   it('TopologyControls renders element tree correctly with expected structure', () => {
@@ -62,3 +80,4 @@ describe('Topology UI Components Exports & Types', () => {
     assert.equal(typeof element.props.onNodeDoubleClick, 'function');
   });
 });
+

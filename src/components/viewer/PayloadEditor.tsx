@@ -246,8 +246,18 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
     (newType: string) => {
       setSelectedProtoType(newType);
       onProtoTypeNameChange?.(newType);
+      if (newType) {
+        const matchedSchema = schemas.find((s) => s.messageTypes?.includes(newType));
+        const root = (matchedSchema ? getCompiledRoot(matchedSchema.id) : null) || getGlobalRoot();
+        try {
+          const sample = generateProtoSampleJson(root, newType);
+          onChange(JSON.stringify(sample, null, 2));
+        } catch (err) {
+          console.error('Failed to generate Protobuf sample payload:', err);
+        }
+      }
     },
-    [onProtoTypeNameChange]
+    [onProtoTypeNameChange, schemas, getCompiledRoot, getGlobalRoot, onChange]
   );
 
   // Active root for selected proto type
@@ -256,19 +266,6 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
     const matchedSchema = schemas.find((s) => s.messageTypes?.includes(selectedProtoType));
     return (matchedSchema ? getCompiledRoot(matchedSchema.id) : null) || getGlobalRoot();
   }, [selectedProtoType, schemas, getCompiledRoot, getGlobalRoot]);
-
-  // Sample template generator for selected Protobuf type
-  const handleGenerateProtoSample = useCallback(() => {
-    if (!selectedProtoType) return;
-    const root = activeRoot || getGlobalRoot();
-    try {
-      const sample = generateProtoSampleJson(root, selectedProtoType);
-      const formatted = JSON.stringify(sample, null, 2);
-      onChange(formatted);
-    } catch (err) {
-      console.error('Failed to generate Protobuf sample payload:', err);
-    }
-  }, [selectedProtoType, activeRoot, getGlobalRoot, onChange]);
 
   // Real-time encoding validation and size computation
   const validation = useMemo(() => {
@@ -496,19 +493,6 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
                         })}
                       </SelectContent>
                     </Select>
-
-                    {selectedProtoType && (
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={handleGenerateProtoSample}
-                        className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs font-medium hover:bg-muted hover:text-foreground text-foreground disabled:opacity-50 transition-colors shadow-xs"
-                        title="Generate sample JSON template for selected Protobuf type"
-                      >
-                        <Sparkles className="w-3 h-3 text-amber-500" />
-                        <span>Sample Template</span>
-                      </button>
-                    )}
                   </>
                 )}
               </div>

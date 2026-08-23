@@ -4,6 +4,7 @@ import {
   buildTopologyGraph,
   extractLocatorProtocol,
   extractLocatorHostPort,
+  isLocatorMatch,
 } from '../../src/lib/topology/topologyBuilder.ts';
 import type { ScoutedNode, ConnectionProfile, ActiveSession } from '../../src/types/zenoh.ts';
 import type { TopologyNode } from '../../src/types/topology.ts';
@@ -21,6 +22,13 @@ describe('Topology Data Builder', () => {
     assert.equal(extractLocatorHostPort('tcp/192.168.1.50:7447'), '192.168.1.50:7447');
     assert.equal(extractLocatorHostPort('tls/router.cloud.zenoh.io:443'), 'router.cloud.zenoh.io:443');
     assert.equal(extractLocatorHostPort('raw-host'), 'raw-host');
+  });
+
+  it('matches locators across localhost and LAN IP representations', () => {
+    assert.equal(isLocatorMatch('tcp/127.0.0.1:7447', 'tcp/192.168.1.50:7447'), true);
+    assert.equal(isLocatorMatch('tcp/localhost:7447', 'tcp/127.0.0.1:7447'), true);
+    assert.equal(isLocatorMatch('tcp/10.0.0.1:7447', 'tcp/10.0.0.1:7447'), true);
+    assert.equal(isLocatorMatch('tcp/10.0.0.1:7447', 'tcp/10.0.0.1:7448'), false);
   });
 
   it('builds topology graph with scouted routers/peers and generates router-to-peer edges', () => {
@@ -200,6 +208,57 @@ describe('Topology Data Builder', () => {
     const meshEdge = edges[0];
     assert.ok(meshEdge);
     assert.equal(meshEdge.status, 'scouted');
+  });
+
+  it('filters out ZenohX own session from scout results and accurately models single local router', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: 'own-zenohx-client-zid',
+        what: 'Client',
+        locators: ['tcp/192.168.1.15:52341'],
+      },
+      {
+        zid: 'router-local-zenohd-zid',
+        what: 'Router',
+        locators: ['tcp/192.168.1.15:7447'],
+      },
+    ];
+
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-local-router',
+        name: 'Local Router',
+        mode: 'client',
+        connect_locators: ['tcp/127.0.0.1:7447'],
+        listen_locators: [],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-local-router': {
+        id: 'sess-1',
+        profile_id: 'prof-local-router',
+        zid: 'own-zenohx-client-zid',
+        connected_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    // Exactly 1 node: the local router (own-zenohx-client-zid is filtered out, prof-local-router is matched to router)
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].zid, 'router-local-zenohd-zid');
+    assert.equal(nodes[0].status, 'connected');
+    assert.equal(nodes[0].label, 'Local Router');
+    assert.equal(edges.length, 0);
   });
 
   it('returns empty graph when disconnected with no scouted nodes', () => {

@@ -39,6 +39,30 @@ export function extractLocatorHostPort(locator: string): string {
   return parts.length > 1 ? parts.slice(1).join('/') : locator;
 }
 
+export function isLocatorMatch(loc1: string, loc2: string): boolean {
+  if (!loc1 || !loc2) return false;
+  if (loc1 === loc2) return true;
+  const hostPort1 = extractLocatorHostPort(loc1);
+  const hostPort2 = extractLocatorHostPort(loc2);
+  if (hostPort1 === hostPort2) return true;
+
+  const lastColon1 = hostPort1.lastIndexOf(':');
+  const lastColon2 = hostPort2.lastIndexOf(':');
+  if (lastColon1 === -1 || lastColon2 === -1) return false;
+
+  const port1 = hostPort1.slice(lastColon1 + 1);
+  const port2 = hostPort2.slice(lastColon2 + 1);
+  const host1 = hostPort1.slice(0, lastColon1).replace(/^\[|\]$/g, '').toLowerCase();
+  const host2 = hostPort2.slice(0, lastColon2).replace(/^\[|\]$/g, '').toLowerCase();
+
+  if (port1 === port2) {
+    const isLocal1 = host1 === '127.0.0.1' || host1 === 'localhost' || host1 === '0.0.0.0' || host1 === '::1' || host1 === '';
+    const isLocal2 = host2 === '127.0.0.1' || host2 === 'localhost' || host2 === '0.0.0.0' || host2 === '::1' || host2 === '';
+    if (isLocal1 || isLocal2 || host1 === host2) return true;
+  }
+  return false;
+}
+
 export function buildTopologyGraph({
   scoutedNodes,
   activeSessions,
@@ -52,8 +76,19 @@ export function buildTopologyGraph({
   const activeProfileList = profiles.filter((p) => Boolean(activeSessions[p.id]));
   const matchedProfileIds = new Set<string>();
 
-  // 1. Process Scouted Nodes
-  scoutedNodes.forEach((node, index) => {
+  // Extract own session ZIDs to avoid displaying ZenohX's own client session as a scouted node
+  const activeSessionZids = new Set(
+    Object.values(activeSessions)
+      .map((s) => s.zid)
+      .filter((z) => Boolean(z) && z !== 'local')
+  );
+
+  // 1. Process Scouted Nodes (filtering out ZenohX's own session)
+  const validScoutedNodes = scoutedNodes.filter(
+    (node) => !activeSessionZids.has(node.zid)
+  );
+
+  validScoutedNodes.forEach((node, index) => {
     const nodeId = `scouted-${node.zid}`;
     const existing = existingMap.get(nodeId);
 
@@ -71,9 +106,7 @@ export function buildTopologyGraph({
     // Check if this scouted node matches any connected profile
     const matchedConnectedProfile = activeProfileList.find((prof) =>
       prof.connect_locators.some((loc) =>
-        (node.locators || []).some(
-          (scoutLoc) => scoutLoc === loc || extractLocatorHostPort(scoutLoc) === extractLocatorHostPort(loc)
-        )
+        (node.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
       )
     );
 
@@ -83,9 +116,7 @@ export function buildTopologyGraph({
 
     const matchedAnyProfile = profiles.find((prof) =>
       prof.connect_locators.some((loc) =>
-        (node.locators || []).some(
-          (scoutLoc) => scoutLoc === loc || extractLocatorHostPort(scoutLoc) === extractLocatorHostPort(loc)
-        )
+        (node.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
       )
     );
 
@@ -96,7 +127,7 @@ export function buildTopologyGraph({
 
     const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
 
-    const angle = (index / Math.max(1, scoutedNodes.length)) * 2 * Math.PI;
+    const angle = (index / Math.max(1, validScoutedNodes.length)) * 2 * Math.PI;
     const distance = 160 + (index % 2) * 50;
     const defaultX = Math.cos(angle) * distance;
     const defaultY = Math.sin(angle) * distance;

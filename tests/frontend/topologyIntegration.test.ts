@@ -104,7 +104,7 @@ describe('Topology Integration & Navigation', () => {
         'prof-cloud-1': {
           id: 'sess-cloud-1',
           profile_id: 'prof-cloud-1',
-          zid: 'zid-cloud-router',
+          zid: 'zid-local-client',
           mode: 'client',
           connect_locators: ['tcp/10.0.0.1:7447'],
           listen_locators: [],

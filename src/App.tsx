@@ -16,6 +16,7 @@ import {
   Activity,
   Sparkles,
   Download,
+  FileCode2,
 } from 'lucide-react';
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
@@ -23,6 +24,7 @@ import { useQueryStore } from './stores/queryStore';
 import { useTrafficStore, initTrafficTicker } from './stores/trafficStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
 import { useUpdateStore } from './stores/updateStore';
+import { useProtoStore } from './stores/protoStore';
 import { initTelemetry, trackAppStart } from './lib/telemetry';
 import { ConnectionProfile } from './types/zenoh';
 import { isTlsEnabled } from './lib/tls';
@@ -31,6 +33,7 @@ import { APP_VERSION } from './lib/version';
 import { Sidebar } from './components/connections/Sidebar';
 import { ProfileModal } from './components/connections/ProfileModal';
 import { ScoutModal } from './components/connections/ScoutModal';
+import { ProtoManagerDialog } from './components/proto/ProtoManagerDialog';
 import { PubSubWorkspace } from './components/pubsub/PubSubWorkspace';
 import { QueryWorkspace } from './components/query/QueryWorkspace';
 import { TrafficWorkspace } from './components/traffic/TrafficWorkspace';
@@ -49,6 +52,9 @@ export function App() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
   const [scoutModalOpen, setScoutModalOpen] = useState(false);
+  const [protoModalOpen, setProtoModalOpen] = useState(false);
+
+  const protoSchemas = useProtoStore((s) => s.schemas);
 
   // Resizable Sidebar
   const {
@@ -197,6 +203,9 @@ export function App() {
           setEditingProfile(null);
           setProfileModalOpen(true);
         }
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 'p' || e.key === 'P')) {
+        e.preventDefault();
+        setProtoModalOpen(true);
       }
     };
 
@@ -217,7 +226,7 @@ export function App() {
     <div className="flex flex-col h-screen w-screen bg-background text-foreground overflow-hidden select-none">
       {/* Top Application Header */}
       <header className="h-12 border-b bg-card px-3 flex items-center justify-between shrink-0 z-20">
-        {/* Left Section: Settings & Sidebar Toggle & Brand Title */}
+        {/* Left Section: Settings & Sidebar Toggle & Brand Title & Protobuf Manager */}
         <div className="flex items-center gap-2">
           {/* Settings Button */}
           <Button
@@ -232,6 +241,23 @@ export function App() {
             title="Settings & Preferences (Ctrl+4)"
           >
             <Settings className="w-4 h-4" />
+          </Button>
+
+          {/* Protobuf Schema Manager Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setProtoModalOpen(true)}
+            className="h-8 px-2 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+            title="Protobuf Schema Manager (Ctrl+Shift+P)"
+          >
+            <FileCode2 className="w-4 h-4" />
+            <span className="hidden md:inline">Protobuf</span>
+            {protoSchemas.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 font-mono h-4">
+                {protoSchemas.length}
+              </Badge>
+            )}
           </Button>
 
           {/* Sidebar Toggle */}
@@ -633,6 +659,12 @@ export function App() {
           setEditingProfile(newProf);
           setProfileModalOpen(true);
         }}
+      />
+
+      {/* Protobuf Schema Manager Dialog */}
+      <ProtoManagerDialog
+        isOpen={protoModalOpen}
+        onClose={() => setProtoModalOpen(false)}
       />
     </div>
   );

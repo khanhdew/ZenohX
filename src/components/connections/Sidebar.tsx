@@ -20,14 +20,17 @@ import {
   ExternalLink,
   Link,
   Check,
+  FileCode2,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useProtoStore } from '../../stores/protoStore';
 import { ConnectionProfile } from '../../types/zenoh';
 import { isTlsEnabled } from '../../lib/tls';
 import { openProfileInNewWindow } from '../../lib/tauri';
 import { formatFriendlyError } from '../../lib/errorUtils';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
+import { ProtoManagerDialog } from '../proto/ProtoManagerDialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -64,6 +67,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
   const [searchQuery, setSearchQuery] = useState('');
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [scoutModalOpen, setScoutModalOpen] = useState(false);
+  const [protoModalOpen, setProtoModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
   const [deleteConfirmProfile, setDeleteConfirmProfile] = useState<ConnectionProfile | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -72,6 +76,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
 
   // Store state
   const profiles = useConnectionStore((s) => s.profiles);
+  const protoSchemas = useProtoStore((s) => s.schemas);
   const selectedProfileId = useConnectionStore((s) => s.selectedProfileId);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
   const connectingProfileIds = useConnectionStore((s) => s.connectingProfileIds);
@@ -561,9 +566,21 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
 
       {/* Bottom Footer */}
       <div className="p-2.5 border-t flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>
-          {profiles.length} profile{profiles.length === 1 ? '' : 's'}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span>
+            {profiles.length} profile{profiles.length === 1 ? '' : 's'}
+          </span>
+          <span className="text-muted-foreground/40">•</span>
+          <button
+            type="button"
+            onClick={() => setProtoModalOpen(true)}
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline transition-colors"
+            title="Manage Protobuf Schemas"
+          >
+            <FileCode2 className="w-3 h-3" />
+            <span>{protoSchemas.length} proto{protoSchemas.length === 1 ? '' : 's'}</span>
+          </button>
+        </div>
         <Button
           variant="ghost"
           size="iconSm"
@@ -574,6 +591,12 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
           <RefreshCw className="w-3 h-3" />
         </Button>
       </div>
+
+      {/* Protobuf Schema Manager Dialog */}
+      <ProtoManagerDialog
+        isOpen={protoModalOpen}
+        onClose={() => setProtoModalOpen(false)}
+      />
 
       {/* Profile Modal (Create / Edit) */}
       <ProfileModal

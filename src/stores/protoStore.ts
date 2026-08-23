@@ -60,7 +60,7 @@ export const useProtoStore = create<ProtoState>()(
         }
       },
 
-      updateSchema: (id: string, rawContent: string) => {
+      updateSchema: (id: string, rawContent: string, name?: string) => {
         const existing = get().schemas.find((s) => s.id === id);
         if (!existing) {
           return { success: false, error: `Protobuf schema with id "${id}" not found` };
@@ -83,6 +83,7 @@ export const useProtoStore = create<ProtoState>()(
               s.id === id
                 ? {
                     ...s,
+                    name: name && name.trim() ? name.trim() : s.name,
                     rawContent,
                     syntax: parsed.syntax,
                     package: parsed.package,

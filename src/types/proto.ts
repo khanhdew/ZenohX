@@ -24,7 +24,7 @@ export interface ProtoState {
   mappings: ProtoTopicMapping[];
 
   addSchema: (name: string, rawContent: string) => { success: boolean; error?: string; id?: string };
-  updateSchema: (id: string, rawContent: string) => { success: boolean; error?: string };
+  updateSchema: (id: string, rawContent: string, name?: string) => { success: boolean; error?: string };
   removeSchema: (id: string) => void;
 
   addMapping: (keyPattern: string, protoId: string, messageTypeName: string) => void;

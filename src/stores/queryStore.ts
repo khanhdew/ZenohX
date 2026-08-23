@@ -13,13 +13,23 @@ import type {
   ReplySample,
 } from '../types/zenoh';
 import {
+  clearQueryHistory as clearQueryHistoryIpc,
   declareQueryable as declareQueryableIpc,
+  deleteQueryExecution as deleteQueryExecutionIpc,
+  deleteQueryablePreset as deleteQueryablePresetIpc,
+  loadQueryHistory as loadQueryHistoryIpc,
+  loadQueryablePresets as loadQueryablePresetsIpc,
   onInboundQuery,
   replyQuery as replyQueryIpc,
   runQuery as runQueryIpc,
+  saveQueryExecution as saveQueryExecutionIpc,
+  saveQueryablePreset as saveQueryablePresetIpc,
   undeclareQueryable as undeclareQueryableIpc,
 } from '../lib/tauri';
+import { useConnectionStore } from './connectionStore';
+import { useTrafficStore } from './trafficStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+
 
 function generateId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -80,8 +90,11 @@ export interface QueryState {
     encoding?: EncodingType | string
   ) => Promise<void>;
 
-  clearExecutions: (sessionId?: string) => void;
+  loadQueryHistory: (profileId?: string, limit?: number, offset?: number) => Promise<void>;
+  loadQueryables: (profileId: string, activeSessionId?: string) => Promise<void>;
+  clearExecutions: (sessionId?: string, profileId?: string) => Promise<void>;
   clearInboundQueries: (sessionId?: string) => void;
+  deleteExecution: (executionId: string) => Promise<void>;
   selectExecution: (id: string | null) => void;
   setError: (error: string | null) => void;
 
@@ -108,6 +121,14 @@ export const useQueryStore = create<QueryState>((set, get) => ({
 
     try {
       const unlisten = await onInboundQuery(async (inbound: InboundQuery) => {
+        useTrafficStore.getState().recordEvent({
+          sessionId: inbound.session_id,
+          direction: 'inbound',
+          opType: 'queryable_in',
+          keyExpr: inbound.key_expr,
+          bytes: inbound.parameters?.length || 0,
+        });
+
         // Check if there is an active queryable matching queryable_id with autoReply enabled
         const matchingQueryable = get().activeQueryables.find(
           (q) => q.id === inbound.queryable_id && q.autoReply
@@ -118,6 +139,14 @@ export const useQueryStore = create<QueryState>((set, get) => ({
             const bytes = encodeStringToBytes(matchingQueryable.replyPayload);
             const enc = matchingQueryable.replyEncoding || 'json';
             await replyQueryIpc(inbound.token, inbound.key_expr, bytes, enc);
+            useTrafficStore.getState().recordEvent({
+              sessionId: inbound.session_id,
+              profileId: matchingQueryable.profileId,
+              direction: 'outbound',
+              opType: 'queryable_out',
+              keyExpr: inbound.key_expr,
+              bytes: bytes.length,
+            });
             return; // Successfully auto-replied, no need to keep in pending list
           } catch (autoErr) {
             console.error('Auto-reply failed:', autoErr);
@@ -129,6 +158,7 @@ export const useQueryStore = create<QueryState>((set, get) => ({
           inboundQueries: [inbound, ...state.inboundQueries].slice(0, 500),
         }));
       });
+
 
       set({ isListening: true, unlistenFn: unlisten });
     } catch (err) {
@@ -153,11 +183,13 @@ export const useQueryStore = create<QueryState>((set, get) => ({
   ) => {
     const execId = generateId();
     const startedAt = Date.now();
+    const targetProfileId =
+      profileId || useConnectionStore.getState().sessionToProfile[sessionId] || '';
 
     const execution: QueryExecution = {
       id: execId,
       sessionId,
-      profileId,
+      profileId: targetProfileId,
       selector,
       target,
       timeoutMs,
@@ -165,6 +197,15 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       replies: [],
       startedAt,
     };
+
+    useTrafficStore.getState().recordEvent({
+      sessionId,
+      profileId: targetProfileId,
+      direction: 'outbound',
+      opType: 'query_req',
+      keyExpr: selector,
+      bytes: selector.length,
+    });
 
     set((state) => ({
       executions: [execution, ...state.executions],
@@ -175,6 +216,32 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     try {
       const replies = await runQueryIpc(sessionId, selector, target, timeoutMs);
       const durationMs = Date.now() - startedAt;
+
+      for (const r of replies) {
+        useTrafficStore.getState().recordEvent({
+          sessionId: r.session_id || sessionId,
+          profileId: targetProfileId,
+          direction: 'inbound',
+          opType: 'query_res',
+          keyExpr: r.key_expr,
+          bytes: r.payload?.length || 0,
+        });
+      }
+
+      // Save execution history in SQLite
+
+      saveQueryExecutionIpc({
+        id: execId,
+        profile_id: targetProfileId || null,
+        selector,
+        target: String(target),
+        timeout_ms: timeoutMs,
+        status: 'completed',
+        replies_json: JSON.stringify(replies),
+        duration_ms: durationMs,
+        error: null,
+        timestamp: startedAt,
+      }).catch(() => {});
 
       set((state) => ({
         executions: state.executions.map((e) =>
@@ -188,6 +255,20 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     } catch (err) {
       const durationMs = Date.now() - startedAt;
       const errorMsg = String(err);
+
+      // Save failed execution in SQLite
+      saveQueryExecutionIpc({
+        id: execId,
+        profile_id: targetProfileId || null,
+        selector,
+        target: String(target),
+        timeout_ms: timeoutMs,
+        status: 'error',
+        replies_json: '[]',
+        duration_ms: durationMs,
+        error: errorMsg,
+        timestamp: startedAt,
+      }).catch(() => {});
 
       set((state) => ({
         executions: state.executions.map((e) =>
@@ -212,14 +293,18 @@ export const useQueryStore = create<QueryState>((set, get) => ({
   ) => {
     set({ error: null });
     const queryableId = generateId();
+    const targetProfileId =
+      profileId || useConnectionStore.getState().sessionToProfile[sessionId] || '';
 
     try {
-      await declareQueryableIpc(sessionId, queryableId, keyExpr);
+      if (sessionId) {
+        await declareQueryableIpc(sessionId, queryableId, keyExpr);
+      }
 
       const queryable: ActiveQueryable = {
         id: queryableId,
-        sessionId,
-        profileId,
+        sessionId: sessionId || '',
+        profileId: targetProfileId,
         keyExpr,
         autoReply,
         replyPayload,
@@ -227,12 +312,27 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         createdAt: Date.now(),
       };
 
+      // Persist as SQLite queryable preset
+      if (targetProfileId) {
+        saveQueryablePresetIpc({
+          id: queryableId,
+          profile_id: targetProfileId,
+          key_expr: keyExpr,
+          auto_reply: autoReply,
+          reply_payload: replyPayload || null,
+          reply_encoding: replyEncoding,
+        }).catch(() => {});
+      }
+
       set((state) => ({
-        activeQueryables: [...state.activeQueryables, queryable],
+        activeQueryables: [
+          ...state.activeQueryables.filter((q) => q.id !== queryableId),
+          queryable,
+        ],
       }));
 
-      // Ensure inbound listener is initialized
-      if (!get().isListening) {
+      // Ensure inbound listener is initialized if online
+      if (sessionId && !get().isListening) {
         await get().initListener();
       }
 
@@ -247,7 +347,20 @@ export const useQueryStore = create<QueryState>((set, get) => ({
   undeclareQueryable: async (sessionId: string, queryableId: string) => {
     set({ error: null });
     try {
-      await undeclareQueryableIpc(sessionId, queryableId);
+      if (sessionId) {
+        try {
+          await undeclareQueryableIpc(sessionId, queryableId);
+        } catch {
+          // Ignore
+        }
+      }
+
+      try {
+        await deleteQueryablePresetIpc(queryableId);
+      } catch {
+        // Ignore
+      }
+
       set((state) => ({
         activeQueryables: state.activeQueryables.filter((q) => q.id !== queryableId),
       }));
@@ -262,11 +375,26 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     queryableId: string,
     updates: Partial<Pick<ActiveQueryable, 'autoReply' | 'replyPayload' | 'replyEncoding'>>
   ) => {
-    set((state) => ({
-      activeQueryables: state.activeQueryables.map((q) =>
-        q.id === queryableId ? { ...q, ...updates } : q
-      ),
-    }));
+    set((state) => {
+      const updated = state.activeQueryables.map((q) => {
+        if (q.id === queryableId) {
+          const next = { ...q, ...updates };
+          if (next.profileId) {
+            saveQueryablePresetIpc({
+              id: next.id,
+              profile_id: next.profileId,
+              key_expr: next.keyExpr,
+              auto_reply: next.autoReply,
+              reply_payload: next.replyPayload || null,
+              reply_encoding: next.replyEncoding || 'json',
+            }).catch(() => {});
+          }
+          return next;
+        }
+        return q;
+      });
+      return { activeQueryables: updated };
+    });
   },
 
   replyInboundQuery: async (
@@ -278,31 +406,151 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     set({ error: null });
     try {
       await replyQueryIpc(token, keyExpr, payload, encoding);
+      const payloadLength =
+        payload instanceof Uint8Array ? payload.length : (payload ? payload.length : 0);
+      useTrafficStore.getState().recordEvent({
+        direction: 'outbound',
+        opType: 'queryable_out',
+        keyExpr,
+        bytes: payloadLength,
+      });
       // Remove query with this token from pending list
       set((state) => ({
         inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
       }));
     } catch (err) {
+
       const msg = `Failed to reply to inbound query: ${err}`;
       set({ error: msg });
       throw new Error(msg);
     }
   },
 
-  clearExecutions: (sessionId?: string) => {
-    set((state) => {
-      if (sessionId) {
+  loadQueryHistory: async (profileId?: string, limit: number = 50, offset: number = 0) => {
+    try {
+      const stored = await loadQueryHistoryIpc(profileId, limit, offset);
+      const mapped: QueryExecution[] = stored.map((s) => {
+        let replies: ReplySample[] = [];
+        try {
+          replies = JSON.parse(s.replies_json);
+        } catch {
+          replies = [];
+        }
         return {
-          executions: state.executions.filter((e) => e.sessionId !== sessionId),
+          id: s.id,
+          sessionId: '',
+          profileId: s.profile_id || undefined,
+          selector: s.selector,
+          target: (s.target as QueryTarget) || 'all',
+          timeoutMs: s.timeout_ms,
+          status: (s.status as QueryExecution['status']) || 'completed',
+          replies,
+          startedAt: s.timestamp,
+          durationMs: s.duration_ms ?? undefined,
+          error: s.error,
+        };
+      });
+
+      set((state) => {
+        const combined = [...state.executions, ...mapped];
+        const seen = new Set<string>();
+        const unique = combined.filter((e) => {
+          if (seen.has(e.id)) return false;
+          seen.add(e.id);
+          return true;
+        });
+        unique.sort((a, b) => b.startedAt - a.startedAt);
+        return { executions: unique };
+      });
+    } catch (err) {
+      set({ error: `Failed to load query history: ${err}` });
+    }
+  },
+
+  loadQueryables: async (profileId: string, activeSessionId?: string) => {
+    if (!profileId) return;
+    try {
+      const presets = await loadQueryablePresetsIpc(profileId);
+      const current = get().activeQueryables;
+      const loaded: ActiveQueryable[] = [];
+
+      for (const preset of presets) {
+        const existing = current.find((q) => q.id === preset.id || q.keyExpr === preset.key_expr);
+
+        if (activeSessionId) {
+          try {
+            await declareQueryableIpc(activeSessionId, preset.id, preset.key_expr);
+          } catch {
+            // Ignore if declare fails
+          }
+        }
+
+        loaded.push({
+          id: preset.id,
+          sessionId: activeSessionId || existing?.sessionId || '',
+          profileId: preset.profile_id,
+          keyExpr: preset.key_expr,
+          autoReply: preset.auto_reply,
+          replyPayload: preset.reply_payload || undefined,
+          replyEncoding: preset.reply_encoding,
+          createdAt: existing?.createdAt || Date.now(),
+        });
+      }
+
+      if (loaded.length > 0 && activeSessionId && !get().isListening) {
+        await get().initListener();
+      }
+
+      set((state) => {
+        const other = state.activeQueryables.filter(
+          (q) => q.profileId && q.profileId !== profileId
+        );
+        return { activeQueryables: [...other, ...loaded] };
+      });
+    } catch (err) {
+      set({ error: `Failed to load queryable presets: ${err}` });
+    }
+  },
+
+  clearExecutions: async (sessionId?: string, profileId?: string) => {
+    set((state) => {
+      if (sessionId || profileId) {
+        const filtered = state.executions.filter((e) => {
+          if (sessionId && e.sessionId === sessionId) return false;
+          if (profileId && e.profileId === profileId) return false;
+          return true;
+        });
+        return {
+          executions: filtered,
           activeExecutionId:
-            state.activeExecutionId &&
-            state.executions.find((e) => e.id === state.activeExecutionId)?.sessionId === sessionId
+            (sessionId && state.executions.find((e) => e.id === state.activeExecutionId)?.sessionId === sessionId) ||
+            (profileId && state.executions.find((e) => e.id === state.activeExecutionId)?.profileId === profileId)
               ? null
               : state.activeExecutionId,
         };
       }
       return { executions: [], activeExecutionId: null };
     });
+
+    try {
+      await clearQueryHistoryIpc(profileId);
+    } catch {
+      // Ignore
+    }
+  },
+
+  deleteExecution: async (executionId: string) => {
+    set((state) => ({
+      executions: state.executions.filter((e) => e.id !== executionId),
+      activeExecutionId:
+        state.activeExecutionId === executionId ? null : state.activeExecutionId,
+    }));
+
+    try {
+      await deleteQueryExecutionIpc(executionId);
+    } catch {
+      // Ignore
+    }
   },
 
   clearInboundQueries: (sessionId?: string) => {

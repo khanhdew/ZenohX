@@ -126,4 +126,31 @@ describe('Traffic Store', () => {
     assert.equal(state.timeline.length, 0);
     assert.deepEqual(state.keyStats, {});
   });
+
+  test('Traffic Store - Integration with PubSub and Query simulation', () => {
+    const traffic = useTrafficStore.getState();
+    traffic.clearTrafficHistory();
+
+    // Simulate subscription sample
+    traffic.recordEvent({
+      direction: 'inbound',
+      opType: 'sub',
+      keyExpr: 'sensors/lidar',
+      bytes: 4096,
+    });
+
+    // Simulate query response
+    traffic.recordEvent({
+      direction: 'inbound',
+      opType: 'query_res',
+      keyExpr: 'config/all',
+      bytes: 512,
+    });
+
+    const keys = useTrafficStore.getState().keyStats;
+    assert.equal(keys['sensors/lidar'].inboundBytes, 4096);
+    assert.equal(keys['config/all'].inboundBytes, 512);
+    assert.equal(useTrafficStore.getState().totalInboundBytes, 4608);
+  });
 });
+

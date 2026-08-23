@@ -22,6 +22,7 @@ globalThis.window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
 import { useConnectionStore } from '../../src/stores/connectionStore';
 import { useMessageStore } from '../../src/stores/messageStore';
 import { useQueryStore } from '../../src/stores/queryStore';
+import { useTrafficStore } from '../../src/stores/trafficStore';
 import type { ConnectionProfile, ReplySample, SessionInfo, ScoutedNode } from '../../src/types/zenoh';
 
 describe('Connection Store', () => {
@@ -239,8 +240,9 @@ describe('Message Store', () => {
       return undefined;
     };
 
-    const subId = await useMessageStore.getState().subscribe('sess-1', 'sensors/**');
+    const subId = await useMessageStore.getState().subscribe('sess-1', 'sensors/**', 'json', '#3b82f6', 'prof-1');
     assert.equal(useMessageStore.getState().subscriptions[0].active, true);
+    assert.equal(useMessageStore.getState().subscriptions[0].profileId, 'prof-1');
 
     await useMessageStore.getState().toggleSubscription('sess-1', subId);
     assert.equal(useMessageStore.getState().subscriptions[0].active, false);
@@ -250,6 +252,41 @@ describe('Message Store', () => {
 
     await useMessageStore.getState().unsubscribe('sess-1', subId);
     assert.equal(useMessageStore.getState().subscriptions.length, 0);
+  });
+
+  test('loadSubscriptions loads presets and auto-subscribes for active session', async () => {
+    const mockPresets = [
+      {
+        id: 'preset-1',
+        profile_id: 'prof-1',
+        key_expr: 'demo/**',
+        default_encoding: 'json',
+        auto_subscribe: true,
+        color_tag: '#10b981',
+      },
+    ];
+
+    let subscribedKey = '';
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'load_subscription_presets') {
+        assert.equal(args?.profileId, 'prof-1');
+        return mockPresets;
+      }
+      if (cmd === 'subscribe') {
+        subscribedKey = args?.keyExpr;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    await useMessageStore.getState().loadSubscriptions('prof-1', 'sess-1');
+
+    const subs = useMessageStore.getState().subscriptions;
+    assert.equal(subs.length, 1);
+    assert.equal(subs[0].id, 'preset-1');
+    assert.equal(subs[0].keyExpr, 'demo/**');
+    assert.equal(subs[0].active, true);
+    assert.equal(subscribedKey, 'demo/**');
   });
 
   test('publish creates outgoing message and calls backend', async () => {
@@ -273,6 +310,25 @@ describe('Message Store', () => {
     assert.equal(messages[0].direction, 'outgoing');
     assert.equal(messages[0].keyExpr, 'sensor/temp');
   });
+
+  test('publish records outbound pub event in traffic store', async () => {
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'publish_sample') return undefined;
+      return undefined;
+    };
+
+    useTrafficStore.getState().clearTrafficHistory();
+
+    const payload = Array.from(Buffer.from('{"temp": 25.5}'));
+    await useMessageStore.getState().publish('sess-1', 'sensor/temp', payload, 'json', 'put');
+
+    const trafficState = useTrafficStore.getState();
+    assert.equal(trafficState.totalOutboundBytes, payload.length);
+    assert.equal(trafficState.totalOutboundMsgs, 1);
+    assert.equal(trafficState.keyStats['sensor/temp'].outboundBytes, payload.length);
+    assert.equal(trafficState.keyStats['sensor/temp'].outboundMsgs, 1);
+  });
+
 
   test('ring buffer respects max capacity', () => {
     useMessageStore.getState().setMaxMessages(5);
@@ -348,6 +404,103 @@ describe('Message Store', () => {
     const searchResults = useMessageStore.getState().getFilteredMessages();
     assert.equal(searchResults.length, 1);
     assert.equal(searchResults[0].id, 'm2');
+  });
+
+  test('loadHistory fetches stored SQLite messages, sorts ascending, and deduplicates', async () => {
+    const mockStored = [
+      {
+        id: 2,
+        profile_id: 'p1',
+        direction: 'incoming',
+        key_expr: 'demo/second',
+        payload: Array.from(Buffer.from('second')),
+        encoding: 'text',
+        kind: 'put',
+        timestamp: 2000,
+      },
+      {
+        id: 1,
+        profile_id: 'p1',
+        direction: 'incoming',
+        key_expr: 'demo/first',
+        payload: Array.from(Buffer.from('first')),
+        encoding: 'text',
+        kind: 'put',
+        timestamp: 1000,
+      },
+    ];
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'query_messages') {
+        assert.equal(args?.profileId, 'p1');
+        return mockStored;
+      }
+      return undefined;
+    };
+
+    // Pre-populate with an existing message
+    useMessageStore.getState().addMessage({
+      id: 'existing-1',
+      sessionId: 's1',
+      profileId: 'p1',
+      direction: 'incoming',
+      keyExpr: 'demo/third',
+      payload: Array.from(Buffer.from('third')),
+      encoding: 'text',
+      kind: 'put',
+      timestamp: 3000,
+    });
+
+    await useMessageStore.getState().loadHistory('p1');
+
+    const messages = useMessageStore.getState().messages;
+    assert.equal(messages.length, 3);
+    // Messages must be sorted chronologically ascending
+    assert.equal(messages[0].keyExpr, 'demo/first');
+    assert.equal(messages[1].keyExpr, 'demo/second');
+    assert.equal(messages[2].keyExpr, 'demo/third');
+  });
+
+  test('clearMessages clears messages by profileId or sessionId', async () => {
+    let clearedProfileId: string | undefined = undefined;
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'clear_message_history') {
+        clearedProfileId = args?.profileId as string;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    useMessageStore.getState().addMessage({
+      id: 'm1',
+      sessionId: 's1',
+      profileId: 'p1',
+      direction: 'incoming',
+      keyExpr: 'demo/a',
+      payload: [],
+      encoding: 'text',
+      kind: 'put',
+      timestamp: 1000,
+    });
+
+    useMessageStore.getState().addMessage({
+      id: 'm2',
+      sessionId: 's2',
+      profileId: 'p2',
+      direction: 'incoming',
+      keyExpr: 'demo/b',
+      payload: [],
+      encoding: 'text',
+      kind: 'put',
+      timestamp: 2000,
+    });
+
+    // Clear only p1 messages
+    await useMessageStore.getState().clearMessages(undefined, 'p1');
+    assert.equal(clearedProfileId, 'p1');
+    const remaining = useMessageStore.getState().messages;
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].id, 'm2');
   });
 });
 
@@ -443,5 +596,174 @@ describe('Query Store', () => {
 
     assert.equal(repliedToken, 'token-abc');
     assert.equal(useQueryStore.getState().inboundQueries.length, 0);
+  });
+
+  test('runQuery and replyInboundQuery record events in traffic store', async () => {
+    const mockReplies: ReplySample[] = [
+      {
+        session_id: 'sess-1',
+        key_expr: 'demo/rpc/info',
+        payload: Array.from(Buffer.from('{"version": "1.0"}')),
+        encoding: 'json',
+        replier_id: 'node-1',
+        latency_ms: 12,
+        timestamp: 1000,
+        is_err: false,
+        error_message: null,
+      },
+    ];
+
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'query_get') return mockReplies;
+      if (cmd === 'reply_query') return undefined;
+      return undefined;
+    };
+
+    useTrafficStore.getState().clearTrafficHistory();
+
+    const selector = 'demo/rpc/info';
+    await useQueryStore.getState().runQuery('sess-1', selector, 'all', 2000);
+
+    let traffic = useTrafficStore.getState();
+    assert.equal(traffic.totalOutboundBytes, selector.length); // query_req
+    assert.equal(traffic.totalInboundBytes, mockReplies[0].payload.length); // query_res
+    assert.equal(traffic.totalOutboundMsgs, 1);
+    assert.equal(traffic.totalInboundMsgs, 1);
+    assert.equal(traffic.keyStats[selector].outboundBytes, selector.length);
+    assert.equal(traffic.keyStats[selector].inboundBytes, mockReplies[0].payload.length);
+
+    // Now test replyInboundQuery
+    const replyPayload = [1, 2, 3, 4];
+    await useQueryStore.getState().replyInboundQuery('token-123', 'demo/rpc/reply', replyPayload);
+
+    traffic = useTrafficStore.getState();
+    assert.equal(traffic.totalOutboundBytes, selector.length + 4);
+    assert.equal(traffic.keyStats['demo/rpc/reply'].outboundBytes, 4);
+    assert.equal(traffic.keyStats['demo/rpc/reply'].outboundMsgs, 1);
+  });
+
+
+  test('loadQueryHistory loads stored query executions from SQLite', async () => {
+    const mockStored = [
+      {
+        id: 'exec-1',
+        profile_id: 'prof-1',
+        selector: 'demo/rpc/info',
+        target: 'all',
+        timeout_ms: 2000,
+        status: 'completed',
+        replies_json: JSON.stringify([
+          {
+            session_id: 's1',
+            key_expr: 'demo/rpc/info',
+            payload: [123],
+            encoding: 'json',
+            replier_id: 'node-1',
+            latency_ms: 15,
+            timestamp: 1000,
+            is_err: false,
+            error_message: null,
+          },
+        ]),
+        duration_ms: 20,
+        error: null,
+        timestamp: 1000,
+      },
+    ];
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'load_query_history') {
+        assert.equal(args?.profileId, 'prof-1');
+        return mockStored;
+      }
+      return undefined;
+    };
+
+    await useQueryStore.getState().loadQueryHistory('prof-1');
+
+    const execs = useQueryStore.getState().executions;
+    assert.equal(execs.length, 1);
+    assert.equal(execs[0].id, 'exec-1');
+    assert.equal(execs[0].selector, 'demo/rpc/info');
+    assert.equal(execs[0].replies.length, 1);
+    assert.equal(execs[0].replies[0].latency_ms, 15);
+  });
+
+  test('loadQueryables loads queryable presets from SQLite and auto-declares for active session', async () => {
+    const mockPresets = [
+      {
+        id: 'qp-1',
+        profile_id: 'prof-1',
+        key_expr: 'rpc/service/**',
+        auto_reply: true,
+        reply_payload: '{"status":"ok"}',
+        reply_encoding: 'json',
+      },
+    ];
+
+    let declaredKey = '';
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'load_queryable_presets') {
+        assert.equal(args?.profileId, 'prof-1');
+        return mockPresets;
+      }
+      if (cmd === 'declare_queryable') {
+        declaredKey = args?.keyExpr;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    await useQueryStore.getState().loadQueryables('prof-1', 'sess-1');
+
+    const queryables = useQueryStore.getState().activeQueryables;
+    assert.equal(queryables.length, 1);
+    assert.equal(queryables[0].id, 'qp-1');
+    assert.equal(queryables[0].keyExpr, 'rpc/service/**');
+    assert.equal(declaredKey, 'rpc/service/**');
+  });
+
+  test('clearExecutions clears executions by profileId or sessionId', async () => {
+    let clearedProfileId: string | undefined = undefined;
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'clear_query_history') {
+        clearedProfileId = args?.profileId;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    useQueryStore.setState({
+      executions: [
+        {
+          id: 'e1',
+          sessionId: 's1',
+          profileId: 'p1',
+          selector: 'demo/a',
+          target: 'all',
+          timeoutMs: 2000,
+          status: 'completed',
+          replies: [],
+          startedAt: 1000,
+        },
+        {
+          id: 'e2',
+          sessionId: 's2',
+          profileId: 'p2',
+          selector: 'demo/b',
+          target: 'all',
+          timeoutMs: 2000,
+          status: 'completed',
+          replies: [],
+          startedAt: 2000,
+        },
+      ],
+    });
+
+    await useQueryStore.getState().clearExecutions(undefined, 'p1');
+    assert.equal(clearedProfileId, 'p1');
+    const remaining = useQueryStore.getState().executions;
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].id, 'e2');
   });
 });

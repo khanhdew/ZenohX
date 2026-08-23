@@ -9,17 +9,26 @@ import type {
   MessageItem,
   PutKind,
   SubscriptionItem,
+  SubscriptionPreset,
   ZenohSample,
 } from '../types/zenoh';
 import {
+  clearMessageHistory,
+  deleteMessage as deleteMessageIpc,
+  deleteSubscriptionPreset,
+  loadSubscriptionPresets,
   onZenohSample,
   publishSample,
   queryMessages,
+  saveSubscriptionPreset,
   subscribeKey,
   unsubscribeKey,
 } from '../lib/tauri';
 import { normalizeEncoding } from '../lib/formatters';
+import { useConnectionStore } from './connectionStore';
+import { useTrafficStore } from './trafficStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+
 
 // Palette of colors for subscription badges
 const COLOR_PALETTE = [
@@ -69,6 +78,7 @@ export interface MessageState {
 
   unsubscribe: (sessionId: string, subId: string) => Promise<void>;
   toggleSubscription: (sessionId: string, subId: string) => Promise<void>;
+  loadSubscriptions: (profileId: string, activeSessionId?: string) => Promise<void>;
 
   publish: (
     sessionId: string,
@@ -80,12 +90,13 @@ export interface MessageState {
   ) => Promise<void>;
 
   addMessage: (msg: MessageItem) => void;
-  clearMessages: (sessionId?: string) => void;
+  clearMessages: (sessionId?: string, profileId?: string) => Promise<void>;
+  deleteMessage: (messageId: number | string) => Promise<void>;
   selectMessage: (msg: MessageItem | null) => void;
   setActiveFilterKey: (key: string) => void;
   setSearchQuery: (query: string) => void;
   setMaxMessages: (max: number) => void;
-  loadHistory: (profileId: string, limit?: number, offset?: number) => Promise<void>;
+  loadHistory: (profileId?: string, limit?: number, offset?: number) => Promise<void>;
   setError: (error: string | null) => void;
 
   // Selectors / Helpers
@@ -111,9 +122,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     try {
       const unlisten = await onZenohSample((sample: ZenohSample) => {
+        const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
         const item: MessageItem = {
           id: generateId(),
           sessionId: sample.session_id,
+          profileId,
           subId: sample.sub_id,
           direction: 'incoming',
           keyExpr: sample.key_expr,
@@ -123,7 +136,17 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           timestamp: sample.timestamp || Date.now(),
         };
 
+        useTrafficStore.getState().recordEvent({
+          sessionId: sample.session_id,
+          profileId,
+          direction: 'inbound',
+          opType: 'sub',
+          keyExpr: sample.key_expr,
+          bytes: sample.payload?.length || 0,
+        });
+
         set((state) => {
+
           // Increment subscription counters
           const updatedSubs = state.subscriptions.map((sub) => {
             if (
@@ -170,32 +193,53 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     profileId?: string
   ) => {
     set({ error: null });
+    const targetProfileId =
+      profileId || useConnectionStore.getState().sessionToProfile[sessionId] || '';
     const subId = generateId();
 
     try {
-      await subscribeKey(sessionId, subId, keyExpr);
+      if (sessionId) {
+        await subscribeKey(sessionId, subId, keyExpr);
+      }
 
       const colorIndex = get().subscriptions.length % COLOR_PALETTE.length;
       const tag = colorTag || COLOR_PALETTE[colorIndex];
 
       const newSub: SubscriptionItem = {
         id: subId,
-        sessionId,
-        profileId,
+        sessionId: sessionId || '',
+        profileId: targetProfileId,
         keyExpr,
         encoding,
         colorTag: tag,
         count: 0,
-        active: true,
+        active: Boolean(sessionId),
         createdAt: Date.now(),
       };
 
+      // Persist as subscription preset in SQLite
+      if (targetProfileId) {
+        const preset: SubscriptionPreset = {
+          id: subId,
+          profile_id: targetProfileId,
+          key_expr: keyExpr,
+          default_encoding: encoding,
+          auto_subscribe: true,
+          color_tag: tag,
+        };
+        try {
+          await saveSubscriptionPreset(preset);
+        } catch {
+          // Ignore if profile is unsaved
+        }
+      }
+
       set((state) => ({
-        subscriptions: [...state.subscriptions, newSub],
+        subscriptions: [...state.subscriptions.filter((s) => s.id !== subId), newSub],
       }));
 
-      // Ensure event listener is active
-      if (!get().isListening) {
+      // Ensure event listener is active if session is online
+      if (sessionId && !get().isListening) {
         await get().initListener();
       }
 
@@ -210,7 +254,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   unsubscribe: async (sessionId: string, subId: string) => {
     set({ error: null });
     try {
-      await unsubscribeKey(sessionId, subId);
+      if (sessionId) {
+        try {
+          await unsubscribeKey(sessionId, subId);
+        } catch {
+          // Ignore if session already closed
+        }
+      }
+
+      // Delete preset from SQLite database
+      try {
+        await deleteSubscriptionPreset(subId);
+      } catch {
+        // Ignore
+      }
+
       set((state) => ({
         subscriptions: state.subscriptions.filter((s) => s.id !== subId),
       }));
@@ -228,24 +286,128 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ error: null });
     try {
       if (sub.active) {
-        await unsubscribeKey(sessionId, subId);
+        const targetSessionId = sessionId || sub.sessionId;
+        if (targetSessionId) {
+          try {
+            await unsubscribeKey(targetSessionId, subId);
+          } catch {
+            // Ignore
+          }
+        }
         set((state) => ({
           subscriptions: state.subscriptions.map((s) =>
             s.id === subId ? { ...s, active: false } : s
           ),
         }));
+
+        if (sub.profileId) {
+          try {
+            await saveSubscriptionPreset({
+              id: sub.id,
+              profile_id: sub.profileId,
+              key_expr: sub.keyExpr,
+              default_encoding: sub.encoding,
+              auto_subscribe: false,
+              color_tag: sub.colorTag,
+            });
+          } catch {
+            // Ignore
+          }
+        }
       } else {
-        await subscribeKey(sessionId, subId, sub.keyExpr);
-        set((state) => ({
-          subscriptions: state.subscriptions.map((s) =>
-            s.id === subId ? { ...s, active: true } : s
-          ),
-        }));
+        const targetSessionId = sessionId || sub.sessionId;
+        if (targetSessionId) {
+          await subscribeKey(targetSessionId, subId, sub.keyExpr);
+          set((state) => ({
+            subscriptions: state.subscriptions.map((s) =>
+              s.id === subId ? { ...s, active: true, sessionId: targetSessionId } : s
+            ),
+          }));
+          if (!get().isListening) {
+            await get().initListener();
+          }
+        } else {
+          set((state) => ({
+            subscriptions: state.subscriptions.map((s) =>
+              s.id === subId ? { ...s, active: true } : s
+            ),
+          }));
+        }
+
+        if (sub.profileId) {
+          try {
+            await saveSubscriptionPreset({
+              id: sub.id,
+              profile_id: sub.profileId,
+              key_expr: sub.keyExpr,
+              default_encoding: sub.encoding,
+              auto_subscribe: true,
+              color_tag: sub.colorTag,
+            });
+          } catch {
+            // Ignore
+          }
+        }
       }
     } catch (err) {
       const msg = `Failed to toggle subscription '${subId}': ${err}`;
       set({ error: msg });
       throw new Error(msg);
+    }
+  },
+
+  loadSubscriptions: async (profileId: string, activeSessionId?: string) => {
+    if (!profileId) return;
+    try {
+      const presets = await loadSubscriptionPresets(profileId);
+      const currentSubs = get().subscriptions;
+
+      const loadedSubs: SubscriptionItem[] = [];
+
+      for (const preset of presets) {
+        const existing = currentSubs.find(
+          (s) => s.id === preset.id || s.keyExpr === preset.key_expr
+        );
+        let isActive = false;
+
+        if (activeSessionId && preset.auto_subscribe) {
+          try {
+            await subscribeKey(activeSessionId, preset.id, preset.key_expr);
+            isActive = true;
+          } catch {
+            isActive = false;
+          }
+        } else if (existing?.active && existing.sessionId === activeSessionId) {
+          isActive = true;
+        }
+
+        loadedSubs.push({
+          id: preset.id,
+          sessionId: activeSessionId || existing?.sessionId || '',
+          profileId: preset.profile_id,
+          keyExpr: preset.key_expr,
+          encoding: (preset.default_encoding as EncodingType) || 'json',
+          colorTag:
+            preset.color_tag ||
+            COLOR_PALETTE[loadedSubs.length % COLOR_PALETTE.length],
+          count: existing?.count || 0,
+          active: isActive,
+          createdAt: existing?.createdAt || Date.now(),
+        });
+      }
+
+      if (loadedSubs.some((s) => s.active) && !get().isListening) {
+        await get().initListener();
+      }
+
+      set((state) => {
+        const otherSubs = state.subscriptions.filter(
+          (s) => s.profileId && s.profileId !== profileId
+        );
+        return { subscriptions: [...otherSubs, ...loadedSubs] };
+      });
+    } catch (err) {
+      set({ error: `Failed to load subscription presets: ${err}` });
     }
   },
 
@@ -264,10 +426,23 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const normalizedPayload =
         payload instanceof Uint8Array ? Array.from(payload) : payload;
 
+      const targetProfileId =
+        profileId || useConnectionStore.getState().sessionToProfile[sessionId];
+
+      useTrafficStore.getState().recordEvent({
+        sessionId,
+        profileId: targetProfileId,
+        direction: 'outbound',
+        opType: 'pub',
+        keyExpr,
+        bytes: normalizedPayload.length,
+      });
+
       const item: MessageItem = {
+
         id: generateId(),
         sessionId,
-        profileId,
+        profileId: targetProfileId,
         direction: 'outgoing',
         keyExpr,
         payload: normalizedPayload,
@@ -294,19 +469,47 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     });
   },
 
-  clearMessages: (sessionId?: string) => {
+  clearMessages: async (sessionId?: string, profileId?: string) => {
     set((state) => {
-      if (sessionId) {
+      if (sessionId || profileId) {
         return {
-          messages: state.messages.filter((m) => m.sessionId !== sessionId),
+          messages: state.messages.filter((m) => {
+            if (sessionId && m.sessionId === sessionId) return false;
+            if (profileId && m.profileId === profileId) return false;
+            return true;
+          }),
           selectedMessage:
-            state.selectedMessage?.sessionId === sessionId
+            (sessionId && state.selectedMessage?.sessionId === sessionId) ||
+            (profileId && state.selectedMessage?.profileId === profileId)
               ? null
               : state.selectedMessage,
         };
       }
       return { messages: [], selectedMessage: null };
     });
+
+    try {
+      await clearMessageHistory(profileId);
+    } catch {
+      // Ignore
+    }
+  },
+
+  deleteMessage: async (messageId: number | string) => {
+    const idStr = String(messageId);
+    set((state) => ({
+      messages: state.messages.filter((m) => m.id !== idStr),
+      selectedMessage: state.selectedMessage?.id === idStr ? null : state.selectedMessage,
+    }));
+
+    const numId = Number(messageId);
+    if (!Number.isNaN(numId) && numId > 0) {
+      try {
+        await deleteMessageIpc(numId);
+      } catch {
+        // Ignore
+      }
+    }
   },
 
   selectMessage: (msg: MessageItem | null) => {
@@ -331,7 +534,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     });
   },
 
-  loadHistory: async (profileId: string, limit: number = 100, offset: number = 0) => {
+  loadHistory: async (profileId?: string, limit: number = 100, offset: number = 0) => {
     set({ error: null });
     try {
       const stored = await queryMessages(profileId, limit, offset);
@@ -349,13 +552,21 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       set((state) => {
         const combined = [...mapped, ...state.messages];
-        // Deduplicate by id if needed
+        // Deduplicate by id or unique timestamp + keyExpr + direction
         const seen = new Set<string>();
         const unique = combined.filter((item) => {
-          if (seen.has(item.id)) return false;
-          seen.add(item.id);
+          const key = item.id || `${item.timestamp}-${item.keyExpr}-${item.direction}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
           return true;
         });
+        // Sort chronologically ascending for the message feed
+        unique.sort((a, b) => a.timestamp - b.timestamp);
+
+        if (unique.length > state.maxMessages) {
+          unique.splice(0, unique.length - state.maxMessages);
+        }
+
         return { messages: unique };
       });
     } catch (err) {

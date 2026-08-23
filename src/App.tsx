@@ -13,20 +13,24 @@ import {
   AlertTriangle,
   X,
   Lock,
+  Activity,
 } from 'lucide-react';
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
 import { useQueryStore } from './stores/queryStore';
+import { useTrafficStore } from './stores/trafficStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
 import { checkForAppUpdates, downloadAndInstallUpdate } from './lib/updater';
 import { ConnectionProfile } from './types/zenoh';
 import { isTlsEnabled } from './lib/tls';
+import { formatThroughput } from './lib/trafficFormatters';
 import { APP_VERSION } from './lib/version';
 import { Sidebar } from './components/connections/Sidebar';
 import { ProfileModal } from './components/connections/ProfileModal';
 import { ScoutModal } from './components/connections/ScoutModal';
 import { PubSubWorkspace } from './components/pubsub/PubSubWorkspace';
 import { QueryWorkspace } from './components/query/QueryWorkspace';
+import { TrafficWorkspace } from './components/traffic/TrafficWorkspace';
 import { SettingsWorkspace } from './components/settings/SettingsWorkspace';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
@@ -35,7 +39,7 @@ import { useResizable } from './hooks/useResizable';
 import zenohxIcon from './assets/icon.png';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'pubsub' | 'query' | 'settings'>('pubsub');
+  const [activeTab, setActiveTab] = useState<'pubsub' | 'query' | 'traffic' | 'settings'>('pubsub');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
@@ -86,6 +90,11 @@ export function App() {
   const pendingInboundCount = selectedProfileId
     ? inboundQueries.filter((q) => !q.session_id || q.session_id === activeSessions[selectedProfileId]?.id).length
     : 0;
+
+  // Traffic store state for throughput badge
+  const currentInboundBps = useTrafficStore((s) => s.currentInboundBps);
+  const currentOutboundBps = useTrafficStore((s) => s.currentOutboundBps);
+  const currentThroughputBps = currentInboundBps + currentOutboundBps;
 
   // Global error message
   const activeError = connectionError || pubsubError || queryError;
@@ -148,6 +157,9 @@ export function App() {
           setActiveTab('query');
         } else if (e.key === '3') {
           e.preventDefault();
+          setActiveTab('traffic');
+        } else if (e.key === '4') {
+          e.preventDefault();
           setActiveTab('settings');
         } else if (e.key === 'b' || e.key === 'B') {
           e.preventDefault();
@@ -192,7 +204,7 @@ export function App() {
                 ? 'bg-muted text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            title="Settings & Preferences (Ctrl+3)"
+            title="Settings & Preferences (Ctrl+4)"
           >
             <Settings className="w-4 h-4" />
           </Button>
@@ -268,6 +280,26 @@ export function App() {
             {pendingInboundCount > 0 && (
               <span className="ml-1 inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground px-1.5 py-0 text-[10px] font-mono font-medium">
                 {pendingInboundCount}
+              </span>
+            )}
+          </button>
+
+          {/* Tab 3: Traffic Monitor */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('traffic')}
+            className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+              activeTab === 'traffic'
+                ? 'bg-background text-foreground shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            title="Traffic & Telemetry Monitor (Ctrl+3)"
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Traffic Monitor</span>
+            {currentThroughputBps > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0 text-[10px] font-mono font-medium">
+                {formatThroughput(currentThroughputBps)}
               </span>
             )}
           </button>
@@ -382,11 +414,13 @@ export function App() {
         <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
           {activeTab === 'settings' ? (
             <SettingsWorkspace className="h-full" />
+          ) : activeTab === 'traffic' ? (
+            <TrafficWorkspace className="h-full" />
           ) : activeTab === 'query' ? (
             <QueryWorkspace className="h-full" />
           ) : profiles.length === 0 ? (
             /* Empty State for Pub/Sub Onboarding */
-            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-md mx-auto space-y-4">
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-lg mx-auto space-y-4">
               <div className="p-3 rounded-2xl bg-card border shadow-sm">
                 <img
                   src={zenohxIcon}
@@ -400,7 +434,7 @@ export function App() {
                 </h2>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   Desktop GUI client for Eclipse Zenoh networks.
-                  Create a connection profile or scout your local network to start publishing, subscribing, and querying.
+                  Create a connection profile or scout your local network to start publishing, subscribing, querying, and monitoring traffic.
                 </p>
               </div>
 
@@ -429,7 +463,7 @@ export function App() {
               </div>
 
               {/* Feature Highlights Grid */}
-              <div className="grid grid-cols-2 gap-2.5 pt-4 w-full text-left">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-4 w-full text-left">
                 <div
                   className="p-3 rounded-md border bg-card space-y-1 cursor-pointer hover:border-foreground/40 transition-colors"
                   onClick={() => setActiveTab('pubsub')}
@@ -452,6 +486,18 @@ export function App() {
                   </div>
                   <p className="text-[11px] text-muted-foreground">
                     Distributed queries, queryables, and reply timelines.
+                  </p>
+                </div>
+                <div
+                  className="p-3 rounded-md border bg-card space-y-1 cursor-pointer hover:border-foreground/40 transition-colors"
+                  onClick={() => setActiveTab('traffic')}
+                >
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                    <Activity className="w-3.5 h-3.5 text-muted-foreground" />
+                    Traffic Monitor
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Live bandwidth chart, message rates, and per-key telemetry.
                   </p>
                 </div>
               </div>

@@ -13,6 +13,10 @@
 
 [**Download ZenohX**](https://github.com/khanhdew/ZenohX/releases/latest) • [**Features**](#features) • [**Installation**](#installation) • [**Building from Source**](#building-from-source)
 
+<br/>
+
+<img src="public/demo.png" alt="ZenohX Interface Demo" style="border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.12);" width="100%" />
+
 </div>
 
 ---

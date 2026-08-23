@@ -103,22 +103,26 @@ export function buildTopologyGraph({
       ? 'peer'
       : 'client';
 
-    // Check if this scouted node matches any connected profile
-    const matchedConnectedProfile = activeProfileList.find((prof) =>
-      prof.connect_locators.some((loc) =>
+    // Check if this scouted node matches any connected profile (by session ZID or locators)
+    const matchedConnectedProfile = activeProfileList.find((prof) => {
+      const sessionZid = activeSessions[prof.id]?.zid;
+      if (sessionZid && sessionZid === node.zid) return true;
+      return prof.connect_locators.some((loc) =>
         (node.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
-      )
-    );
+      );
+    });
 
     if (matchedConnectedProfile) {
       matchedProfileIds.add(matchedConnectedProfile.id);
     }
 
-    const matchedAnyProfile = profiles.find((prof) =>
-      prof.connect_locators.some((loc) =>
+    const matchedAnyProfile = profiles.find((prof) => {
+      const sessionZid = activeSessions[prof.id]?.zid;
+      if (sessionZid && sessionZid === node.zid) return true;
+      return prof.connect_locators.some((loc) =>
         (node.locators || []).some((scoutLoc) => isLocatorMatch(scoutLoc, loc))
-      )
-    );
+      );
+    });
 
     const isConnected = Boolean(matchedConnectedProfile);
     const shortZid =
@@ -168,7 +172,7 @@ export function buildTopologyGraph({
 
     const topologyNode: TopologyNode = {
       id: nodeId,
-      zid: `remote-${profile.id}`,
+      zid: activeSessions[profile.id]?.zid || `remote-${profile.id}`,
       label: profile.name,
       type,
       status: 'connected',
@@ -196,13 +200,16 @@ export function buildTopologyGraph({
       peersAndClients.forEach((peer) => {
         const edgeId = `${router.id}<->${peer.id}`;
         const primaryLoc = router.locators[0] || peer.locators[0] || '';
-        const protocol = extractLocatorProtocol(primaryLoc);
+        let protocol = extractLocatorProtocol(primaryLoc);
+        if (protocol === 'unknown') {
+          protocol = 'tcp';
+        }
         edges.push({
           id: edgeId,
           source: router.id,
           target: peer.id,
           protocol,
-          locator: primaryLoc,
+          locator: primaryLoc || 'tcp/auto',
           status: router.status === 'connected' || peer.status === 'connected' ? 'active' : 'scouted',
           isEncrypted: router.isTls || peer.isTls,
           animated: router.status === 'connected' || peer.status === 'connected',
@@ -216,13 +223,16 @@ export function buildTopologyGraph({
         const n1 = nodes[i];
         const n2 = nodes[j];
         const primaryLoc = n1.locators[0] || n2.locators[0] || '';
-        const protocol = extractLocatorProtocol(primaryLoc);
+        let protocol = extractLocatorProtocol(primaryLoc);
+        if (protocol === 'unknown') {
+          protocol = 'tcp';
+        }
         edges.push({
           id: `${n1.id}<->${n2.id}`,
           source: n1.id,
           target: n2.id,
           protocol,
-          locator: primaryLoc,
+          locator: primaryLoc || 'tcp/mesh',
           status: n1.status === 'connected' || n2.status === 'connected' ? 'active' : 'scouted',
           isEncrypted: n1.isTls || n2.isTls,
           animated: n1.status === 'connected' || n2.status === 'connected',

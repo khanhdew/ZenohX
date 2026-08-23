@@ -72,11 +72,13 @@ export async function trackEvent(
       return;
     }
 
+    const distinctId = getAnonymousDistinctId();
     const payload = {
       api_key: configuredApiKey,
       event: eventName,
-      distinct_id: getAnonymousDistinctId(),
+      distinct_id: distinctId,
       properties: {
+        distinct_id: distinctId,
         app_version: APP_VERSION,
         $os: typeof navigator !== 'undefined' ? navigator.platform : undefined,
         ...props,

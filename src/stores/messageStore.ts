@@ -25,6 +25,7 @@ import {
   unsubscribeKey,
 } from '../lib/tauri';
 import { normalizeEncoding } from '../lib/formatters';
+import { formatFriendlyError } from '../lib/errorUtils';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -255,9 +256,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       return subId;
     } catch (err) {
-      const msg = `Failed to subscribe to '${keyExpr}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Subscribe failed:', err);
+      const friendly = formatFriendlyError(err, 'Subscription Failed').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -283,9 +285,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         subscriptions: state.subscriptions.filter((s) => s.id !== subId),
       }));
     } catch (err) {
-      const msg = `Failed to unsubscribe '${subId}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Unsubscribe failed:', err);
+      const friendly = formatFriendlyError(err, 'Unsubscribe Failed').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -360,9 +363,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         }
       }
     } catch (err) {
-      const msg = `Failed to toggle subscription '${subId}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Toggle subscription failed:', err);
+      const friendly = formatFriendlyError(err, 'Toggle Subscription').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -442,9 +446,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         subscriptions: state.subscriptions.map((s) => (s.id === subId ? updatedSub : s)),
       }));
     } catch (err) {
-      const msg = `Failed to update subscription '${subId}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Update subscription failed:', err);
+      const friendly = formatFriendlyError(err, 'Update Subscription').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -499,7 +504,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         return { subscriptions: [...otherSubs, ...loadedSubs] };
       });
     } catch (err) {
-      set({ error: `Failed to load subscription presets: ${err}` });
+      console.error('Load subscriptions failed:', err);
+      const friendly = formatFriendlyError(err, 'Load Subscriptions').fullMessage;
+      set({ error: friendly });
     }
   },
 
@@ -531,7 +538,6 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       });
 
       const item: MessageItem = {
-
         id: generateId(),
         sessionId,
         profileId: targetProfileId,
@@ -545,9 +551,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
       get().addMessage(item);
     } catch (err) {
-      const msg = `Failed to publish sample to '${keyExpr}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Publish failed:', err);
+      const friendly = formatFriendlyError(err, 'Publish Failed').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -662,7 +669,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         return { messages: unique };
       });
     } catch (err) {
-      set({ error: `Failed to load message history: ${err}` });
+      console.error('Load history failed:', err);
+      const friendly = formatFriendlyError(err, 'Message History').fullMessage;
+      set({ error: friendly });
     }
   },
 

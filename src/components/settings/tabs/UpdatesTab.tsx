@@ -231,11 +231,9 @@ export const UpdatesTab: React.FC = () => {
           <div className="flex items-start gap-2.5 p-3 rounded-lg bg-destructive/10 text-destructive border border-destructive/20 text-xs">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
-              <span className="font-semibold block">Update check completed</span>
+              <span className="font-semibold block">Update Status</span>
               <span className="text-muted-foreground text-[11px] leading-relaxed block">
-                {updateError?.includes('Could not fetch') || updateError?.includes('endpoint')
-                  ? 'Release endpoint reached. No newer production build published yet.'
-                  : updateError}
+                {updateError || 'Unable to complete update check at this time.'}
               </span>
             </div>
           </div>

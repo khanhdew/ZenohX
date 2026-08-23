@@ -22,6 +22,7 @@ import {
   saveProfile as saveProfileIpc,
   scoutNodes,
 } from '../lib/tauri';
+import { formatFriendlyError } from '../lib/errorUtils';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 export interface ConnectionState {
@@ -97,7 +98,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         return { profiles, selectedProfileId: selectedId, isLoadingProfiles: false };
       });
     } catch (err) {
-      set({ error: String(err), isLoadingProfiles: false });
+      console.error('Load profiles failed:', err);
+      const friendly = formatFriendlyError(err, 'Load Profiles').fullMessage;
+      set({ error: friendly, isLoadingProfiles: false });
     }
   },
 
@@ -121,9 +124,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         };
       });
     } catch (err) {
-      const msg = `Failed to save profile: ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Save profile failed:', err);
+      const friendly = formatFriendlyError(err, 'Save Profile').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -179,12 +183,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         }
       }
 
-      const msg = `Failed to connect session: ${err instanceof Error ? err.message : String(err)}`;
+      const friendly = formatFriendlyError(err, 'Connection Failed').fullMessage;
+      console.error('Session connection failed:', err);
       set((state) => ({
         connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: false },
-        error: msg,
+        error: friendly,
       }));
-      throw new Error(msg);
+      throw new Error(friendly);
     }
   },
 
@@ -194,7 +199,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       await disconnectSession(sessionId);
       return { success: true, message: 'Successfully verified connection to Zenoh router!' };
     } catch (err) {
-      return { success: false, message: String(err) };
+      console.error('Test connection failed:', err);
+      const friendly = formatFriendlyError(err, 'Connection Test Failed').fullMessage;
+      return { success: false, message: friendly };
     }
   },
 
@@ -219,16 +226,17 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         };
       });
     } catch (err) {
-      const msg = `Failed to delete profile: ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Delete profile failed:', err);
+      const friendly = formatFriendlyError(err, 'Delete Profile').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
   connect: async (profileId: string) => {
     const profile = get().profiles.find((p) => p.id === profileId);
     if (!profile) {
-      const msg = `Profile with id '${profileId}' not found`;
+      const msg = `Profile with id '${profileId}' not found.`;
       set({ error: msg });
       throw new Error(msg);
     }
@@ -261,12 +269,13 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
       return sessionId;
     } catch (err) {
-      const msg = `Failed to connect session: ${err}`;
+      console.error('Connect failed:', err);
+      const friendly = formatFriendlyError(err, 'Connection Failed').fullMessage;
       set((state) => ({
         connectingProfileIds: { ...state.connectingProfileIds, [profileId]: false },
-        error: msg,
+        error: friendly,
       }));
-      throw new Error(msg);
+      throw new Error(friendly);
     }
   },
 
@@ -288,9 +297,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         };
       });
     } catch (err) {
-      const msg = `Failed to disconnect session: ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Disconnect failed:', err);
+      const friendly = formatFriendlyError(err, 'Disconnect Session').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -301,9 +311,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set({ scoutedNodes: nodes, isScouting: false });
       return nodes;
     } catch (err) {
-      const msg = `Failed to scout nodes: ${err}`;
-      set({ error: msg, isScouting: false });
-      throw new Error(msg);
+      console.error('Scout failed:', err);
+      const friendly = formatFriendlyError(err, 'Scout LAN').fullMessage;
+      set({ error: friendly, isScouting: false });
+      throw new Error(friendly);
     }
   },
 
@@ -327,7 +338,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         sessionToProfile: nextSessionToProfile,
       });
     } catch (err) {
-      set({ error: `Failed to refresh sessions: ${err}` });
+      console.error('Refresh sessions failed:', err);
+      const friendly = formatFriendlyError(err, 'Refresh Sessions').fullMessage;
+      set({ error: friendly });
     }
   },
 
@@ -358,7 +371,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           delete nextConnecting[profileId];
         }
 
-        const errorMsg = error || 'Connection to Zenoh router lost unexpectedly.';
+        const errorMsg = error
+          ? formatFriendlyError(error, 'Connection Lost').fullMessage
+          : 'Connection to Zenoh router lost unexpectedly. Please reconnect.';
         return {
           activeSessions: nextActive,
           sessionToProfile: nextSessionToProfile,

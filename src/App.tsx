@@ -41,6 +41,8 @@ import { ResizeHandle } from './components/ui/resize-handle';
 import { useResizable } from './hooks/useResizable';
 import zenohxIcon from './assets/icon.png';
 
+import { formatFriendlyError } from './lib/errorUtils';
+
 export function App() {
   const [activeTab, setActiveTab] = useState<'pubsub' | 'query' | 'traffic' | 'settings'>('pubsub');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -103,12 +105,22 @@ export function App() {
 
   // Global error message
   const activeError = connectionError || pubsubError || queryError;
+  const friendlyError = activeError ? formatFriendlyError(activeError) : null;
 
   const dismissActiveError = () => {
     if (connectionError) setConnectionError(null);
     if (pubsubError) setPubsubError(null);
     if (queryError) setQueryError(null);
   };
+
+  // Auto-dismiss active error after 7 seconds
+  useEffect(() => {
+    if (!activeError) return;
+    const timer = setTimeout(() => {
+      dismissActiveError();
+    }, 7000);
+    return () => clearTimeout(timer);
+  }, [activeError]);
 
   const theme = useSettingsStore((s) => s.theme);
   const autoCheckUpdates = useSettingsStore((s) => s.autoCheckUpdates);
@@ -522,23 +534,30 @@ export function App() {
       </div>
 
       {/* Global Error Notification Toast */}
-      {activeError && (
+      {friendlyError && (
         <aside
           role="alert"
           aria-live="assertive"
-          className="fixed bottom-4 right-4 max-w-md p-3.5 rounded-lg bg-destructive text-destructive-foreground shadow-lg border border-destructive-foreground/20 flex items-start gap-3 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
+          className="fixed bottom-4 right-4 max-w-md p-3.5 rounded-xl bg-card border border-destructive/30 shadow-xl flex items-start gap-3 z-50 animate-in fade-in slide-in-from-bottom-2 duration-200"
         >
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-destructive-foreground" />
-          <div className="flex-1 text-xs">
-            <p className="font-semibold">Operation Error</p>
-            <p className="mt-0.5 opacity-90 break-words leading-relaxed">
-              {activeError}
+          <div className="p-1.5 rounded-lg bg-destructive/10 text-destructive shrink-0">
+            <AlertTriangle className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0 space-y-0.5 text-xs">
+            <p className="font-semibold text-foreground">{friendlyError.title}</p>
+            <p className="text-muted-foreground leading-relaxed">
+              {friendlyError.message}
             </p>
+            {friendlyError.suggestion && (
+              <p className="text-[11px] text-muted-foreground/80 pt-0.5 leading-normal">
+                {friendlyError.suggestion}
+              </p>
+            )}
           </div>
           <button
             type="button"
             onClick={dismissActiveError}
-            className="p-1 rounded-sm text-destructive-foreground/80 hover:text-destructive-foreground hover:bg-destructive-foreground/10 transition-colors"
+            className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title="Dismiss error"
           >
             <X className="w-3.5 h-3.5" />

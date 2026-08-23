@@ -8,6 +8,7 @@ import {
 } from '../lib/updater';
 import { useSettingsStore } from './settingsStore';
 import { APP_VERSION } from '../lib/version';
+import { formatFriendlyError } from '../lib/errorUtils';
 
 export type UpdateStatus =
   | 'idle'
@@ -81,7 +82,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
       } else if (result.error) {
         set({
           status: 'error',
-          error: result.error,
+          error: formatFriendlyError(result.error, 'Update Check').fullMessage,
         });
       } else {
         set({
@@ -100,7 +101,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
     } catch (err) {
       set({
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatFriendlyError(err, 'Update Check').fullMessage,
       });
     }
   },
@@ -136,7 +137,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
       console.error('Download update failed:', err);
       set({
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatFriendlyError(err, 'Update Download').fullMessage,
       });
     }
   },
@@ -154,7 +155,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
       console.error('Install update failed:', err);
       set({
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatFriendlyError(err, 'Update Installation').fullMessage,
       });
     }
   },
@@ -185,7 +186,7 @@ export const useUpdateStore = create<UpdateState>()((set, get) => ({
       console.error('Download and install update failed:', err);
       set({
         status: 'error',
-        error: err instanceof Error ? err.message : String(err),
+        error: formatFriendlyError(err, 'Update Installation').fullMessage,
       });
     }
   },

@@ -328,7 +328,7 @@ describe('Connection Manager Integration & Helpers', () => {
       async () => {
         await useConnectionStore.getState().saveAndConnect(failingProfile);
       },
-      /failed to open zenoh session/
+      /Unable to connect to the Zenoh router/
     );
 
     // Verify profile was NOT saved into store

@@ -12,6 +12,7 @@ import {
   type CloudProtocol,
   type ConnectionPreset,
 } from '../../../lib/tls';
+import { formatFriendlyError } from '../../../lib/errorUtils';
 
 export interface UseProfileFormProps {
   isOpen: boolean;
@@ -310,11 +311,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       if (res.success) {
         setTestSuccessMessage(res.message);
       } else {
-        setValidationError(`Connection Test Failed: ${res.message}`);
+        const friendly = formatFriendlyError(res.message, 'Connection Test Failed').fullMessage;
+        setValidationError(friendly);
       }
     } catch (err) {
       setIsTesting(false);
-      setValidationError(`Connection Test Failed: ${err instanceof Error ? err.message : String(err)}`);
+      const friendly = formatFriendlyError(err, 'Connection Test Failed').fullMessage;
+      setValidationError(friendly);
     }
   };
 
@@ -409,7 +412,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       onClose();
     } catch (err) {
       setIsSaving(false);
-      setValidationError(err instanceof Error ? err.message : String(err));
+      const friendly = formatFriendlyError(err, 'Save Profile Failed').fullMessage;
+      setValidationError(friendly);
     }
   };
 

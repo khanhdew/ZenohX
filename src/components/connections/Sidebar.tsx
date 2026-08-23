@@ -25,6 +25,7 @@ import { useConnectionStore } from '../../stores/connectionStore';
 import { ConnectionProfile } from '../../types/zenoh';
 import { isTlsEnabled } from '../../lib/tls';
 import { openProfileInNewWindow } from '../../lib/tauri';
+import { formatFriendlyError } from '../../lib/errorUtils';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
 import { Button } from '../ui/button';
@@ -108,7 +109,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
     try {
       await openProfileInNewWindow(p);
     } catch (err) {
-      setError(String(err));
+      setError(formatFriendlyError(err, 'Open Window').fullMessage);
     }
   };
 
@@ -145,7 +146,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
       await saveProfile(duplicated);
       selectProfile(duplicated.id);
     } catch (err) {
-      setError(String(err));
+      setError(formatFriendlyError(err, 'Duplicate Profile').fullMessage);
     }
   };
 
@@ -160,7 +161,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
         await connect(profileId);
       }
     } catch (err) {
-      setError(String(err));
+      setError(formatFriendlyError(err, 'Connection Failed').fullMessage);
     }
   };
 
@@ -174,7 +175,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
       setDeleteConfirmProfile(null);
     } catch (err) {
       setIsDeleting(false);
-      setError(String(err));
+      setError(formatFriendlyError(err, 'Delete Profile').fullMessage);
     }
   };
 

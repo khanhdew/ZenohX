@@ -28,6 +28,7 @@ import {
   saveQueryablePreset as saveQueryablePresetIpc,
   undeclareQueryable as undeclareQueryableIpc,
 } from '../lib/tauri';
+import { formatFriendlyError } from '../lib/errorUtils';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -307,7 +308,8 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       return replies;
     } catch (err) {
       const durationMs = Date.now() - startedAt;
-      const errorMsg = String(err);
+      console.error('Query execution failed:', err);
+      const friendly = formatFriendlyError(err, 'Query Failed').fullMessage;
 
       // Save failed execution in SQLite
       saveQueryExecutionIpc({
@@ -319,20 +321,20 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         status: 'error',
         replies_json: '[]',
         duration_ms: durationMs,
-        error: errorMsg,
+        error: friendly,
         timestamp: startedAt,
       }).catch(() => {});
 
       set((state) => ({
         executions: state.executions.map((e) =>
           e.id === execId
-            ? { ...e, status: 'error', error: errorMsg, durationMs }
+            ? { ...e, status: 'error', error: friendly, durationMs }
             : e
         ),
-        error: errorMsg,
+        error: friendly,
       }));
 
-      throw new Error(errorMsg);
+      throw new Error(friendly);
     }
   },
 
@@ -391,9 +393,10 @@ export const useQueryStore = create<QueryState>((set, get) => ({
 
       return queryableId;
     } catch (err) {
-      const msg = `Failed to declare queryable on '${keyExpr}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Declare queryable failed:', err);
+      const friendly = formatFriendlyError(err, 'Queryable Declaration').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -418,9 +421,10 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         activeQueryables: state.activeQueryables.filter((q) => q.id !== queryableId),
       }));
     } catch (err) {
-      const msg = `Failed to undeclare queryable '${queryableId}': ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      console.error('Undeclare queryable failed:', err);
+      const friendly = formatFriendlyError(err, 'Undeclare Queryable').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -472,14 +476,15 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
       }));
     } catch (err) {
+      console.error('Reply query failed:', err);
       // Remove query from pending list on error as well (e.g., already replied or expired on backend)
       set((state) => ({
         inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
       }));
 
-      const msg = `Failed to reply to inbound query: ${err}`;
-      set({ error: msg });
-      throw new Error(msg);
+      const friendly = formatFriendlyError(err, 'Query Reply').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
     }
   },
 
@@ -488,7 +493,6 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
     }));
   },
-
 
   loadQueryHistory: async (profileId?: string, limit: number = 50, offset: number = 0) => {
     try {
@@ -527,7 +531,9 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         return { executions: unique };
       });
     } catch (err) {
-      set({ error: `Failed to load query history: ${err}` });
+      console.error('Load query history failed:', err);
+      const friendly = formatFriendlyError(err, 'Query History').fullMessage;
+      set({ error: friendly });
     }
   },
 
@@ -572,7 +578,9 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         return { activeQueryables: [...other, ...loaded] };
       });
     } catch (err) {
-      set({ error: `Failed to load queryable presets: ${err}` });
+      console.error('Load queryables failed:', err);
+      const friendly = formatFriendlyError(err, 'Load Queryables').fullMessage;
+      set({ error: friendly });
     }
   },
 

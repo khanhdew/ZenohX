@@ -111,14 +111,17 @@ export function renderTopologyCanvas(
   }
 
   // 2. Render Nodes
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const hasQuery = normalizedQuery.length > 0;
+
   for (const node of nodes) {
     const isSelected = node.id === selectedNodeId;
     const isHovered = node.id === hoveredNodeId;
     const matchesSearch =
-      searchQuery.trim().length > 0 &&
-      (node.zid.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        node.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        node.locators.some((l) => l.toLowerCase().includes(searchQuery.toLowerCase())));
+      hasQuery &&
+      (node.zid.toLowerCase().includes(normalizedQuery) ||
+        node.label.toLowerCase().includes(normalizedQuery) ||
+        node.locators.some((l) => l.toLowerCase().includes(normalizedQuery)));
 
     // Node Outer Glow / Selection Ring
     if (isSelected || matchesSearch) {

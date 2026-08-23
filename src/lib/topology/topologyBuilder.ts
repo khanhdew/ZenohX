@@ -125,6 +125,11 @@ export function buildTopologyGraph({
       matchedScoutZids.add(matchingScout.zid);
     }
 
+    // If not connected and not discovered on the network, do not display offline saved profile on the graph
+    if (!isConnected && !matchingScout) {
+      return;
+    }
+
     const type: TopologyNode['type'] = profile.mode === 'client' ? 'router' : 'peer';
     const locators = Array.from(
       new Set([
@@ -148,7 +153,7 @@ export function buildTopologyGraph({
       zid: matchingScout?.zid || sessionZid || persistentZid,
       label: profile.name,
       type,
-      status: isConnected ? 'connected' : matchingScout ? 'scouted' : 'disconnected',
+      status: isConnected ? 'connected' : 'scouted',
       locators,
       isTls,
       profileId: profile.id,

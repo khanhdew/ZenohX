@@ -5,7 +5,10 @@
  */
 
 import * as cbor from 'cbor-x';
+import type protobuf from 'protobufjs';
 import type { EncodingType } from '../types/zenoh';
+import { encodeProtobufPayload, decodeProtobufPayload } from './protobufEngine';
+import { useProtoStore } from '../stores/protoStore';
 
 // ============================================================================
 // Types & Interfaces
@@ -22,6 +25,14 @@ export interface EncodeResult {
   bytes: number[];
   isValid: boolean;
   error?: string;
+}
+
+export interface ProtoFormatOptions {
+  protoTypeName?: string;
+  keyExpr?: string;
+  protoId?: string;
+  root?: protobuf.Root;
+  indent?: number;
 }
 
 // ============================================================================
@@ -226,6 +237,59 @@ export function tryFormatCbor(
   }
 }
 
+/**
+ * Tries to decode a byte array as Protobuf and pretty-print it as JSON.
+ */
+export function tryFormatProtobuf(
+  input: Uint8Array | number[] | null | undefined,
+  options?: ProtoFormatOptions
+): ParseResult {
+  const bytes = bytesToUint8Array(input);
+  if (bytes.length === 0) {
+    return { success: true, formatted: '', data: null };
+  }
+
+  const indent = options?.indent !== undefined ? options.indent : 2;
+  let typeName = options?.protoTypeName;
+  let root = options?.root;
+
+  if (!typeName && options?.keyExpr) {
+    const mapping = useProtoStore.getState().findMappingForKey(options.keyExpr);
+    if (mapping) {
+      typeName = mapping.messageTypeName;
+      if (!root && mapping.protoId) {
+        root = useProtoStore.getState().getCompiledRoot(mapping.protoId) || undefined;
+      }
+    }
+  }
+
+  if (!root) {
+    root = options?.protoId
+      ? useProtoStore.getState().getCompiledRoot(options.protoId) || useProtoStore.getState().getGlobalRoot()
+      : useProtoStore.getState().getGlobalRoot();
+  }
+
+  if (!typeName) {
+    return {
+      success: false,
+      formatted: '',
+      error: 'No Protobuf message type specified or mapped for decoding',
+    };
+  }
+
+  try {
+    const data = decodeProtobufPayload(root, typeName, bytes);
+    const formatted = JSON.stringify(data, null, indent);
+    return { success: true, formatted, data };
+  } catch (err: any) {
+    return {
+      success: false,
+      formatted: '',
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 // ============================================================================
 // Payload Formatting & Decoding
 // ============================================================================
@@ -236,7 +300,8 @@ export function tryFormatCbor(
 export function formatPayload(
   payload: Uint8Array | number[] | null | undefined,
   encoding: EncodingType | string,
-  indent: number = 2
+  indent: number = 2,
+  options?: ProtoFormatOptions
 ): string {
   const bytes = bytesToUint8Array(payload);
   if (bytes.length === 0) {
@@ -252,6 +317,10 @@ export function formatPayload(
     }
     case 'cbor': {
       const res = tryFormatCbor(bytes, indent);
+      return res.success ? res.formatted : toHexDump(bytes);
+    }
+    case 'protobuf': {
+      const res = tryFormatProtobuf(bytes, { ...options, indent });
       return res.success ? res.formatted : toHexDump(bytes);
     }
     case 'text': {
@@ -274,11 +343,12 @@ export function formatPayload(
 
 /**
  * Encodes an input string into a byte array according to the specified encoding.
- * Validates JSON/CBOR syntax and parses raw hex representations.
+ * Validates JSON/CBOR/Protobuf syntax and parses raw hex representations.
  */
 export function encodePayload(
   input: string,
-  encoding: EncodingType | string
+  encoding: EncodingType | string,
+  options?: ProtoFormatOptions
 ): EncodeResult {
   const normalizedEncoding = (encoding || 'text').toLowerCase();
 
@@ -315,6 +385,55 @@ export function encodePayload(
         const cborBuf = cbor.encode(parse.data);
         return { bytes: Array.from(cborBuf), isValid: true };
       } catch (err) {
+        return {
+          bytes: [],
+          isValid: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }
+
+    case 'protobuf': {
+      const parse = tryParseJson(input);
+      if (!parse.success) {
+        return {
+          bytes: [],
+          isValid: false,
+          error: parse.error || 'Invalid JSON syntax for Protobuf encoding',
+        };
+      }
+
+      let typeName = options?.protoTypeName;
+      let root = options?.root;
+
+      if (!typeName && options?.keyExpr) {
+        const mapping = useProtoStore.getState().findMappingForKey(options.keyExpr);
+        if (mapping) {
+          typeName = mapping.messageTypeName;
+          if (!root && mapping.protoId) {
+            root = useProtoStore.getState().getCompiledRoot(mapping.protoId) || undefined;
+          }
+        }
+      }
+
+      if (!root) {
+        root = options?.protoId
+          ? useProtoStore.getState().getCompiledRoot(options.protoId) || useProtoStore.getState().getGlobalRoot()
+          : useProtoStore.getState().getGlobalRoot();
+      }
+
+      if (!typeName) {
+        return {
+          bytes: [],
+          isValid: false,
+          error: 'Protobuf message type or topic mapping required for encoding',
+        };
+      }
+
+      try {
+        const uint8Bytes = encodeProtobufPayload(root, typeName, parse.data);
+        return { bytes: Array.from(uint8Bytes), isValid: true };
+      } catch (err: any) {
         return {
           bytes: [],
           isValid: false,
@@ -361,7 +480,17 @@ export function encodePayload(
 /**
  * Heuristically detects the most appropriate encoding for a byte payload.
  */
-export function detectEncoding(payload: Uint8Array | number[] | null | undefined): EncodingType {
+export function detectEncoding(
+  payload: Uint8Array | number[] | null | undefined,
+  options?: { keyExpr?: string }
+): EncodingType {
+  if (options?.keyExpr) {
+    const mapping = useProtoStore.getState().findMappingForKey(options.keyExpr);
+    if (mapping) {
+      return 'protobuf';
+    }
+  }
+
   const bytes = bytesToUint8Array(payload);
   if (bytes.length === 0) {
     return 'text';
@@ -427,25 +556,42 @@ export function detectEncoding(payload: Uint8Array | number[] | null | undefined
  */
 export function normalizeEncoding(
   rawEncoding?: string | null,
-  payload?: Uint8Array | number[] | null
+  payload?: Uint8Array | number[] | null,
+  keyExpr?: string
 ): EncodingType {
   if (rawEncoding) {
     const lower = rawEncoding.toLowerCase().trim();
     if (lower === 'json' || lower === 'application/json') return 'json';
     if (lower === 'cbor' || lower === 'application/cbor') return 'cbor';
+    if (
+      lower === 'protobuf' ||
+      lower === 'proto' ||
+      lower === 'application/protobuf' ||
+      lower === 'application/x-protobuf'
+    ) {
+      return 'protobuf';
+    }
     if (lower === 'text' || lower === 'text/plain' || lower === 'string') return 'text';
     if (lower === 'hex') return 'raw';
     if (lower === 'raw' || lower === 'bytes' || lower === 'zenoh/bytes' || lower === 'application/octet-stream') {
+      if (keyExpr) {
+        const mapping = useProtoStore.getState().findMappingForKey(keyExpr);
+        if (mapping) return 'protobuf';
+      }
       if (payload) {
         const bytes = bytesToUint8Array(payload);
         if (bytes.length > 0) {
-          return detectEncoding(bytes);
+          return detectEncoding(bytes, { keyExpr });
         }
       }
       return 'raw';
     }
   }
-  return detectEncoding(payload);
+  if (keyExpr) {
+    const mapping = useProtoStore.getState().findMappingForKey(keyExpr);
+    if (mapping) return 'protobuf';
+  }
+  return detectEncoding(payload, { keyExpr });
 }
 
 // ============================================================================
@@ -485,7 +631,8 @@ export function formatFullDateTime(timestamp: number): string {
 export function getPayloadSnippet(
   payload: number[] | Uint8Array | null | undefined,
   encoding?: EncodingType | string,
-  maxLength: number = 120
+  maxLength: number = 120,
+  options?: ProtoFormatOptions
 ): string {
   if (!payload || (Array.isArray(payload) && payload.length === 0) || (payload instanceof Uint8Array && payload.length === 0)) {
     return '(empty payload)';
@@ -508,6 +655,18 @@ export function getPayloadSnippet(
 
   if (enc === 'cbor') {
     const res = tryFormatCbor(bytes, 0);
+    if (res.success && res.data !== undefined) {
+      try {
+        const compact = JSON.stringify(res.data);
+        return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
+      } catch {
+        return res.formatted.slice(0, maxLength);
+      }
+    }
+  }
+
+  if (enc === 'protobuf') {
+    const res = tryFormatProtobuf(bytes, { ...options, indent: 0 });
     if (res.success && res.data !== undefined) {
       try {
         const compact = JSON.stringify(res.data);

@@ -30,6 +30,7 @@ import {
   undeclareQueryable as undeclareQueryableIpc,
 } from '../lib/tauri';
 import { formatFriendlyError } from '../lib/errorUtils';
+import { encodePayload } from '../lib/formatters';
 import { executeInboundScript } from '../lib/scriptRunner';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
@@ -66,9 +67,10 @@ export interface QueryState {
     target?: QueryTarget | string,
     timeoutMs?: number,
     profileId?: string,
-    payload?: number[] | Uint8Array | null,
+    payload?: number[] | Uint8Array | string | null,
     encoding?: EncodingType | string | null,
-    consolidation?: QueryConsolidation | string | null
+    consolidation?: QueryConsolidation | string | null,
+    options?: { protoTypeName?: string }
   ) => Promise<ReplySample[]>;
 
 
@@ -110,8 +112,9 @@ export interface QueryState {
   replyInboundQuery: (
     token: string,
     keyExpr: string,
-    payload: number[] | Uint8Array,
-    encoding?: EncodingType | string
+    payload: number[] | Uint8Array | string,
+    encoding?: EncodingType | string,
+    options?: { protoTypeName?: string }
   ) => Promise<void>;
 
   dismissInboundQuery: (token: string) => void;
@@ -191,7 +194,12 @@ export const useQueryStore = create<QueryState>((set, get) => ({
                 matchingQueryable.replyPayload !== undefined
                   ? matchingQueryable.replyPayload
                   : '{"status":"ok"}';
-              bytes = encodeStringToBytes(replyText);
+              if (enc === 'protobuf') {
+                const encoded = encodePayload(replyText, 'protobuf', { keyExpr: replyKey });
+                bytes = encoded.isValid ? encoded.bytes : encodeStringToBytes(replyText);
+              } else {
+                bytes = encodeStringToBytes(replyText);
+              }
             }
 
             await replyQueryIpc(inbound.token, replyKey, bytes, enc);
@@ -246,20 +254,31 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     target: QueryTarget | string = 'all',
     timeoutMs: number = 2000,
     profileId?: string,
-    payload?: number[] | Uint8Array | null,
+    payload?: number[] | Uint8Array | string | null,
     encoding?: EncodingType | string | null,
-    consolidation?: QueryConsolidation | string | null
+    consolidation?: QueryConsolidation | string | null,
+    options?: { protoTypeName?: string }
   ) => {
     const execId = generateId();
     const startedAt = Date.now();
     const targetProfileId =
       profileId || useConnectionStore.getState().sessionToProfile[sessionId] || '';
 
-    const payloadBytes = payload
-      ? payload instanceof Uint8Array
-        ? Array.from(payload)
-        : payload
-      : undefined;
+    let payloadBytes: number[] | undefined = undefined;
+    if (payload != null) {
+      if (typeof payload === 'string') {
+        const encResult = encodePayload(payload, encoding || 'json', {
+          keyExpr: selector,
+          protoTypeName: options?.protoTypeName,
+        });
+        if (!encResult.isValid) {
+          throw new Error(encResult.error || `Failed to encode query payload as ${encoding}`);
+        }
+        payloadBytes = encResult.bytes;
+      } else {
+        payloadBytes = payload instanceof Uint8Array ? Array.from(payload) : payload;
+      }
+    }
 
     const execution: QueryExecution = {
       id: execId,
@@ -297,7 +316,7 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         selector,
         target,
         timeoutMs,
-        payload,
+        payloadBytes,
         encoding,
         consolidation
       );
@@ -551,14 +570,29 @@ export const useQueryStore = create<QueryState>((set, get) => ({
   replyInboundQuery: async (
     token: string,
     keyExpr: string,
-    payload: number[] | Uint8Array,
-    encoding: EncodingType | string = 'json'
+    payload: number[] | Uint8Array | string,
+    encoding: EncodingType | string = 'json',
+    options?: { protoTypeName?: string }
   ) => {
     set({ error: null });
     try {
-      await replyQueryIpc(token, keyExpr, payload, encoding);
+      let payloadBytes: number[] | Uint8Array;
+      if (typeof payload === 'string') {
+        const encResult = encodePayload(payload, encoding, {
+          keyExpr,
+          protoTypeName: options?.protoTypeName,
+        });
+        if (!encResult.isValid) {
+          throw new Error(encResult.error || `Failed to encode reply payload as ${encoding}`);
+        }
+        payloadBytes = encResult.bytes;
+      } else {
+        payloadBytes = payload;
+      }
+
+      await replyQueryIpc(token, keyExpr, payloadBytes, encoding);
       const payloadLength =
-        payload instanceof Uint8Array ? payload.length : (payload ? payload.length : 0);
+        payloadBytes instanceof Uint8Array ? payloadBytes.length : (payloadBytes ? payloadBytes.length : 0);
       useTrafficStore.getState().recordEvent({
         direction: 'outbound',
         opType: 'queryable_out',

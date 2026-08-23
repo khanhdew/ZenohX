@@ -24,7 +24,7 @@ import {
   subscribeKey,
   unsubscribeKey,
 } from '../lib/tauri';
-import { normalizeEncoding } from '../lib/formatters';
+import { normalizeEncoding, encodePayload } from '../lib/formatters';
 import { formatFriendlyError } from '../lib/errorUtils';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
@@ -94,10 +94,11 @@ export interface MessageState {
   publish: (
     sessionId: string,
     keyExpr: string,
-    payload: number[] | Uint8Array,
+    payload: number[] | Uint8Array | string,
     encoding?: EncodingType | string,
     kind?: PutKind | string,
-    profileId?: string
+    profileId?: string,
+    options?: { protoTypeName?: string }
   ) => Promise<void>;
 
   addMessage: (msg: MessageItem) => void;
@@ -142,7 +143,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           direction: 'incoming',
           keyExpr: sample.key_expr,
           payload: sample.payload,
-          encoding: normalizeEncoding(sample.encoding, sample.payload),
+          encoding: normalizeEncoding(sample.encoding, sample.payload, sample.key_expr),
           kind: (sample.kind as PutKind) || 'put',
           timestamp: sample.timestamp || Date.now(),
         };
@@ -513,17 +514,32 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   publish: async (
     sessionId: string,
     keyExpr: string,
-    payload: number[] | Uint8Array,
+    payload: number[] | Uint8Array | string,
     encoding: EncodingType | string = 'json',
     kind: PutKind | string = 'put',
-    profileId?: string
+    profileId?: string,
+    options?: { protoTypeName?: string }
   ) => {
     set({ error: null });
     try {
-      await publishSample(sessionId, keyExpr, payload, encoding, kind);
+      let bytesToSend: number[] | Uint8Array;
+      if (typeof payload === 'string') {
+        const encResult = encodePayload(payload, encoding, {
+          keyExpr,
+          protoTypeName: options?.protoTypeName,
+        });
+        if (!encResult.isValid) {
+          throw new Error(encResult.error || `Failed to encode payload as ${encoding}`);
+        }
+        bytesToSend = encResult.bytes;
+      } else {
+        bytesToSend = payload;
+      }
+
+      await publishSample(sessionId, keyExpr, bytesToSend, encoding, kind);
 
       const normalizedPayload =
-        payload instanceof Uint8Array ? Array.from(payload) : payload;
+        bytesToSend instanceof Uint8Array ? Array.from(bytesToSend) : bytesToSend;
 
       const targetProfileId =
         profileId || useConnectionStore.getState().sessionToProfile[sessionId];

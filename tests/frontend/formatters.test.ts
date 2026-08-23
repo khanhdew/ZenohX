@@ -19,9 +19,12 @@ import {
   updateRecentKeys,
   loadRecentKeys,
   saveRecentKeys,
+  tryFormatProtobuf,
+  getPayloadSnippet,
   MAX_RECENT_KEYS,
 } from '../../src/lib/formatters';
 import { formatJsCode } from '../../src/lib/codeFormatter';
+import { useProtoStore } from '../../src/stores/protoStore';
 import * as cbor from 'cbor-x';
 
 describe('formatByteSize', () => {
@@ -510,6 +513,191 @@ return { msg: msg };
     assert.ok(formatted.includes('  return { msg: msg };'));
   });
 });
+
+describe('Protobuf integration in formatters', () => {
+  const sensorProto = `
+    syntax = "proto3";
+    package iot.sensor;
+
+    message SensorData {
+      string sensor_id = 1;
+      double temperature = 2;
+      double humidity = 3;
+      bool active = 4;
+    }
+  `;
+
+  test('encodePayload encodes JSON string to Protobuf bytes with explicit protoTypeName', () => {
+    useProtoStore.getState().clearAll();
+    const res = useProtoStore.getState().addSchema('sensor.proto', sensorProto);
+    assert.equal(res.success, true);
+
+    const jsonStr = JSON.stringify({
+      sensor_id: 'temp-100',
+      temperature: 28.5,
+      humidity: 60.2,
+      active: true,
+    });
+
+    const encoded = encodePayload(jsonStr, 'protobuf', {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+
+    assert.equal(encoded.isValid, true);
+    assert.ok(encoded.bytes.length > 0);
+
+    // Format back using tryFormatProtobuf
+    const decoded = tryFormatProtobuf(encoded.bytes, {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.equal(decoded.success, true);
+    assert.equal((decoded.data as any).sensor_id, 'temp-100');
+    assert.equal((decoded.data as any).temperature, 28.5);
+  });
+
+  test('encodePayload auto-resolves protoTypeName from topic mapping via keyExpr', () => {
+    useProtoStore.getState().clearAll();
+    const schemaRes = useProtoStore.getState().addSchema('sensor.proto', sensorProto);
+    assert.equal(schemaRes.success, true);
+    useProtoStore.getState().addMapping('demo/iot/**', schemaRes.id!, 'iot.sensor.SensorData');
+
+    const jsonStr = JSON.stringify({
+      sensor_id: 'temp-200',
+      temperature: 19.8,
+      humidity: 55.0,
+      active: false,
+    });
+
+    const encoded = encodePayload(jsonStr, 'protobuf', {
+      keyExpr: 'demo/iot/sensors/1',
+    });
+
+    assert.equal(encoded.isValid, true);
+    assert.ok(encoded.bytes.length > 0);
+
+    // Decodes using formatPayload with keyExpr option
+    const formatted = formatPayload(encoded.bytes, 'protobuf', 2, {
+      keyExpr: 'demo/iot/sensors/1',
+    });
+    assert.ok(formatted.includes('"sensor_id": "temp-200"'));
+    assert.ok(formatted.includes('"temperature": 19.8'));
+  });
+
+  test('encodePayload returns error when invalid JSON or missing proto type', () => {
+    useProtoStore.getState().clearAll();
+    const schemaRes = useProtoStore.getState().addSchema('sensor.proto', sensorProto);
+    assert.equal(schemaRes.success, true);
+
+    // Invalid JSON
+    const invalidJsonRes = encodePayload('{invalid json', 'protobuf', {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.equal(invalidJsonRes.isValid, false);
+    assert.ok(invalidJsonRes.error);
+
+    // Missing protoTypeName and no mapping
+    const missingTypeRes = encodePayload('{"sensor_id":"test"}', 'protobuf', {
+      keyExpr: 'unmapped/key',
+    });
+    assert.equal(missingTypeRes.isValid, false);
+    assert.ok(missingTypeRes.error?.includes('message type'));
+
+    // Nonexistent type name
+    const nonexistentTypeRes = encodePayload('{"sensor_id":"test"}', 'protobuf', {
+      protoTypeName: 'iot.sensor.NonExistentType',
+    });
+    assert.equal(nonexistentTypeRes.isValid, false);
+    assert.ok(nonexistentTypeRes.error);
+  });
+
+  test('tryFormatProtobuf decodes valid binary payload and handles invalid bytes gracefully', () => {
+    useProtoStore.getState().clearAll();
+    const schemaRes = useProtoStore.getState().addSchema('sensor.proto', sensorProto);
+    assert.equal(schemaRes.success, true);
+
+    const jsonStr = JSON.stringify({
+      sensor_id: 'temp-300',
+      temperature: 31.2,
+      humidity: 45.0,
+      active: true,
+    });
+
+    const encoded = encodePayload(jsonStr, 'protobuf', {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.equal(encoded.isValid, true);
+
+    // Success case
+    const successRes = tryFormatProtobuf(encoded.bytes, {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.equal(successRes.success, true);
+    assert.equal((successRes.data as any).sensor_id, 'temp-300');
+
+    // Missing type error
+    const noTypeRes = tryFormatProtobuf(encoded.bytes);
+    assert.equal(noTypeRes.success, false);
+    assert.ok(noTypeRes.error);
+
+    // Corrupted bytes error
+    const corruptedRes = tryFormatProtobuf([0xff, 0xff, 0xff, 0xff], {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.equal(corruptedRes.success, false);
+    assert.ok(corruptedRes.error);
+  });
+
+  test('formatPayload with protobuf encoding falls back to hex dump when decoding fails', () => {
+    useProtoStore.getState().clearAll();
+    const corruptedBytes = [0xde, 0xad, 0xbe, 0xef];
+    const formatted = formatPayload(corruptedBytes, 'protobuf', 2, {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.ok(formatted.includes('de ad be ef'));
+  });
+
+  test('detectEncoding and normalizeEncoding support protobuf', () => {
+    useProtoStore.getState().clearAll();
+    const schemaRes = useProtoStore.getState().addSchema('sensor.proto', sensorProto);
+    assert.equal(schemaRes.success, true);
+    useProtoStore.getState().addMapping('telemetry/**', schemaRes.id!, 'iot.sensor.SensorData');
+
+    assert.equal(normalizeEncoding('protobuf'), 'protobuf');
+    assert.equal(normalizeEncoding('application/protobuf'), 'protobuf');
+    assert.equal(normalizeEncoding('proto'), 'protobuf');
+    assert.equal(normalizeEncoding('application/x-protobuf'), 'protobuf');
+
+    // Auto-detects protobuf if mapped keyExpr is provided
+    assert.equal(normalizeEncoding('zenoh/bytes', [0x01, 0x02], 'telemetry/sensors/1'), 'protobuf');
+    assert.equal(normalizeEncoding(undefined, [0x01, 0x02], 'telemetry/sensors/1'), 'protobuf');
+    assert.equal(detectEncoding([0x01, 0x02], { keyExpr: 'telemetry/sensors/1' }), 'protobuf');
+  });
+
+  test('getPayloadSnippet creates compact preview for protobuf payloads', () => {
+    useProtoStore.getState().clearAll();
+    const schemaRes = useProtoStore.getState().addSchema('sensor.proto', sensorProto);
+    assert.equal(schemaRes.success, true);
+
+    const jsonStr = JSON.stringify({
+      sensor_id: 'temp-400',
+      temperature: 22.0,
+      humidity: 50.0,
+      active: true,
+    });
+
+    const encoded = encodePayload(jsonStr, 'protobuf', {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.equal(encoded.isValid, true);
+
+    const snippet = getPayloadSnippet(encoded.bytes, 'protobuf', 120, {
+      protoTypeName: 'iot.sensor.SensorData',
+    });
+    assert.ok(snippet.includes('temp-400'));
+    assert.ok(snippet.includes('22'));
+  });
+});
+
 
 
 

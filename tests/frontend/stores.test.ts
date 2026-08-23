@@ -23,6 +23,8 @@ import { useConnectionStore } from '../../src/stores/connectionStore';
 import { useMessageStore } from '../../src/stores/messageStore';
 import { useQueryStore } from '../../src/stores/queryStore';
 import { useTrafficStore } from '../../src/stores/trafficStore';
+import { useProtoStore } from '../../src/stores/protoStore';
+import { decodeProtobufPayload } from '../../src/lib/protobufEngine';
 import type { ConnectionProfile, ReplySample, SessionInfo, ScoutedNode } from '../../src/types/zenoh';
 
 describe('Connection Store', () => {
@@ -448,6 +450,49 @@ describe('Message Store', () => {
     assert.equal(trafficState.keyStats['sensor/temp'].outboundMsgs, 1);
   });
 
+  test('publish encodes string payload with protobuf encoding', async () => {
+    useProtoStore.getState().clearAll();
+    const protoSchema = `
+      syntax = "proto3";
+      package iot.motor;
+      message Command {
+        string cmd = 1;
+        int32 speed = 2;
+      }
+    `;
+    useProtoStore.getState().addSchema('motor.proto', protoSchema);
+
+    let sentPayload: number[] = [];
+    let sentEncoding: string = '';
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'publish_sample') {
+        sentPayload = args?.payload as number[];
+        sentEncoding = args?.encoding as string;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    const jsonPayload = JSON.stringify({ cmd: 'start', speed: 1500 });
+    await useMessageStore.getState().publish(
+      'sess-1',
+      'robot/motor/cmd',
+      jsonPayload,
+      'protobuf',
+      'put',
+      undefined,
+      { protoTypeName: 'iot.motor.Command' }
+    );
+
+    assert.equal(sentEncoding, 'protobuf');
+    assert.ok(sentPayload.length > 0);
+
+    const root = useProtoStore.getState().getGlobalRoot();
+    const decoded = decodeProtobufPayload(root, 'iot.motor.Command', sentPayload);
+    assert.equal(decoded.cmd, 'start');
+    assert.equal(decoded.speed, 1500);
+  });
+
 
   test('ring buffer respects max capacity', () => {
     useMessageStore.getState().setMaxMessages(5);
@@ -668,6 +713,52 @@ describe('Query Store', () => {
     assert.equal(useQueryStore.getState().getActiveExecution()?.id, execs[0].id);
   });
 
+  test('runQuery encodes string payload with protobuf encoding', async () => {
+    useProtoStore.getState().clearAll();
+    const protoSchema = `
+      syntax = "proto3";
+      package iot.rpc;
+      message Request {
+        string query = 1;
+        int32 limit = 2;
+      }
+    `;
+    useProtoStore.getState().addSchema('rpc.proto', protoSchema);
+
+    let sentPayload: number[] | undefined = undefined;
+    let sentEncoding: string | undefined = undefined;
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'query_get') {
+        sentPayload = args?.payload as number[];
+        sentEncoding = args?.encoding as string;
+        return [];
+      }
+      return undefined;
+    };
+
+    const jsonPayload = JSON.stringify({ query: 'status', limit: 10 });
+    await useQueryStore.getState().runQuery(
+      'sess-1',
+      'rpc/status',
+      'all',
+      2000,
+      undefined,
+      jsonPayload,
+      'protobuf',
+      'auto',
+      { protoTypeName: 'iot.rpc.Request' }
+    );
+
+    assert.equal(sentEncoding, 'protobuf');
+    assert.ok(sentPayload);
+    assert.ok(sentPayload.length > 0);
+
+    const root = useProtoStore.getState().getGlobalRoot();
+    const decoded = decodeProtobufPayload(root, 'iot.rpc.Request', sentPayload);
+    assert.equal(decoded.query, 'status');
+    assert.equal(decoded.limit, 10);
+  });
+
   test('declareQueryable and undeclareQueryable lifecycle', async () => {
     mockInvokeHandler = async (cmd) => {
       if (cmd === 'declare_queryable') return undefined;
@@ -715,6 +806,62 @@ describe('Query Store', () => {
 
     assert.equal(repliedToken, 'token-abc');
     assert.equal(useQueryStore.getState().inboundQueries.length, 0);
+  });
+
+  test('replyInboundQuery encodes string payload with protobuf encoding', async () => {
+    useProtoStore.getState().clearAll();
+    const protoSchema = `
+      syntax = "proto3";
+      package iot.rpc;
+      message Response {
+        string status = 1;
+        int32 code = 2;
+      }
+    `;
+    useProtoStore.getState().addSchema('rpc_res.proto', protoSchema);
+
+    let repliedPayload: number[] = [];
+    let repliedEncoding: string = '';
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'reply_query') {
+        repliedPayload = args?.payload as number[];
+        repliedEncoding = args?.encoding as string;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    useQueryStore.setState({
+      inboundQueries: [
+        {
+          token: 'token-proto-1',
+          session_id: 's1',
+          queryable_id: 'q1',
+          key_expr: 'rpc/status',
+          parameters: '',
+          payload: null,
+          encoding: null,
+          timestamp: 1000,
+        },
+      ],
+    });
+
+    const jsonReply = JSON.stringify({ status: 'healthy', code: 200 });
+    await useQueryStore.getState().replyInboundQuery(
+      'token-proto-1',
+      'rpc/status',
+      jsonReply,
+      'protobuf',
+      { protoTypeName: 'iot.rpc.Response' }
+    );
+
+    assert.equal(repliedEncoding, 'protobuf');
+    assert.ok(repliedPayload.length > 0);
+
+    const root = useProtoStore.getState().getGlobalRoot();
+    const decoded = decodeProtobufPayload(root, 'iot.rpc.Response', repliedPayload);
+    assert.equal(decoded.status, 'healthy');
+    assert.equal(decoded.code, 200);
   });
 
   test('replyInboundQuery removes expired or already answered query from queue on error', async () => {

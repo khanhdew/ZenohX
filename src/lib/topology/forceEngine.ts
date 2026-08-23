@@ -152,22 +152,27 @@ export function stepPhysicsSimulation(
 }
 
 export function applyRadialLayout(nodes: TopologyNode[]): void {
-  const centerNode = nodes.find((n) => n.type === 'local') || nodes[0];
-  if (!centerNode) return;
+  if (nodes.length === 0) return;
 
-  centerNode.x = 0;
-  centerNode.y = 0;
-  centerNode.vx = 0;
-  centerNode.vy = 0;
+  const localNode = nodes.find((n) => n.type === 'local');
+  if (localNode) {
+    localNode.x = 0;
+    localNode.y = 0;
+    localNode.vx = 0;
+    localNode.vy = 0;
+  }
 
-  const others = nodes.filter((n) => n.id !== centerNode.id);
-  const routers = others.filter((n) => n.type === 'router');
-  const peers = others.filter((n) => n.type === 'peer');
-  const clients = others.filter((n) => n.type === 'client');
+  const ringNodes = localNode ? nodes.filter((n) => n.id !== localNode.id) : nodes;
+  const routers = ringNodes.filter((n) => n.type === 'router');
+  const peers = ringNodes.filter((n) => n.type === 'peer');
+  const clients = ringNodes.filter((n) => n.type === 'client');
+  const others = ringNodes.filter(
+    (n) => n.type !== 'router' && n.type !== 'peer' && n.type !== 'client'
+  );
 
-  const placeRing = (ringNodes: TopologyNode[], radius: number) => {
-    ringNodes.forEach((node, idx) => {
-      const angle = (idx / Math.max(1, ringNodes.length)) * 2 * Math.PI;
+  const placeRing = (group: TopologyNode[], radius: number) => {
+    group.forEach((node, idx) => {
+      const angle = (idx / Math.max(1, group.length)) * 2 * Math.PI;
       node.x = Math.cos(angle) * radius;
       node.y = Math.sin(angle) * radius;
       node.vx = 0;
@@ -178,4 +183,5 @@ export function applyRadialLayout(nodes: TopologyNode[]): void {
   placeRing(routers, 170);
   placeRing(peers, 260);
   placeRing(clients, 330);
+  placeRing(others, 200);
 }

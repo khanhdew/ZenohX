@@ -236,4 +236,16 @@ describe('Topology Data Builder', () => {
     assert.equal(meshEdge?.status, 'active');
     assert.equal(meshEdge?.animated, true);
   });
+
+  it('returns empty graph when disconnected with no scouted nodes', () => {
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {},
+      profiles: [],
+      existingNodes: [],
+    });
+
+    assert.equal(nodes.length, 0);
+    assert.equal(edges.length, 0);
+  });
 });

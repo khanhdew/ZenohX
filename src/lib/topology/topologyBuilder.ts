@@ -54,33 +54,31 @@ export function buildTopologyGraph({
   const activeProfile = activeProfileList[0];
   const localMode: 'client' | 'peer' = (activeProfile?.mode as 'client' | 'peer') || 'client';
 
-  // 1. Local ZenohX Node
+  // 1. Local ZenohX Node (only present when a session is actively connected)
   const localId = 'local-zenohx';
-  const existingLocal = existingMap.get(localId);
-  const activeSessionEntry = Object.values(activeSessions)[0];
+  if (isAnySessionActive) {
+    const existingLocal = existingMap.get(localId);
+    const activeSessionEntry = Object.values(activeSessions)[0];
 
-  const localNode: TopologyNode = {
-    id: localId,
-    zid: activeSessionEntry?.zid || 'local',
-    label: isAnySessionActive
-      ? localMode === 'peer'
-        ? 'ZenohX (Peer Mesh)'
-        : 'ZenohX (Client)'
-      : 'ZenohX (Disconnected)',
-    type: 'local',
-    status: isAnySessionActive ? 'connected' : 'disconnected',
-    locators: [],
-    isTls: false,
-    mode: localMode,
-    x: existingLocal ? existingLocal.x : 0,
-    y: existingLocal ? existingLocal.y : 0,
-    vx: existingLocal ? existingLocal.vx : 0,
-    vy: existingLocal ? existingLocal.vy : 0,
-    fx: existingLocal?.fx ?? null,
-    fy: existingLocal?.fy ?? null,
-    radius: 32,
-  };
-  nodes.push(localNode);
+    const localNode: TopologyNode = {
+      id: localId,
+      zid: activeSessionEntry?.zid || 'local',
+      label: localMode === 'peer' ? 'ZenohX (Peer Mesh)' : 'ZenohX (Client)',
+      type: 'local',
+      status: 'connected',
+      locators: [],
+      isTls: false,
+      mode: localMode,
+      x: existingLocal ? existingLocal.x : 0,
+      y: existingLocal ? existingLocal.y : 0,
+      vx: existingLocal ? existingLocal.vx : 0,
+      vy: existingLocal ? existingLocal.vy : 0,
+      fx: existingLocal?.fx ?? null,
+      fy: existingLocal?.fy ?? null,
+      radius: 32,
+    };
+    nodes.push(localNode);
+  }
 
   const matchedProfileIds = new Set<string>();
 

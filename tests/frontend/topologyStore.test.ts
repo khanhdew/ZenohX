@@ -45,7 +45,7 @@ describe('Topology Store', () => {
     });
 
     const state = useTopologyStore.getState();
-    assert.equal(state.nodes.length, 2); // local + 1 scouted
+    assert.equal(state.nodes.length, 1); // 1 scouted node (local node only added when active session exists)
     assert.ok(state.nodes.some((n) => n.zid === 'aaaa1111'));
   });
 

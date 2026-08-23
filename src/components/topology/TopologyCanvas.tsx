@@ -8,6 +8,7 @@ import {
 } from '../../lib/topology/forceEngine';
 import { renderTopologyCanvas } from '../../lib/topology/canvasRenderer';
 import { TopologyControls } from './TopologyControls';
+import { Radar } from 'lucide-react';
 import type { TopologyNode } from '../../types/topology';
 
 interface TopologyCanvasProps {
@@ -272,6 +273,17 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
       />
+      {nodes.length === 0 && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none p-6 text-center z-10">
+          <div className="p-3 rounded-full bg-muted/60 text-muted-foreground mb-3">
+            <Radar className="w-8 h-8 opacity-50" />
+          </div>
+          <h3 className="text-sm font-semibold text-foreground mb-1">No Active Nodes or Connections</h3>
+          <p className="text-xs text-muted-foreground max-w-sm">
+            Click <strong>Scout LAN</strong> in the toolbar to discover Zenoh routers and peers, or connect to a profile to view the network topology.
+          </p>
+        </div>
+      )}
       <TopologyControls onFitToScreen={handleFitToScreen} />
     </div>
   );

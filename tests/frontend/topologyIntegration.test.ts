@@ -49,7 +49,7 @@ describe('Topology Integration & Navigation', () => {
     });
 
     const nodes = useTopologyStore.getState().nodes;
-    assert.equal(nodes.length, 2);
+    assert.equal(nodes.length, 1);
     assert.ok(nodes.some((n) => n.zid === 'router-integration-1'));
   });
 

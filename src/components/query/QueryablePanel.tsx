@@ -12,6 +12,10 @@ import {
   ToggleRight,
   X,
   Loader2,
+  Code2,
+  FileText,
+  Play,
+  CheckCircle2,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -26,7 +30,18 @@ import { PayloadEditor } from '../viewer/PayloadEditor';
 import { PayloadViewer } from '../viewer/PayloadViewer';
 import { useQueryStore } from '../../stores/queryStore';
 import { formatTimeWithMs, formatByteSize, encodePayload } from '../../lib/formatters';
-import type { EncodingType, InboundQuery, ActiveQueryable } from '../../types/zenoh';
+import {
+  SCRIPT_TEMPLATES,
+  executeInboundScript,
+  type ScriptExecutionResult,
+} from '../../lib/scriptRunner';
+import type {
+  EncodingType,
+  InboundQuery,
+  ActiveQueryable,
+  QueryableReplyMode,
+} from '../../types/zenoh';
+
 
 export interface QueryablePanelProps {
   sessionId?: string;
@@ -102,10 +117,18 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
   // Form State: Declare Queryable
   const [keyExpr, setKeyExpr] = useState<string>('rpc/calculator/**');
   const [autoReply, setAutoReply] = useState<boolean>(true);
+  const [replyMode, setReplyMode] = useState<QueryableReplyMode>('payload');
   const [replyEncoding, setReplyEncoding] = useState<EncodingType>('json');
   const [replyPayload, setReplyPayload] = useState<string>(
     MOCK_RESPONSE_TEMPLATES[0].content
   );
+  const [scriptCode, setScriptCode] = useState<string>(SCRIPT_TEMPLATES[0].code);
+
+  // Interactive Script Sandbox Test State
+  const [testParams, setTestParams] = useState<string>(SCRIPT_TEMPLATES[0].sampleQuery);
+  const [testResult, setTestResult] = useState<ScriptExecutionResult | null>(null);
+  const [isTestingScript, setIsTestingScript] = useState<boolean>(false);
+
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -140,6 +163,25 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
     });
   }, [inboundQueries, sessionId]);
 
+  // Test Run Script Handler
+  const handleTestScript = async () => {
+    setIsTestingScript(true);
+    try {
+      const res = await executeInboundScript(
+        scriptCode,
+        {
+          key_expr: keyExpr || 'rpc/calculator',
+          parameters: testParams,
+          session_id: sessionId,
+        },
+        replyEncoding
+      );
+      setTestResult(res);
+    } finally {
+      setIsTestingScript(false);
+    }
+  };
+
   // Declare Queryable Handler
   const handleDeclare = async () => {
     const cleanKey = keyExpr.trim();
@@ -156,9 +198,11 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
         sessionId || '',
         cleanKey,
         autoReply,
-        replyPayload,
+        replyMode === 'payload' ? replyPayload : undefined,
         replyEncoding,
-        profileId
+        profileId,
+        replyMode,
+        replyMode === 'script' ? scriptCode : undefined
       );
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
@@ -362,47 +406,185 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
               </button>
             </div>
 
-            {/* Mock Response Payload Editor */}
+            {/* Auto-Reply Configuration Section */}
             {autoReply && (
-              <div className="space-y-1.5 pt-1">
+              <div className="space-y-2 pt-1 border-t">
+                {/* Mode Selector: Static Payload vs JavaScript Script */}
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-medium text-muted-foreground">
-                    Mock Response Payload
+                    Response Mode
                   </label>
-                  {/* Template selector */}
-                  <Select
-                    onValueChange={(val) => {
-                      const tmpl = MOCK_RESPONSE_TEMPLATES.find((t) => t.name === val);
-                      if (tmpl) {
-                        setReplyPayload(tmpl.content);
-                        setReplyEncoding(tmpl.encoding);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-6 text-[10px] px-2 gap-1 bg-background border-muted w-32">
-                      <Sparkles className="w-3 h-3 mr-1 text-muted-foreground" />
-                      <span>Mock Presets</span>
-                    </SelectTrigger>
-                    <SelectContent align="end">
-                      {MOCK_RESPONSE_TEMPLATES.map((tmpl) => (
-                        <SelectItem key={tmpl.name} value={tmpl.name} className="text-xs">
-                          <div>
-                            <span className="font-medium text-foreground block">{tmpl.name}</span>
-                            <span className="text-[10px] text-muted-foreground">{tmpl.description}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center rounded-md border bg-muted p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setReplyMode('payload')}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        replyMode === 'payload'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <FileText className="w-3 h-3" />
+                      <span>Static Payload</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReplyMode('script')}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        replyMode === 'script'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Code2 className="w-3 h-3 text-blue-500" />
+                      <span>JavaScript Script</span>
+                    </button>
+                  </div>
                 </div>
 
-                <PayloadEditor
-                  value={replyPayload}
-                  onChange={setReplyPayload}
-                  encoding={replyEncoding}
-                  onEncodingChange={setReplyEncoding}
-                  rows={4}
-                />
+                {replyMode === 'payload' ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">Mock Response Payload</span>
+                      {/* Template selector */}
+                      <Select
+                        onValueChange={(val) => {
+                          const tmpl = MOCK_RESPONSE_TEMPLATES.find((t) => t.name === val);
+                          if (tmpl) {
+                            setReplyPayload(tmpl.content);
+                            setReplyEncoding(tmpl.encoding);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-6 text-[10px] px-2 gap-1 bg-background border-muted w-32">
+                          <Sparkles className="w-3 h-3 mr-1 text-muted-foreground" />
+                          <span>Mock Presets</span>
+                        </SelectTrigger>
+                        <SelectContent align="end">
+                          {MOCK_RESPONSE_TEMPLATES.map((tmpl) => (
+                            <SelectItem key={tmpl.name} value={tmpl.name} className="text-xs">
+                              <div>
+                                <span className="font-medium text-foreground block">{tmpl.name}</span>
+                                <span className="text-[10px] text-muted-foreground">{tmpl.description}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <PayloadEditor
+                      value={replyPayload}
+                      onChange={setReplyPayload}
+                      encoding={replyEncoding}
+                      onEncodingChange={setReplyEncoding}
+                      rows={4}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">
+                        Script Function Body <span className="font-mono text-[10px] text-foreground">(query.params, query.keyExpr)</span>
+                      </span>
+                      {/* Script Templates Selector */}
+                      <Select
+                        onValueChange={(val) => {
+                          const tmpl = SCRIPT_TEMPLATES.find((t) => t.name === val);
+                          if (tmpl) {
+                            setScriptCode(tmpl.code);
+                            setTestParams(tmpl.sampleQuery);
+                            setTestResult(null);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-6 text-[10px] px-2 gap-1 bg-background border-muted w-36">
+                          <Code2 className="w-3 h-3 mr-1 text-blue-500" />
+                          <span>Script Templates</span>
+                        </SelectTrigger>
+                        <SelectContent align="end">
+                          {SCRIPT_TEMPLATES.map((tmpl) => (
+                            <SelectItem key={tmpl.name} value={tmpl.name} className="text-xs">
+                              <div>
+                                <span className="font-medium text-foreground block">{tmpl.name}</span>
+                                <span className="text-[10px] text-muted-foreground">{tmpl.description}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Script Code Editor */}
+                    <div className="relative rounded-md border bg-muted/20 focus-within:ring-1 focus-within:ring-ring">
+                      <textarea
+                        value={scriptCode}
+                        onChange={(e) => setScriptCode(e.target.value)}
+                        placeholder="// Write JavaScript code. Return an object, string, or primitive."
+                        rows={7}
+                        className="w-full bg-transparent p-2.5 font-mono text-xs text-foreground focus:outline-none resize-y min-h-[130px]"
+                        spellCheck={false}
+                      />
+                    </div>
+
+                    {/* Live Interactive Script Test Sandbox */}
+                    <div className="rounded-md border bg-muted/15 p-2 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-medium text-muted-foreground flex items-center gap-1">
+                          <Play className="w-3 h-3 text-emerald-500" />
+                          <span>Test Inbound Parameters</span>
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleTestScript}
+                          disabled={isTestingScript}
+                          className="h-5 text-[10px] px-2 gap-1"
+                        >
+                          {isTestingScript ? (
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          ) : (
+                            <Play className="w-2.5 h-2.5 text-emerald-500" />
+                          )}
+                          <span>Run Test</span>
+                        </Button>
+                      </div>
+                      <Input
+                        value={testParams}
+                        onChange={(e) => setTestParams(e.target.value)}
+                        placeholder="e.g. op=add&a=15&b=27"
+                        className="h-6 font-mono text-[11px] bg-background"
+                      />
+                      {testResult && (
+                        <div className="mt-1 rounded bg-background p-2 border text-xs font-mono">
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground pb-1 mb-1 border-b">
+                            <span
+                              className={
+                                testResult.success
+                                  ? 'text-emerald-500 font-semibold flex items-center gap-1'
+                                  : 'text-destructive font-semibold flex items-center gap-1'
+                              }
+                            >
+                              {testResult.success ? (
+                                <CheckCircle2 className="w-3 h-3" />
+                              ) : (
+                                <AlertCircle className="w-3 h-3" />
+                              )}
+                              {testResult.success ? 'Computed Output' : 'Execution Error'}
+                            </span>
+                            <span>{testResult.executionTimeMs}ms</span>
+                          </div>
+                          <pre className="text-[11px] overflow-x-auto text-foreground whitespace-pre-wrap max-h-32">
+                            {typeof testResult.resultValue === 'object'
+                              ? JSON.stringify(testResult.resultValue, null, 2)
+                              : String(testResult.resultValue)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -434,67 +616,103 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                 </p>
               </div>
             ) : (
-              sessionQueryables.map((q: ActiveQueryable) => (
-                <div
-                  key={q.id}
-                  className="flex flex-col gap-1.5 rounded-md border bg-card p-2.5"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                      <span className="font-mono text-xs font-medium text-foreground truncate">
-                        {q.keyExpr}
-                      </span>
-                    </div>
+              sessionQueryables.map((q: ActiveQueryable) => {
+                const isScript = q.replyMode === 'script' || Boolean(q.scriptCode);
+                return (
+                  <div
+                    key={q.id}
+                    className="flex flex-col gap-1.5 rounded-md border bg-card p-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        <span className="font-mono text-xs font-medium text-foreground truncate">
+                          {q.keyExpr}
+                        </span>
+                      </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateQueryableConfig(q.id, { autoReply: !q.autoReply })
-                        }
-                        className="text-xs flex items-center gap-1 focus:outline-none"
-                        title={q.autoReply ? 'Auto-reply is ON. Click to switch to Manual mode' : 'Manual mode. Click to enable Auto-reply'}
-                      >
-                        {q.autoReply ? (
-                          <Badge className="text-[9px] px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer">
-                            Auto Reply ON
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-[9px] px-1.5 py-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 transition-colors cursor-pointer">
-                            Manual (Queue)
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {q.autoReply && (
+                          <Badge
+                            variant="outline"
+                            className={`text-[9px] px-1.5 py-0.5 font-mono ${
+                              isScript
+                                ? 'text-blue-500 border-blue-500/30 bg-blue-500/10'
+                                : 'text-muted-foreground'
+                            }`}
+                          >
+                            {isScript ? 'JS Script' : `Static [${q.replyEncoding || 'json'}]`}
                           </Badge>
                         )}
-                      </button>
 
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleUndeclare(q.id)}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                        title="Undeclare queryable"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateQueryableConfig(q.id, { autoReply: !q.autoReply })
+                          }
+                          className="text-xs flex items-center gap-1 focus:outline-none"
+                          title={
+                            q.autoReply
+                              ? 'Auto-reply is ON. Click to switch to Manual mode'
+                              : 'Manual mode. Click to enable Auto-reply'
+                          }
+                        >
+                          {q.autoReply ? (
+                            <Badge className="text-[9px] px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer">
+                              Auto Reply ON
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] px-1.5 py-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                            >
+                              Manual (Queue)
+                            </Badge>
+                          )}
+                        </button>
+
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleUndeclare(q.id)}
+                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                          title="Undeclare queryable"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Auto-reply payload or script preview */}
+                    {q.autoReply && (
+                      <div className="font-mono text-[10px] text-muted-foreground bg-muted/40 p-1.5 rounded border truncate flex items-center gap-1">
+                        {isScript ? (
+                          <>
+                            <Code2 className="w-3 h-3 text-blue-500 shrink-0" />
+                            <span className="truncate">
+                              {(q.scriptCode || q.replyPayload || '').replace(/[\r\n\t ]+/g, ' ')}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-medium uppercase text-foreground mr-1">
+                              [{q.replyEncoding || 'json'}]
+                            </span>
+                            <span className="truncate">
+                              {(q.replyPayload || '').replace(/[\r\n\t ]+/g, ' ')}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-muted-foreground font-mono">
+                      Declared at {formatTimeWithMs(q.createdAt)}
                     </div>
                   </div>
-
-                  {/* Auto-reply payload preview */}
-                  {q.autoReply && q.replyPayload && (
-                    <div className="font-mono text-[10px] text-muted-foreground bg-muted/40 p-1.5 rounded border truncate">
-                      <span className="font-medium uppercase text-foreground mr-1">
-                        [{q.replyEncoding || 'json'}]
-                      </span>
-                      {q.replyPayload.replace(/[\r\n\t ]+/g, ' ')}
-                    </div>
-                  )}
-
-                  <div className="text-[10px] text-muted-foreground font-mono">
-                    Declared at {formatTimeWithMs(q.createdAt)}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

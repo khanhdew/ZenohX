@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import type {
   ActiveQueryable,
+  QueryableReplyMode,
   EncodingType,
   InboundQuery,
   QueryConsolidation,
@@ -29,6 +30,7 @@ import {
   undeclareQueryable as undeclareQueryableIpc,
 } from '../lib/tauri';
 import { formatFriendlyError } from '../lib/errorUtils';
+import { executeInboundScript } from '../lib/scriptRunner';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -38,15 +40,11 @@ function generateId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  return 'query-' + Math.random().toString(36).substring(2, 9);
 }
 
-function encodeStringToBytes(str: string): number[] {
-  return Array.from(new TextEncoder().encode(str));
+function encodeStringToBytes(text: string): number[] {
+  return Array.from(new TextEncoder().encode(text));
 }
 
 export interface QueryState {
@@ -80,14 +78,21 @@ export interface QueryState {
     autoReply?: boolean,
     replyPayload?: string,
     replyEncoding?: EncodingType | string,
-    profileId?: string
+    profileId?: string,
+    replyMode?: QueryableReplyMode,
+    scriptCode?: string
   ) => Promise<string>;
 
   undeclareQueryable: (sessionId: string, queryableId: string) => Promise<void>;
 
   updateQueryableConfig: (
     queryableId: string,
-    updates: Partial<Pick<ActiveQueryable, 'autoReply' | 'replyPayload' | 'replyEncoding'>>
+    updates: Partial<
+      Pick<
+        ActiveQueryable,
+        'autoReply' | 'replyPayload' | 'replyEncoding' | 'replyMode' | 'scriptCode'
+      >
+    >
   ) => void;
 
   replyInboundQuery: (
@@ -154,12 +159,28 @@ export const useQueryStore = create<QueryState>((set, get) => ({
 
         if (matchingQueryable) {
           try {
-            const replyText = matchingQueryable.replyPayload !== undefined
-              ? matchingQueryable.replyPayload
-              : '{"status":"ok"}';
-            const bytes = encodeStringToBytes(replyText);
-            const enc = matchingQueryable.replyEncoding || 'json';
-            const replyKey = matchingQueryable.keyExpr || inbound.key_expr;
+            let bytes: number[] = [];
+            let enc = matchingQueryable.replyEncoding || 'json';
+            let replyKey = matchingQueryable.keyExpr || inbound.key_expr;
+
+            if (matchingQueryable.replyMode === 'script' && matchingQueryable.scriptCode) {
+              const scriptRes = await executeInboundScript(
+                matchingQueryable.scriptCode,
+                inbound,
+                enc
+              );
+              bytes = scriptRes.bytes;
+              enc = scriptRes.encoding;
+              if (scriptRes.keyExpr) {
+                replyKey = scriptRes.keyExpr;
+              }
+            } else {
+              const replyText =
+                matchingQueryable.replyPayload !== undefined
+                  ? matchingQueryable.replyPayload
+                  : '{"status":"ok"}';
+              bytes = encodeStringToBytes(replyText);
+            }
 
             await replyQueryIpc(inbound.token, replyKey, bytes, enc);
             useTrafficStore.getState().recordEvent({
@@ -344,7 +365,9 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     autoReply: boolean = false,
     replyPayload?: string,
     replyEncoding: EncodingType | string = 'json',
-    profileId?: string
+    profileId?: string,
+    replyMode: QueryableReplyMode = 'payload',
+    scriptCode?: string
   ) => {
     set({ error: null });
     const queryableId = generateId();
@@ -362,7 +385,9 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         profileId: targetProfileId,
         keyExpr,
         autoReply,
+        replyMode,
         replyPayload,
+        scriptCode,
         replyEncoding,
         createdAt: Date.now(),
       };
@@ -374,8 +399,9 @@ export const useQueryStore = create<QueryState>((set, get) => ({
           profile_id: targetProfileId,
           key_expr: keyExpr,
           auto_reply: autoReply,
-          reply_payload: replyPayload || null,
-          reply_encoding: replyEncoding,
+          reply_payload:
+            replyMode === 'script' ? scriptCode || null : replyPayload || null,
+          reply_encoding: replyMode === 'script' ? 'script' : replyEncoding,
         }).catch(() => {});
       }
 
@@ -430,20 +456,27 @@ export const useQueryStore = create<QueryState>((set, get) => ({
 
   updateQueryableConfig: (
     queryableId: string,
-    updates: Partial<Pick<ActiveQueryable, 'autoReply' | 'replyPayload' | 'replyEncoding'>>
+    updates: Partial<
+      Pick<
+        ActiveQueryable,
+        'autoReply' | 'replyPayload' | 'replyEncoding' | 'replyMode' | 'scriptCode'
+      >
+    >
   ) => {
     set((state) => {
       const updated = state.activeQueryables.map((q) => {
         if (q.id === queryableId) {
           const next = { ...q, ...updates };
           if (next.profileId) {
+            const isScript = next.replyMode === 'script';
             saveQueryablePresetIpc({
               id: next.id,
               profile_id: next.profileId,
               key_expr: next.keyExpr,
               auto_reply: next.autoReply,
-              reply_payload: next.replyPayload || null,
-              reply_encoding: next.replyEncoding || 'json',
+              reply_payload:
+                isScript ? next.scriptCode || null : next.replyPayload || null,
+              reply_encoding: isScript ? 'script' : next.replyEncoding || 'json',
             }).catch(() => {});
           }
           return next;
@@ -555,14 +588,17 @@ export const useQueryStore = create<QueryState>((set, get) => ({
           }
         }
 
+        const isScript = preset.reply_encoding === 'script';
         loaded.push({
           id: preset.id,
           sessionId: activeSessionId || existing?.sessionId || '',
           profileId: preset.profile_id,
           keyExpr: preset.key_expr,
           autoReply: preset.auto_reply,
-          replyPayload: preset.reply_payload || undefined,
-          replyEncoding: preset.reply_encoding,
+          replyMode: isScript ? 'script' : existing?.replyMode || 'payload',
+          replyPayload: !isScript ? preset.reply_payload || undefined : undefined,
+          scriptCode: isScript ? preset.reply_payload || undefined : existing?.scriptCode,
+          replyEncoding: isScript ? 'json' : preset.reply_encoding,
           createdAt: existing?.createdAt || Date.now(),
         });
       }

@@ -249,6 +249,8 @@ export interface MessageItem {
   timestamp: number;
 }
 
+export type QueryableReplyMode = 'payload' | 'script';
+
 /**
  * Active queryable declared in the frontend RPC workspace.
  */
@@ -258,7 +260,9 @@ export interface ActiveQueryable {
   profileId?: string;
   keyExpr: string;
   autoReply: boolean;
+  replyMode?: QueryableReplyMode;
   replyPayload?: string;
+  scriptCode?: string;
   replyEncoding?: EncodingType | string;
   createdAt: number;
 }

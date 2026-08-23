@@ -284,4 +284,41 @@ describe('Query / RPC Store Operations & Reply Timeline Data', () => {
     assert.equal(useQueryStore.getState().executions.length, 1);
     assert.equal(useQueryStore.getState().executions[0].id, 'exec-2');
   });
+
+  test('declares queryable with JavaScript script mode and updates config', async () => {
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'declare_queryable') return undefined;
+      return undefined;
+    };
+
+    const calcScript = 'return { sum: Number(query.params.a) + Number(query.params.b) };';
+
+    const qId = await useQueryStore.getState().declareQueryable(
+      'sess-100',
+      'rpc/calc/**',
+      true,
+      undefined,
+      'json',
+      'prof-1',
+      'script',
+      calcScript
+    );
+
+    assert.ok(qId);
+    const q = useQueryStore.getState().activeQueryables.find((x) => x.id === qId);
+    assert.equal(q?.replyMode, 'script');
+    assert.equal(q?.scriptCode, calcScript);
+
+    // Update script code
+    useQueryStore.getState().updateQueryableConfig(qId, {
+      scriptCode: 'return { product: Number(query.params.a) * Number(query.params.b) };',
+    });
+
+    const updated = useQueryStore.getState().activeQueryables.find((x) => x.id === qId);
+    assert.equal(
+      updated?.scriptCode,
+      'return { product: Number(query.params.a) * Number(query.params.b) };'
+    );
+  });
 });
+

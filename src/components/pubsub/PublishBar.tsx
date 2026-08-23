@@ -8,6 +8,7 @@ import {
   Loader2,
   Hash,
   Check,
+  Clock,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -16,7 +17,13 @@ import { useResizable } from '../../hooks/useResizable';
 import { PayloadEditor } from '../viewer/PayloadEditor';
 import { useMessageStore } from '../../stores/messageStore';
 import { useConnectionStore } from '../../stores/connectionStore';
-import { encodePayload } from '../../lib/formatters';
+import {
+  encodePayload,
+  loadRecentKeys,
+  saveRecentKeys,
+  updateRecentKeys,
+  MAX_RECENT_KEYS,
+} from '../../lib/formatters';
 import type { EncodingType, PutKind } from '../../types/zenoh';
 
 export interface PublishBarProps {
@@ -25,14 +32,6 @@ export interface PublishBarProps {
   defaultKeyExpr?: string;
   className?: string;
 }
-
-const COMMON_KEY_SUGGESTIONS = [
-  'demo/example/a',
-  'sensor/temp',
-  'sensor/humidity',
-  'telemetry/drone/position',
-  'cmd/robot/start',
-];
 
 export const PublishBar: React.FC<PublishBarProps> = ({
   sessionId: propSessionId,
@@ -83,6 +82,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
 
   // Key suggestions dropdown
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const [recentKeys, setRecentKeys] = useState<string[]>(() => loadRecentKeys());
 
   // Validation
   const validation = useMemo(() => {
@@ -124,6 +124,13 @@ export const PublishBar: React.FC<PublishBarProps> = ({
         kind,
         propProfileId || selectedProfileId || undefined
       );
+
+      // Update recent keys (max 5)
+      setRecentKeys((prev) => {
+        const updated = updateRecentKeys(prev, trimmedKey, MAX_RECENT_KEYS);
+        saveRecentKeys(updated);
+        return updated;
+      });
 
       // Turn button into green verified state for 1.5 seconds
       setIsSuccess(true);
@@ -201,7 +208,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
               disabled={isSending}
             />
 
-            {/* Quick Suggestions Dropdown */}
+            {/* Recent Keys Dropdown */}
             {showSuggestions && (
               <>
                 <div
@@ -209,22 +216,43 @@ export const PublishBar: React.FC<PublishBarProps> = ({
                   onClick={() => setShowSuggestions(false)}
                 />
                 <div className="absolute left-0 top-full z-30 mt-1 w-full rounded-md border bg-popover p-1 shadow-md text-popover-foreground">
-                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase">
-                    Common Key Expressions
+                  <div className="flex items-center justify-between px-2 py-1 border-b border-border/50 mb-0.5">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground uppercase">
+                      <Clock className="w-3 h-3" />
+                      <span>Recent Keys</span>
+                    </div>
+                    {recentKeys.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRecentKeys([]);
+                          saveRecentKeys([]);
+                        }}
+                        className="text-[10px] text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
-                  {COMMON_KEY_SUGGESTIONS.map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => {
-                        setKeyExpr(s);
-                        setShowSuggestions(false);
-                      }}
-                      className="w-full text-left px-2 py-1 text-xs font-mono rounded hover:bg-accent hover:text-accent-foreground transition-colors"
-                    >
-                      {s}
-                    </button>
-                  ))}
+                  {recentKeys.length === 0 ? (
+                    <div className="px-2 py-2 text-xs text-muted-foreground italic text-center">
+                      No recent keys
+                    </div>
+                  ) : (
+                    recentKeys.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          setKeyExpr(s);
+                          setShowSuggestions(false);
+                        }}
+                        className="w-full text-left px-2 py-1 text-xs font-mono rounded hover:bg-accent hover:text-accent-foreground transition-colors truncate"
+                      >
+                        {s}
+                      </button>
+                    ))
+                  )}
                 </div>
               </>
             )}

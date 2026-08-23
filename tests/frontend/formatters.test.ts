@@ -16,6 +16,10 @@ import {
   getTopicColorTag,
   formatTimeWithMs,
   formatFullDateTime,
+  updateRecentKeys,
+  loadRecentKeys,
+  saveRecentKeys,
+  MAX_RECENT_KEYS,
 } from '../../src/lib/formatters';
 import * as cbor from 'cbor-x';
 
@@ -384,6 +388,88 @@ describe('formatTimeWithMs & formatFullDateTime', () => {
     assert.equal(res, '2026/08/23 14:30:45.123');
   });
 });
+
+describe('updateRecentKeys & Storage', () => {
+  test('prepends new key and deduplicates', () => {
+    const initial = ['demo/a', 'sensor/temp'];
+    const updated = updateRecentKeys(initial, 'cmd/robot');
+    assert.deepEqual(updated, ['cmd/robot', 'demo/a', 'sensor/temp']);
+
+    // Re-adding existing key moves it to front
+    const reAdded = updateRecentKeys(updated, 'demo/a');
+    assert.deepEqual(reAdded, ['demo/a', 'cmd/robot', 'sensor/temp']);
+  });
+
+  test('caps recent keys to maxItems (default 5)', () => {
+    let list: string[] = [];
+    list = updateRecentKeys(list, 'key/1');
+    list = updateRecentKeys(list, 'key/2');
+    list = updateRecentKeys(list, 'key/3');
+    list = updateRecentKeys(list, 'key/4');
+    list = updateRecentKeys(list, 'key/5');
+    assert.equal(list.length, 5);
+    assert.deepEqual(list, ['key/5', 'key/4', 'key/3', 'key/2', 'key/1']);
+
+    // Adding 6th key drops the oldest
+    list = updateRecentKeys(list, 'key/6');
+    assert.equal(list.length, 5);
+    assert.deepEqual(list, ['key/6', 'key/5', 'key/4', 'key/3', 'key/2']);
+  });
+
+  test('ignores empty and whitespace-only keys', () => {
+    const initial = ['demo/a'];
+    assert.deepEqual(updateRecentKeys(initial, ''), ['demo/a']);
+    assert.deepEqual(updateRecentKeys(initial, '   '), ['demo/a']);
+  });
+
+  test('trims whitespace on new keys', () => {
+    const initial = ['demo/a'];
+    const res = updateRecentKeys(initial, '  sensor/humidity  ');
+    assert.deepEqual(res, ['sensor/humidity', 'demo/a']);
+  });
+
+  test('loadRecentKeys and saveRecentKeys interact with localStorage safely', () => {
+    // Mock localStorage
+    const store: Record<string, string> = {};
+    const mockStorage = {
+      getItem: (key: string) => store[key] || null,
+      setItem: (key: string, val: string) => {
+        store[key] = val;
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+      clear: () => {
+        for (const k in store) delete store[k];
+      },
+      length: 0,
+      key: () => null,
+    };
+
+    // @ts-expect-error Mocking localStorage
+    globalThis.localStorage = mockStorage;
+
+    // Save and load
+    saveRecentKeys(['topic/1', 'topic/2']);
+    assert.deepEqual(loadRecentKeys(), ['topic/1', 'topic/2']);
+
+    // Load with corrupted data
+    mockStorage.setItem('zenohx_recent_publish_keys', 'invalid-json');
+    assert.deepEqual(loadRecentKeys(), []);
+
+    // Load with non-array json
+    mockStorage.setItem('zenohx_recent_publish_keys', JSON.stringify({ not: 'array' }));
+    assert.deepEqual(loadRecentKeys(), []);
+
+    // Load with mixed array types (filters non-strings and empty strings)
+    mockStorage.setItem(
+      'zenohx_recent_publish_keys',
+      JSON.stringify(['valid/1', 123, '', '   ', null, 'valid/2'])
+    );
+    assert.deepEqual(loadRecentKeys(), ['valid/1', 'valid/2']);
+  });
+});
+
 
 
 

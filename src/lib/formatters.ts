@@ -656,5 +656,70 @@ export function getTopicColorTag<T extends SubscriptionLike>(
   return { color: fallbackColor, matchedSub };
 }
 
+// ============================================================================
+// Recent Keys Storage & Management
+// ============================================================================
+
+export const RECENT_KEYS_STORAGE_KEY = 'zenohx_recent_publish_keys';
+export const MAX_RECENT_KEYS = 5;
+
+/**
+ * Updates an array of recent key expressions by prepending the new key,
+ * deduplicating, and capping the total count to maxItems (default: 5).
+ */
+export function updateRecentKeys(
+  recentKeys: string[],
+  newKey: string,
+  maxItems: number = MAX_RECENT_KEYS
+): string[] {
+  const trimmed = newKey ? newKey.trim() : '';
+  if (!trimmed) {
+    return recentKeys;
+  }
+  const filtered = recentKeys.filter((k) => k !== trimmed);
+  return [trimmed, ...filtered].slice(0, maxItems);
+}
+
+/**
+ * Safely loads recent key expressions from localStorage.
+ */
+export function loadRecentKeys(storageKey: string = RECENT_KEYS_STORAGE_KEY): string[] {
+  if (typeof localStorage === 'undefined') {
+    return [];
+  }
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .slice(0, MAX_RECENT_KEYS);
+    }
+  } catch {
+    // Ignore storage parse errors
+  }
+  return [];
+}
+
+/**
+ * Safely saves recent key expressions to localStorage.
+ */
+export function saveRecentKeys(
+  keys: string[],
+  storageKey: string = RECENT_KEYS_STORAGE_KEY
+): void {
+  if (typeof localStorage === 'undefined') {
+    return;
+  }
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(keys.slice(0, MAX_RECENT_KEYS)));
+  } catch {
+    // Ignore storage write errors
+  }
+}
+
+
+
 
 

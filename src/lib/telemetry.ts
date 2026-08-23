@@ -75,9 +75,11 @@ export async function trackEvent(
     const distinctId = getAnonymousDistinctId();
     const payload = {
       api_key: configuredApiKey,
+      token: configuredApiKey,
       event: eventName,
       distinct_id: distinctId,
       properties: {
+        token: configuredApiKey,
         distinct_id: distinctId,
         app_version: APP_VERSION,
         $os: typeof navigator !== 'undefined' ? navigator.platform : undefined,
@@ -87,7 +89,7 @@ export async function trackEvent(
     };
 
     if (typeof fetch !== 'undefined') {
-      const res = await fetch(`${configuredHost}/capture/`, {
+      const res = await fetch(`${configuredHost}/i/v0/e/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

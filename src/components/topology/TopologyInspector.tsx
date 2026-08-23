@@ -19,11 +19,13 @@ import { extractLocatorProtocol, extractLocatorHostPort } from '../../lib/topolo
 import type { TopologyNode } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
 
+import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
+
 export interface TopologyInspectorProps {
   node: TopologyNode | null;
   onClose: () => void;
   onOpenProfileEditor: (node: TopologyNode) => void;
-  onNavigateToPubSub: () => void;
+  onNavigateToPubSub?: () => void;
 }
 
 export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
@@ -38,6 +40,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
   const connect = useConnectionStore((s) => s.connect);
   const saveProfile = useConnectionStore((s) => s.saveProfile);
+  const profiles = useConnectionStore((s) => s.profiles);
 
   if (!node) return null;
 
@@ -56,27 +59,29 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
   const handleConnectDirectly = async () => {
     setActionLoading(true);
     try {
-      if (node.profileId) {
-        await connect(node.profileId);
-      } else {
-        const primaryLocator = node.locators[0] || '';
-        const now = Date.now();
-        const newProfile: ConnectionProfile = {
-          id: `profile-${now}`,
-          name: node.label,
-          mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
-          connect_locators: primaryLocator ? [primaryLocator] : [],
-          listen_locators: [],
-          scout_multicast: true,
-          user_auth: null,
-          tls_config: node.isTls ? {} : null,
-          custom_config: null,
-          created_at: now,
-          updated_at: now,
-        };
-        await saveProfile(newProfile);
-        await connect(newProfile.id);
+      const existing = findMatchingProfile(profiles, node);
+      if (existing) {
+        await connect(existing.id);
+        return;
       }
+
+      const primaryLocator = node.locators[0] || '';
+      const now = Date.now();
+      const newProfile: ConnectionProfile = {
+        id: `profile-${now}`,
+        name: node.label,
+        mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
+        connect_locators: primaryLocator ? [primaryLocator] : [],
+        listen_locators: [],
+        scout_multicast: true,
+        user_auth: null,
+        tls_config: node.isTls ? {} : null,
+        custom_config: null,
+        created_at: now,
+        updated_at: now,
+      };
+      await saveProfile(newProfile);
+      await connect(newProfile.id);
     } catch (err) {
       console.error('Failed to connect from topology graph:', err);
     } finally {

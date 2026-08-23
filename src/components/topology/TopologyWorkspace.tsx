@@ -8,6 +8,8 @@ import { TopologyContextMenu } from './TopologyContextMenu';
 import type { TopologyNode } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
 
+import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
+
 export interface TopologyWorkspaceProps {
   className?: string;
   onOpenProfileEditor?: (profile: ConnectionProfile) => void;
@@ -22,6 +24,7 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
   const scout = useConnectionStore((s) => s.scout);
   const connect = useConnectionStore((s) => s.connect);
   const saveProfile = useConnectionStore((s) => s.saveProfile);
+  const profiles = useConnectionStore((s) => s.profiles);
 
   const nodes = useTopologyStore((s) => s.nodes);
   const selectedNodeId = useTopologyStore((s) => s.selectedNodeId);
@@ -34,18 +37,14 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     position: { x: number; y: number };
   } | null>(null);
 
-  // Periodic Auto-Scout background runner
+  // Auto-scout periodic trigger
   useEffect(() => {
-    if (autoScoutInterval <= 0) return;
-
+    if (autoScoutInterval === 0) return;
     const intervalId = setInterval(() => {
-      const currentIsScouting = useConnectionStore.getState().isScouting;
-      if (!currentIsScouting) {
-        scout(Math.min(3000, autoScoutInterval)).catch((err) => {
-          console.error('Auto-scout error:', err);
-        });
-      }
-    }, autoScoutInterval);
+      scout(2000).catch((err) => {
+        console.error('Topology periodic auto-scout error:', err);
+      });
+    }, autoScoutInterval * 1000);
 
     return () => clearInterval(intervalId);
   }, [autoScoutInterval, scout]);
@@ -63,6 +62,14 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
   };
 
   const handleOpenProfileEditorForNode = (node: TopologyNode) => {
+    const existing = findMatchingProfile(profiles, node);
+    if (existing) {
+      if (onOpenProfileEditor) {
+        onOpenProfileEditor(existing);
+      }
+      return;
+    }
+
     const primaryLoc = node.locators[0] || '';
     const now = Date.now();
     const newProf: ConnectionProfile = {
@@ -85,27 +92,29 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
 
   const handleConnectNode = async (node: TopologyNode) => {
     try {
-      if (node.profileId) {
-        await connect(node.profileId);
-      } else {
-        const primaryLoc = node.locators[0] || '';
-        const now = Date.now();
-        const newProf: ConnectionProfile = {
-          id: `profile-${now}`,
-          name: node.label,
-          mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
-          connect_locators: primaryLoc ? [primaryLoc] : [],
-          listen_locators: [],
-          scout_multicast: true,
-          user_auth: null,
-          tls_config: node.isTls ? {} : null,
-          custom_config: null,
-          created_at: now,
-          updated_at: now,
-        };
-        await saveProfile(newProf);
-        await connect(newProf.id);
+      const existing = findMatchingProfile(profiles, node);
+      if (existing) {
+        await connect(existing.id);
+        return;
       }
+
+      const primaryLoc = node.locators[0] || '';
+      const now = Date.now();
+      const newProf: ConnectionProfile = {
+        id: `profile-${now}`,
+        name: node.label,
+        mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
+        connect_locators: primaryLoc ? [primaryLoc] : [],
+        listen_locators: [],
+        scout_multicast: true,
+        user_auth: null,
+        tls_config: node.isTls ? {} : null,
+        custom_config: null,
+        created_at: now,
+        updated_at: now,
+      };
+      await saveProfile(newProf);
+      await connect(newProf.id);
     } catch (err) {
       console.error('Topology connect error:', err);
     }

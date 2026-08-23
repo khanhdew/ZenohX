@@ -23,6 +23,7 @@ import {
   getPreferredLocator,
   resolveTlsConfig,
 } from '../../lib/tls';
+import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 import { ScoutFilters } from './scout/ScoutFilters';
 import { ScoutNodeCard, type NodeTlsState } from './scout/ScoutNodeCard';
 
@@ -44,6 +45,7 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   const scout = useConnectionStore((state) => state.scout);
   const saveProfile = useConnectionStore((state) => state.saveProfile);
   const connectSession = useConnectionStore((state) => state.connect);
+  const profiles = useConnectionStore((state) => state.profiles);
 
   const [timeoutMs, setTimeoutMs] = useState<number>(3000);
   const [protocolFilter, setProtocolFilter] = useState<'all' | 'tls' | 'plain'>('all');
@@ -138,6 +140,16 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   const handleCreateProfile = async (node: ScoutedNode) => {
     setActionLoadingZid(node.zid);
     try {
+      const existing = findMatchingProfile(profiles, node);
+      if (existing) {
+        if (onUseAsProfile) {
+          onUseAsProfile(node);
+        }
+        setActionLoadingZid(null);
+        onClose();
+        return;
+      }
+
       const newProfile = buildProfile(node);
       await saveProfile(newProfile);
 
@@ -154,6 +166,15 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   };
 
   const handleOpenInEditor = (node: ScoutedNode) => {
+    const existing = findMatchingProfile(profiles, node);
+    if (existing) {
+      if (onOpenProfileEditor) {
+        onOpenProfileEditor(existing);
+      }
+      onClose();
+      return;
+    }
+
     const newProfile = buildProfile(node);
     if (onOpenProfileEditor) {
       onOpenProfileEditor(newProfile);
@@ -164,6 +185,14 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   const handleConnectDirectly = async (node: ScoutedNode) => {
     setActionLoadingZid(node.zid);
     try {
+      const existing = findMatchingProfile(profiles, node);
+      if (existing) {
+        await connectSession(existing.id);
+        setActionLoadingZid(null);
+        onClose();
+        return;
+      }
+
       const newProfile = buildProfile(node);
       await saveProfile(newProfile);
       await connectSession(newProfile.id);

@@ -10,6 +10,7 @@ import type {
   TopologyProtocol,
   BuildTopologyOptions,
 } from '../../types/topology';
+import type { ConnectionProfile } from '../../types/zenoh';
 
 export function extractLocatorProtocol(locator: string): TopologyProtocol {
   if (!locator || typeof locator !== 'string') return 'unknown';
@@ -74,6 +75,31 @@ export function derivePersistentZid(profileId: string): string {
   }
   const hex = Math.abs(hash).toString(16).padStart(8, '0');
   return `${hex}${hex}${hex}${hex}`.substring(0, 32);
+}
+
+/**
+ * Finds an existing saved ConnectionProfile matching a given Node/ZID/locator
+ * to prevent creating duplicate profiles.
+ */
+export function findMatchingProfile(
+  profiles: ConnectionProfile[],
+  zidOrNode: { zid: string; locators?: string[]; profileId?: string }
+): ConnectionProfile | undefined {
+  if (!zidOrNode || !profiles || profiles.length === 0) return undefined;
+  if (zidOrNode.profileId) {
+    const p = profiles.find((prof) => prof.id === zidOrNode.profileId);
+    if (p) return p;
+  }
+  const targetZid = zidOrNode.zid;
+  const targetLocators = zidOrNode.locators || [];
+
+  return profiles.find((prof) => {
+    const pZid = derivePersistentZid(prof.id);
+    if (pZid === targetZid) return true;
+    return (prof.connect_locators || []).some((loc: string) =>
+      targetLocators.some((nLoc) => isLocatorMatch(nLoc, loc))
+    );
+  });
 }
 
 export function buildTopologyGraph({

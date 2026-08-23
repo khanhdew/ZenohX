@@ -30,6 +30,12 @@
   - **Recent Key Expressions**: Quick-access dropdown tracking your last 5 used key expressions.
   - Direction indicators: Left border for incoming (`IN`) samples, Right border for outgoing (`OUT`) samples.
   - Virtualized message feed handling 5,000+ live samples smoothly in memory.
+- **⚡ Dynamic Protocol Buffers (Protobuf) Schema Registry & Codec:**
+  - **In-App Schema Manager**: Upload `.proto` files, write/edit schema definitions in real-time with instant syntax validation and code formatting (`Ctrl+Shift+P` / `Cmd+Shift+P`).
+  - **Built-in Robotics & IoT Presets**: Ready-to-use starter schemas for standard payloads (`sensor_msgs.proto`, `robot_control.proto`, and `geometry_msgs.proto`).
+  - **Automatic Topic-to-Schema Mapping**: Bind Zenoh key expression patterns (e.g. `robot/sensors/**`) directly to target Protobuf message decoders.
+  - **Real-Time JSON ↔ Protobuf Codec**: Encode structured JSON payloads to binary Protobuf on publish/query and decode incoming binary wire payloads back to formatted JSON and interactive tree views.
+  - **1-Click Sample Payload Generator**: Scaffold valid mock JSON templates from any compiled Protobuf message descriptor.
 - **🔍 Distributed Query & RPC Simulator:**
   - Send queries across Zenoh routers and peers with latency tracking and multi-reply timeline.
   - **Dynamic JavaScript Script Execution**: Run custom JS logic to dynamically compute replies from URL query parameters (`query.params`, `query.keyExpr`, `query.payload`) alongside static payloads.
@@ -43,7 +49,8 @@
   - Connect securely over `tls/`, `tcp/`, `quic/`, and `udp/`.
   - Custom Root CA, client certificate, and private key authentication.
 - **📦 Multi-Format Payload Codec & Hex Editor:**
-  - Real-time viewer & editor with syntax highlighting for **JSON**, **CBOR**, **Plain Text**, and **RAW/Hex**.
+  - Real-time viewer & editor with syntax highlighting for **JSON**, **CBOR**, **Protocol Buffers (Protobuf)**, **Plain Text**, and **RAW/Hex**.
+  - Interactive tree inspector, live schema validation, and wire byte size calculations.
 - **💾 Local SQLite Message Persistence:**
   - Persist historical messages to local SQLite database with full-text and hex byte search.
 - **🔄 Built-in Cryptographic Auto-Updater:**

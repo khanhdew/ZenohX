@@ -528,6 +528,8 @@ export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <>
       <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>

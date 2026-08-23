@@ -6,6 +6,7 @@ import {
   trackEvent,
   trackAppStart,
   getClientCountryCode,
+  isDevMode,
 } from '../../src/lib/telemetry';
 
 describe('Telemetry & Anonymous Analytics', () => {
@@ -56,4 +57,48 @@ describe('Telemetry & Anonymous Analytics', () => {
       assert.ok(code.length >= 2);
     }
   });
+
+  test('isDevMode returns true when NODE_ENV is development', () => {
+    const origEnv = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = 'development';
+      assert.equal(isDevMode(), true);
+
+      process.env.NODE_ENV = 'production';
+      assert.equal(isDevMode(), false);
+    } finally {
+      process.env.NODE_ENV = origEnv;
+    }
+  });
+
+  test('trackEvent suppresses telemetry send when in dev mode', async () => {
+    const origEnv = process.env.NODE_ENV;
+    let fetchCalled = false;
+
+    // @ts-expect-error Mock fetch
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      return new Response('{}');
+    };
+
+    try {
+      initTelemetry('phc_test_key_dev', 'https://us.i.posthog.com');
+      useSettingsStore.getState().setAnonymousTelemetry(true);
+
+      // In dev mode -> no fetch call
+      process.env.NODE_ENV = 'development';
+      fetchCalled = false;
+      await trackEvent('dev_event', { prop: 'test' });
+      assert.equal(fetchCalled, false);
+
+      // In production mode -> fetch is called
+      process.env.NODE_ENV = 'production';
+      fetchCalled = false;
+      await trackEvent('prod_event', { prop: 'test' });
+      assert.equal(fetchCalled, true);
+    } finally {
+      process.env.NODE_ENV = origEnv;
+    }
+  });
 });
+

@@ -21,6 +21,7 @@ import {
   saveRecentKeys,
   MAX_RECENT_KEYS,
 } from '../../src/lib/formatters';
+import { formatJsCode } from '../../src/lib/codeFormatter';
 import * as cbor from 'cbor-x';
 
 describe('formatByteSize', () => {
@@ -467,6 +468,46 @@ describe('updateRecentKeys & Storage', () => {
       JSON.stringify(['valid/1', 123, '', '   ', null, 'valid/2'])
     );
     assert.deepEqual(loadRecentKeys(), ['valid/1', 'valid/2']);
+  });
+});
+
+describe('formatJsCode', () => {
+  test('formats unindented JavaScript code with 2-space indentation', () => {
+    const unformatted = `const a = 1;
+function calculate(query) {
+const result = Number(query.params.a) + Number(query.params.b);
+return {
+sum: result,
+status: "ok"
+};
+}`;
+
+    const expected = `const a = 1;
+function calculate(query) {
+  const result = Number(query.params.a) + Number(query.params.b);
+  return {
+    sum: result,
+    status: "ok"
+  };
+}`;
+
+    assert.equal(formatJsCode(unformatted), expected);
+  });
+
+  test('handles empty or blank code gracefully', () => {
+    assert.equal(formatJsCode(''), '');
+    assert.equal(formatJsCode('   \n  \n'), '');
+  });
+
+  test('preserves string contents and comments during formatting', () => {
+    const code = `// Process calculation
+const msg = "hello { world }";
+if (query.params.test) {
+return { msg: msg };
+}`;
+
+    const formatted = formatJsCode(code);
+    assert.ok(formatted.includes('  return { msg: msg };'));
   });
 });
 

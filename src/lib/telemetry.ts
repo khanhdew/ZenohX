@@ -82,13 +82,36 @@ export function initTelemetry(customKey?: string, customHost?: string): void {
 }
 
 /**
- * Sends an anonymous custom event to PostHog HTTP endpoint if telemetry is enabled.
+ * Checks if the application is running in development mode.
+ */
+export function isDevMode(): boolean {
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      if (import.meta.env.DEV) return true;
+      if (import.meta.env.MODE === 'development') return true;
+    }
+    if (typeof process !== 'undefined' && process.env) {
+      if (process.env.NODE_ENV === 'development') return true;
+    }
+  } catch {
+    // Fallback safely
+  }
+  return false;
+}
+
+/**
+ * Sends an anonymous custom event to PostHog HTTP endpoint if telemetry is enabled and not in dev mode.
  */
 export async function trackEvent(
   eventName: string,
   props?: Record<string, string | number | boolean>
 ): Promise<void> {
   try {
+    // Disable sending telemetry when in development mode
+    if (isDevMode()) {
+      return;
+    }
+
     const isEnabled = useSettingsStore.getState().anonymousTelemetry;
     if (!isEnabled || !configuredApiKey) {
       return;

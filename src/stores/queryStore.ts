@@ -85,12 +85,24 @@ export interface QueryState {
 
   undeclareQueryable: (sessionId: string, queryableId: string) => Promise<void>;
 
+  editQueryable: (
+    queryableId: string,
+    updates: {
+      keyExpr?: string;
+      autoReply?: boolean;
+      replyMode?: QueryableReplyMode;
+      replyPayload?: string;
+      replyEncoding?: EncodingType | string;
+      scriptCode?: string;
+    }
+  ) => Promise<void>;
+
   updateQueryableConfig: (
     queryableId: string,
     updates: Partial<
       Pick<
         ActiveQueryable,
-        'autoReply' | 'replyPayload' | 'replyEncoding' | 'replyMode' | 'scriptCode'
+        'autoReply' | 'replyPayload' | 'replyEncoding' | 'replyMode' | 'scriptCode' | 'keyExpr'
       >
     >
   ) => void;
@@ -454,12 +466,61 @@ export const useQueryStore = create<QueryState>((set, get) => ({
     }
   },
 
+  editQueryable: async (queryableId, updates) => {
+    set({ error: null });
+    const current = get().activeQueryables.find((q) => q.id === queryableId);
+    if (!current) return;
+
+    const keyChanged = Boolean(updates.keyExpr && updates.keyExpr !== current.keyExpr);
+
+    try {
+      if (keyChanged && current.sessionId) {
+        try {
+          await undeclareQueryableIpc(current.sessionId, queryableId);
+        } catch {
+          // Ignore
+        }
+        await declareQueryableIpc(current.sessionId, queryableId, updates.keyExpr!);
+      }
+
+      const next: ActiveQueryable = {
+        ...current,
+        ...updates,
+        keyExpr: updates.keyExpr || current.keyExpr,
+      };
+
+      if (next.profileId) {
+        const isScript = next.replyMode === 'script';
+        await saveQueryablePresetIpc({
+          id: next.id,
+          profile_id: next.profileId,
+          key_expr: next.keyExpr,
+          auto_reply: next.autoReply,
+          reply_payload:
+            isScript ? next.scriptCode || null : next.replyPayload || null,
+          reply_encoding: isScript ? 'script' : next.replyEncoding || 'json',
+        });
+      }
+
+      set((state) => ({
+        activeQueryables: state.activeQueryables.map((q) =>
+          q.id === queryableId ? next : q
+        ),
+      }));
+    } catch (err) {
+      console.error('Edit queryable failed:', err);
+      const friendly = formatFriendlyError(err, 'Edit Queryable').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
+    }
+  },
+
   updateQueryableConfig: (
     queryableId: string,
     updates: Partial<
       Pick<
         ActiveQueryable,
-        'autoReply' | 'replyPayload' | 'replyEncoding' | 'replyMode' | 'scriptCode'
+        'autoReply' | 'replyPayload' | 'replyEncoding' | 'replyMode' | 'scriptCode' | 'keyExpr'
       >
     >
   ) => {

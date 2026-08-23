@@ -15,7 +15,13 @@ import {
   Code2,
   FileText,
   Play,
-  CheckCircle2,
+  MoreHorizontal,
+  Pencil,
+  Copy,
+  CopyPlus,
+  FileCode,
+  Square,
+  Check,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -26,21 +32,43 @@ import {
   SelectItem,
   SelectTrigger,
 } from '../ui/select';
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuLabel,
+} from '../ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from '../ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../ui/dialog';
 import { PayloadEditor } from '../viewer/PayloadEditor';
 import { PayloadViewer } from '../viewer/PayloadViewer';
+import { JavaScriptEditor } from '../viewer/JavaScriptEditor';
 import { useQueryStore } from '../../stores/queryStore';
 import { formatTimeWithMs, formatByteSize, encodePayload } from '../../lib/formatters';
-import {
-  SCRIPT_TEMPLATES,
-  executeInboundScript,
-  type ScriptExecutionResult,
-} from '../../lib/scriptRunner';
+import { SCRIPT_TEMPLATES } from '../../lib/scriptRunner';
 import type {
   EncodingType,
   InboundQuery,
   ActiveQueryable,
   QueryableReplyMode,
 } from '../../types/zenoh';
+
 
 
 export interface QueryablePanelProps {
@@ -105,6 +133,7 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
     inboundQueries,
     declareQueryable,
     undeclareQueryable,
+    editQueryable,
     replyInboundQuery,
     dismissInboundQuery,
     clearInboundQueries,
@@ -126,11 +155,23 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
 
   // Interactive Script Sandbox Test State
   const [testParams, setTestParams] = useState<string>(SCRIPT_TEMPLATES[0].sampleQuery);
-  const [testResult, setTestResult] = useState<ScriptExecutionResult | null>(null);
-  const [isTestingScript, setIsTestingScript] = useState<boolean>(false);
-
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Edit Queryable Dialog State
+  const [editingQueryable, setEditingQueryable] = useState<ActiveQueryable | null>(null);
+  const [editKeyExpr, setEditKeyExpr] = useState<string>('');
+  const [editAutoReply, setEditAutoReply] = useState<boolean>(true);
+  const [editReplyMode, setEditReplyMode] = useState<QueryableReplyMode>('payload');
+  const [editReplyEncoding, setEditReplyEncoding] = useState<EncodingType>('json');
+  const [editReplyPayload, setEditReplyPayload] = useState<string>('');
+  const [editScriptCode, setEditScriptCode] = useState<string>('');
+  const [editTestParams, setEditTestParams] = useState<string>('');
+  const [isSavingEdit, setIsSavingEdit] = useState<boolean>(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Copied feedback state
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Manual Inbound Query Responder State
   const [activeReplyQuery, setActiveReplyQuery] = useState<InboundQuery | null>(null);
@@ -163,25 +204,6 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
     });
   }, [inboundQueries, sessionId]);
 
-  // Test Run Script Handler
-  const handleTestScript = async () => {
-    setIsTestingScript(true);
-    try {
-      const res = await executeInboundScript(
-        scriptCode,
-        {
-          key_expr: keyExpr || 'rpc/calculator',
-          parameters: testParams,
-          session_id: sessionId,
-        },
-        replyEncoding
-      );
-      setTestResult(res);
-    } finally {
-      setIsTestingScript(false);
-    }
-  };
-
   // Declare Queryable Handler
   const handleDeclare = async () => {
     const cleanKey = keyExpr.trim();
@@ -208,6 +230,78 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
       setFormError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Start Editing Queryable Handler
+  const handleStartEdit = (q: ActiveQueryable) => {
+    const isScript = q.replyMode === 'script' || Boolean(q.scriptCode);
+    setEditingQueryable(q);
+    setEditKeyExpr(q.keyExpr);
+    setEditAutoReply(q.autoReply);
+    setEditReplyMode(isScript ? 'script' : 'payload');
+    setEditReplyEncoding((q.replyEncoding as EncodingType) || 'json');
+    setEditReplyPayload(q.replyPayload || MOCK_RESPONSE_TEMPLATES[0].content);
+    setEditScriptCode(
+      q.scriptCode || (isScript && q.replyPayload ? q.replyPayload : SCRIPT_TEMPLATES[0].code)
+    );
+    setEditTestParams(SCRIPT_TEMPLATES[0].sampleQuery);
+    setEditError(null);
+  };
+
+  // Save Queryable Edit Changes
+  const handleSaveEdit = async () => {
+    if (!editingQueryable) return;
+    const cleanKey = editKeyExpr.trim();
+    if (!cleanKey) {
+      setEditError('Key expression cannot be empty');
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      await editQueryable(editingQueryable.id, {
+        keyExpr: cleanKey,
+        autoReply: editAutoReply,
+        replyMode: editReplyMode,
+        replyPayload: editReplyMode === 'payload' ? editReplyPayload : undefined,
+        replyEncoding: editReplyEncoding,
+        scriptCode: editReplyMode === 'script' ? editScriptCode : undefined,
+      });
+      setEditingQueryable(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Duplicate / Clone Queryable to Left Form
+  const handleDuplicateToForm = (q: ActiveQueryable) => {
+    setKeyExpr(q.keyExpr);
+    setAutoReply(q.autoReply);
+    const isScript = q.replyMode === 'script' || Boolean(q.scriptCode);
+    setReplyMode(isScript ? 'script' : 'payload');
+    if (q.replyEncoding) {
+      setReplyEncoding(q.replyEncoding as EncodingType);
+    }
+    if (q.replyPayload) {
+      setReplyPayload(q.replyPayload);
+    }
+    if (q.scriptCode || (isScript && q.replyPayload)) {
+      setScriptCode(q.scriptCode || q.replyPayload || '');
+    }
+  };
+
+  // Copy helper with feedback
+  const handleCopyText = (text: string, id: string) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // Ignore
     }
   };
 
@@ -482,108 +576,18 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
                     />
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] text-muted-foreground">
-                        Script Function Body <span className="font-mono text-[10px] text-foreground">(query.params, query.keyExpr)</span>
-                      </span>
-                      {/* Script Templates Selector */}
-                      <Select
-                        onValueChange={(val) => {
-                          const tmpl = SCRIPT_TEMPLATES.find((t) => t.name === val);
-                          if (tmpl) {
-                            setScriptCode(tmpl.code);
-                            setTestParams(tmpl.sampleQuery);
-                            setTestResult(null);
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="h-6 text-[10px] px-2 gap-1 bg-background border-muted w-36">
-                          <Code2 className="w-3 h-3 mr-1 text-blue-500" />
-                          <span>Script Templates</span>
-                        </SelectTrigger>
-                        <SelectContent align="end">
-                          {SCRIPT_TEMPLATES.map((tmpl) => (
-                            <SelectItem key={tmpl.name} value={tmpl.name} className="text-xs">
-                              <div>
-                                <span className="font-medium text-foreground block">{tmpl.name}</span>
-                                <span className="text-[10px] text-muted-foreground">{tmpl.description}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Script Code Editor */}
-                    <div className="relative rounded-md border bg-muted/20 focus-within:ring-1 focus-within:ring-ring">
-                      <textarea
-                        value={scriptCode}
-                        onChange={(e) => setScriptCode(e.target.value)}
-                        placeholder="// Write JavaScript code. Return an object, string, or primitive."
-                        rows={7}
-                        className="w-full bg-transparent p-2.5 font-mono text-xs text-foreground focus:outline-none resize-y min-h-[130px]"
-                        spellCheck={false}
-                      />
-                    </div>
-
-                    {/* Live Interactive Script Test Sandbox */}
-                    <div className="rounded-md border bg-muted/15 p-2 space-y-1.5">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-medium text-muted-foreground flex items-center gap-1">
-                          <Play className="w-3 h-3 text-emerald-500" />
-                          <span>Test Inbound Parameters</span>
-                        </span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={handleTestScript}
-                          disabled={isTestingScript}
-                          className="h-5 text-[10px] px-2 gap-1"
-                        >
-                          {isTestingScript ? (
-                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                          ) : (
-                            <Play className="w-2.5 h-2.5 text-emerald-500" />
-                          )}
-                          <span>Run Test</span>
-                        </Button>
-                      </div>
-                      <Input
-                        value={testParams}
-                        onChange={(e) => setTestParams(e.target.value)}
-                        placeholder="e.g. op=add&a=15&b=27"
-                        className="h-6 font-mono text-[11px] bg-background"
-                      />
-                      {testResult && (
-                        <div className="mt-1 rounded bg-background p-2 border text-xs font-mono">
-                          <div className="flex items-center justify-between text-[10px] text-muted-foreground pb-1 mb-1 border-b">
-                            <span
-                              className={
-                                testResult.success
-                                  ? 'text-emerald-500 font-semibold flex items-center gap-1'
-                                  : 'text-destructive font-semibold flex items-center gap-1'
-                              }
-                            >
-                              {testResult.success ? (
-                                <CheckCircle2 className="w-3 h-3" />
-                              ) : (
-                                <AlertCircle className="w-3 h-3" />
-                              )}
-                              {testResult.success ? 'Computed Output' : 'Execution Error'}
-                            </span>
-                            <span>{testResult.executionTimeMs}ms</span>
-                          </div>
-                          <pre className="text-[11px] overflow-x-auto text-foreground whitespace-pre-wrap max-h-32">
-                            {typeof testResult.resultValue === 'object'
-                              ? JSON.stringify(testResult.resultValue, null, 2)
-                              : String(testResult.resultValue)}
-                          </pre>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <JavaScriptEditor
+                    value={scriptCode}
+                    onChange={setScriptCode}
+                    sampleQuery={testParams}
+                    keyExpr={keyExpr}
+                    sessionId={sessionId}
+                    encoding={replyEncoding}
+                    onTemplateSelect={(_, sample) => {
+                      setTestParams(sample);
+                    }}
+                    rows={6}
+                  />
                 )}
               </div>
             )}
@@ -619,98 +623,284 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
               sessionQueryables.map((q: ActiveQueryable) => {
                 const isScript = q.replyMode === 'script' || Boolean(q.scriptCode);
                 return (
-                  <div
-                    key={q.id}
-                    className="flex flex-col gap-1.5 rounded-md border bg-card p-2.5"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                        <span className="font-mono text-xs font-medium text-foreground truncate">
-                          {q.keyExpr}
-                        </span>
-                      </div>
+                  <ContextMenu key={q.id}>
+                    <ContextMenuTrigger asChild>
+                      <div
+                        className="flex flex-col gap-1.5 rounded-md border bg-card p-2.5 hover:border-foreground/25 transition-all"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            <span className="font-mono text-xs font-medium text-foreground truncate">
+                              {q.keyExpr}
+                            </span>
+                          </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0">
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {q.autoReply && (
+                              <Badge
+                                variant="outline"
+                                className={`text-[9px] px-1.5 py-0.5 font-mono ${
+                                  isScript
+                                    ? 'text-blue-500 border-blue-500/30 bg-blue-500/10'
+                                    : 'text-muted-foreground'
+                                }`}
+                              >
+                                {isScript ? 'JS Script' : `Static [${q.replyEncoding || 'json'}]`}
+                              </Badge>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateQueryableConfig(q.id, { autoReply: !q.autoReply })
+                              }
+                              className="text-xs flex items-center gap-1 focus:outline-none"
+                              title={
+                                q.autoReply
+                                  ? 'Auto-reply is ON. Click to switch to Manual mode'
+                                  : 'Manual mode. Click to enable Auto-reply'
+                              }
+                            >
+                              {q.autoReply ? (
+                                <Badge className="text-[9px] px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer">
+                                  Auto Reply ON
+                                </Badge>
+                              ) : (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] px-1.5 py-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                                >
+                                  Manual (Queue)
+                                </Badge>
+                              )}
+                            </button>
+
+                            {/* Card More Actions Dropdown Menu */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                                  title="More actions"
+                                >
+                                  <MoreHorizontal className="w-3.5 h-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48 text-xs">
+                                <DropdownMenuLabel className="text-[10px] uppercase text-muted-foreground">
+                                  Queryable Actions
+                                </DropdownMenuLabel>
+                                <DropdownMenuItem
+                                  onClick={() => handleStartEdit(q)}
+                                  className="cursor-pointer gap-2"
+                                >
+                                  <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                                  <span>Edit Configuration...</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() =>
+                                    updateQueryableConfig(q.id, { autoReply: !q.autoReply })
+                                  }
+                                  className="cursor-pointer gap-2"
+                                >
+                                  {q.autoReply ? (
+                                    <>
+                                      <Square className="w-3.5 h-3.5 text-amber-500" />
+                                      <span>Stop Auto-Reply (Queue)</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="w-3.5 h-3.5 text-emerald-500" />
+                                      <span>Start Auto-Reply</span>
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDuplicateToForm(q)}
+                                  className="cursor-pointer gap-2"
+                                >
+                                  <CopyPlus className="w-3.5 h-3.5 text-muted-foreground" />
+                                  <span>Duplicate to Form</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleCopyText(q.keyExpr, `key-${q.id}`)}
+                                  className="cursor-pointer gap-2"
+                                >
+                                  {copiedId === `key-${q.id}` ? (
+                                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                                  )}
+                                  <span>
+                                    {copiedId === `key-${q.id}` ? 'Copied Key!' : 'Copy Key Expression'}
+                                  </span>
+                                </DropdownMenuItem>
+                                {(q.replyPayload || q.scriptCode) && (
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleCopyText(
+                                        q.scriptCode || q.replyPayload || '',
+                                        `payload-${q.id}`
+                                      )
+                                    }
+                                    className="cursor-pointer gap-2"
+                                  >
+                                    {copiedId === `payload-${q.id}` ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                                    ) : (
+                                      <FileCode className="w-3.5 h-3.5 text-muted-foreground" />
+                                    )}
+                                    <span>
+                                      {copiedId === `payload-${q.id}`
+                                        ? 'Copied Content!'
+                                        : isScript
+                                        ? 'Copy Script Code'
+                                        : 'Copy Response Payload'}
+                                    </span>
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleUndeclare(q.id)}
+                                  className="cursor-pointer gap-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Undeclare Queryable</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleUndeclare(q.id)}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                              title="Undeclare queryable"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Auto-reply payload or script preview */}
                         {q.autoReply && (
-                          <Badge
-                            variant="outline"
-                            className={`text-[9px] px-1.5 py-0.5 font-mono ${
-                              isScript
-                                ? 'text-blue-500 border-blue-500/30 bg-blue-500/10'
-                                : 'text-muted-foreground'
-                            }`}
-                          >
-                            {isScript ? 'JS Script' : `Static [${q.replyEncoding || 'json'}]`}
-                          </Badge>
+                          <div className="font-mono text-[10px] text-muted-foreground bg-muted/40 p-1.5 rounded border truncate flex items-center gap-1">
+                            {isScript ? (
+                              <>
+                                <Code2 className="w-3 h-3 text-blue-500 shrink-0" />
+                                <span className="truncate">
+                                  {(q.scriptCode || q.replyPayload || '').replace(/[\r\n\t ]+/g, ' ')}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-medium uppercase text-foreground mr-1">
+                                  [{q.replyEncoding || 'json'}]
+                                </span>
+                                <span className="truncate">
+                                  {(q.replyPayload || '').replace(/[\r\n\t ]+/g, ' ')}
+                                </span>
+                              </>
+                            )}
+                          </div>
                         )}
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateQueryableConfig(q.id, { autoReply: !q.autoReply })
-                          }
-                          className="text-xs flex items-center gap-1 focus:outline-none"
-                          title={
-                            q.autoReply
-                              ? 'Auto-reply is ON. Click to switch to Manual mode'
-                              : 'Manual mode. Click to enable Auto-reply'
-                          }
-                        >
-                          {q.autoReply ? (
-                            <Badge className="text-[9px] px-1.5 py-0.5 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 transition-colors cursor-pointer">
-                              Auto Reply ON
-                            </Badge>
-                          ) : (
-                            <Badge
-                              variant="outline"
-                              className="text-[9px] px-1.5 py-0.5 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10 transition-colors cursor-pointer"
-                            >
-                              Manual (Queue)
-                            </Badge>
-                          )}
-                        </button>
-
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleUndeclare(q.id)}
-                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                          title="Undeclare queryable"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        <div className="text-[10px] text-muted-foreground font-mono">
+                          Declared at {formatTimeWithMs(q.createdAt)}
+                        </div>
                       </div>
-                    </div>
+                    </ContextMenuTrigger>
 
-                    {/* Auto-reply payload or script preview */}
-                    {q.autoReply && (
-                      <div className="font-mono text-[10px] text-muted-foreground bg-muted/40 p-1.5 rounded border truncate flex items-center gap-1">
-                        {isScript ? (
+                    {/* Right-Click Context Menu */}
+                    <ContextMenuContent className="w-48 text-xs">
+                      <ContextMenuLabel className="text-[10px] uppercase text-muted-foreground">
+                        Queryable Actions
+                      </ContextMenuLabel>
+                      <ContextMenuItem
+                        onClick={() => handleStartEdit(q)}
+                        className="cursor-pointer gap-2"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-blue-500" />
+                        <span>Edit Configuration...</span>
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() =>
+                          updateQueryableConfig(q.id, { autoReply: !q.autoReply })
+                        }
+                        className="cursor-pointer gap-2"
+                      >
+                        {q.autoReply ? (
                           <>
-                            <Code2 className="w-3 h-3 text-blue-500 shrink-0" />
-                            <span className="truncate">
-                              {(q.scriptCode || q.replyPayload || '').replace(/[\r\n\t ]+/g, ' ')}
-                            </span>
+                            <Square className="w-3.5 h-3.5 text-amber-500" />
+                            <span>Stop Auto-Reply (Queue)</span>
                           </>
                         ) : (
                           <>
-                            <span className="font-medium uppercase text-foreground mr-1">
-                              [{q.replyEncoding || 'json'}]
-                            </span>
-                            <span className="truncate">
-                              {(q.replyPayload || '').replace(/[\r\n\t ]+/g, ' ')}
-                            </span>
+                            <Play className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>Start Auto-Reply</span>
                           </>
                         )}
-                      </div>
-                    )}
-
-                    <div className="text-[10px] text-muted-foreground font-mono">
-                      Declared at {formatTimeWithMs(q.createdAt)}
-                    </div>
-                  </div>
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => handleDuplicateToForm(q)}
+                        className="cursor-pointer gap-2"
+                      >
+                        <CopyPlus className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span>Duplicate to Form</span>
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        onClick={() => handleCopyText(q.keyExpr, `key-${q.id}`)}
+                        className="cursor-pointer gap-2"
+                      >
+                        {copiedId === `key-${q.id}` ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+                        )}
+                        <span>
+                          {copiedId === `key-${q.id}` ? 'Copied Key!' : 'Copy Key Expression'}
+                        </span>
+                      </ContextMenuItem>
+                      {(q.replyPayload || q.scriptCode) && (
+                        <ContextMenuItem
+                          onClick={() =>
+                            handleCopyText(
+                              q.scriptCode || q.replyPayload || '',
+                              `payload-${q.id}`
+                            )
+                          }
+                          className="cursor-pointer gap-2"
+                        >
+                          {copiedId === `payload-${q.id}` ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          ) : (
+                            <FileCode className="w-3.5 h-3.5 text-muted-foreground" />
+                          )}
+                          <span>
+                            {copiedId === `payload-${q.id}`
+                              ? 'Copied Content!'
+                              : isScript
+                              ? 'Copy Script Code'
+                              : 'Copy Response Payload'}
+                          </span>
+                        </ContextMenuItem>
+                      )}
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        onClick={() => handleUndeclare(q.id)}
+                        className="cursor-pointer gap-2 text-destructive focus:text-destructive focus:bg-destructive/10"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Undeclare Queryable</span>
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 );
               })
             )}
@@ -947,6 +1137,184 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
         </div>
         )}
       </div>
+
+      {/* Edit Queryable Modal Dialog */}
+      <Dialog
+        open={Boolean(editingQueryable)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingQueryable(null);
+            setEditError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+              <Pencil className="w-4 h-4 text-primary" />
+              <span>Edit Queryable Configuration</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Modify the key expression, auto-response mode, or reply payload/script.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editError && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-2 text-xs text-destructive">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{editError}</span>
+            </div>
+          )}
+
+          <div className="space-y-3 py-1">
+            {/* Key Expression */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Key Expression
+              </label>
+              <Input
+                type="text"
+                value={editKeyExpr}
+                onChange={(e) => setEditKeyExpr(e.target.value)}
+                placeholder="e.g. rpc/calculator/**"
+                className="font-mono text-xs h-8 bg-background"
+              />
+            </div>
+
+            {/* Auto-Reply Switch */}
+            <div className="flex items-center justify-between rounded-md border bg-muted/20 p-2">
+              <div>
+                <div className="text-xs font-medium text-foreground">
+                  Automated Mock Reply
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  Automatically respond when query arrives
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditAutoReply(!editAutoReply)}
+                className="text-foreground transition-opacity"
+              >
+                {editAutoReply ? (
+                  <ToggleRight className="w-6 h-6 text-foreground" />
+                ) : (
+                  <ToggleLeft className="w-6 h-6 text-muted-foreground" />
+                )}
+              </button>
+            </div>
+
+            {/* Mode & Body Editor */}
+            {editAutoReply && (
+              <div className="space-y-2 pt-1 border-t">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    Response Mode
+                  </label>
+                  <div className="flex items-center rounded-md border bg-muted p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setEditReplyMode('payload')}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        editReplyMode === 'payload'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <FileText className="w-3 h-3" />
+                      <span>Static Payload</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditReplyMode('script')}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                        editReplyMode === 'script'
+                          ? 'bg-background text-foreground shadow-xs'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Code2 className="w-3 h-3 text-blue-500" />
+                      <span>JavaScript Script</span>
+                    </button>
+                  </div>
+                </div>
+
+                {editReplyMode === 'payload' ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">Response Payload</span>
+                      <Select
+                        onValueChange={(val) => {
+                          const tmpl = MOCK_RESPONSE_TEMPLATES.find((t) => t.name === val);
+                          if (tmpl) {
+                            setEditReplyPayload(tmpl.content);
+                            setEditReplyEncoding(tmpl.encoding);
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="h-6 text-[10px] px-2 gap-1 bg-background border-muted w-32">
+                          <Sparkles className="w-3 h-3 mr-1 text-muted-foreground" />
+                          <span>Presets</span>
+                        </SelectTrigger>
+                        <SelectContent align="end">
+                          {MOCK_RESPONSE_TEMPLATES.map((tmpl) => (
+                            <SelectItem key={tmpl.name} value={tmpl.name} className="text-xs">
+                              {tmpl.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <PayloadEditor
+                      value={editReplyPayload}
+                      onChange={setEditReplyPayload}
+                      encoding={editReplyEncoding}
+                      onEncodingChange={setEditReplyEncoding}
+                      rows={4}
+                    />
+                  </div>
+                ) : (
+                  <JavaScriptEditor
+                    value={editScriptCode}
+                    onChange={setEditScriptCode}
+                    sampleQuery={editTestParams}
+                    keyExpr={editKeyExpr}
+                    sessionId={sessionId}
+                    encoding={editReplyEncoding}
+                    onTemplateSelect={(_, sample) => {
+                      setEditTestParams(sample);
+                    }}
+                    rows={6}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0 pt-2 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingQueryable(null)}
+              className="h-8 text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveEdit}
+              disabled={isSavingEdit || !editKeyExpr.trim()}
+              className="h-8 text-xs font-medium gap-1.5"
+            >
+              {isSavingEdit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>Save Changes</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

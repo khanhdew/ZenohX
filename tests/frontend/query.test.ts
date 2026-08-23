@@ -320,5 +320,52 @@ describe('Query / RPC Store Operations & Reply Timeline Data', () => {
       'return { product: Number(query.params.a) * Number(query.params.b) };'
     );
   });
+
+  test('editQueryable updates key expression, mode, and auto-reply', async () => {
+    let undeclared = '';
+    let reDeclared = '';
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'declare_queryable') {
+        reDeclared = args?.keyExpr as string;
+        return undefined;
+      }
+      if (cmd === 'undeclare_queryable') {
+        undeclared = args?.queryableId as string;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    const qId = await useQueryStore.getState().declareQueryable(
+      'sess-100',
+      'demo/old/path',
+      false,
+      'old static',
+      'text',
+      'prof-1',
+      'payload'
+    );
+
+    assert.ok(qId);
+
+    // Edit to new key expression and script mode
+    await useQueryStore.getState().editQueryable(qId, {
+      keyExpr: 'demo/new/path',
+      autoReply: true,
+      replyMode: 'script',
+      scriptCode: 'return "hello from edit";',
+    });
+
+    assert.equal(undeclared, qId);
+    assert.equal(reDeclared, 'demo/new/path');
+
+    const edited = useQueryStore.getState().activeQueryables.find((x) => x.id === qId);
+    assert.equal(edited?.keyExpr, 'demo/new/path');
+    assert.equal(edited?.autoReply, true);
+    assert.equal(edited?.replyMode, 'script');
+    assert.equal(edited?.scriptCode, 'return "hello from edit";');
+  });
 });
+
 

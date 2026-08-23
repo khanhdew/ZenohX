@@ -1,3 +1,5 @@
+import type protobuf from 'protobufjs';
+
 export interface ProtoDefinition {
   id: string;
   name: string;
@@ -30,4 +32,8 @@ export interface ProtoState {
 
   findMappingForKey: (keyExpr: string) => ProtoTopicMapping | undefined;
   getAllMessageTypes: () => Array<{ protoId: string; protoName: string; typeName: string }>;
+  getCompiledRoot: (protoId: string) => protobuf.Root | null;
+  getGlobalRoot: () => protobuf.Root;
+  clearAll: () => void;
 }
+

@@ -32,8 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Button } from '../ui/button';
-import { ProtoManagerDialog } from '../proto/ProtoManagerDialog';
 import type { EncodingType } from '../../types/zenoh';
 
 export type ViewerTab = 'json' | 'cbor' | 'text' | 'protobuf' | 'hex' | 'raw';
@@ -369,8 +367,6 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
   const getCompiledRoot = useProtoStore((s) => s.getCompiledRoot);
   const getGlobalRoot = useProtoStore((s) => s.getGlobalRoot);
 
-  const [isProtoDialogOpen, setIsProtoDialogOpen] = useState<boolean>(false);
-
   // All available message types
   const allMessageTypes = useMemo(() => {
     return getAllMessageTypes();
@@ -561,8 +557,7 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
   const isStructuredTab = activeTab === 'json' || activeTab === 'cbor' || activeTab === 'protobuf';
 
   return (
-    <>
-      <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
+    <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
         {/* Header Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
           {/* Navigation Tabs */}
@@ -594,56 +589,36 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
             {activeTab === 'protobuf' && (
               <div className="flex items-center gap-1.5">
                 {schemas.length === 0 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsProtoDialogOpen(true)}
-                    className="h-6 text-[11px] px-2 gap-1 text-primary hover:text-primary border-dashed"
-                    title="Open Protobuf Schema Manager to add schemas"
-                  >
-                    <Boxes className="w-3 h-3" />
-                    <span>Add Schema</span>
-                  </Button>
+                  <span className="text-[11px] text-amber-500 font-medium px-1" title="Register schemas in Settings > Protobuf Manager">
+                    No schemas registered (see Settings &gt; Protobuf)
+                  </span>
                 ) : (
-                  <>
-                    <Select value={selectedProtoType} onValueChange={(val) => setSelectedProtoType(val)}>
-                      <SelectTrigger
-                        className="h-6 text-[11px] min-w-[130px] max-w-[200px] px-2 py-0 bg-background"
-                        title={`Protobuf Type: ${selectedProtoType || 'None selected'}`}
-                      >
-                        <SelectValue placeholder="Select proto type..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {schemas.map((schema) => {
-                          const types = schema.messageTypes || [];
-                          if (types.length === 0) return null;
-                          return (
-                            <SelectGroup key={schema.id}>
-                              <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase">
-                                {schema.name}
-                              </SelectLabel>
-                              {types.map((type) => (
-                                <SelectItem key={`${schema.id}-${type}`} value={type} className="text-xs font-mono">
-                                  {type}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          );
-                        })}
-                      </SelectContent>
-                    </Select>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsProtoDialogOpen(true)}
-                      className="flex items-center gap-1 rounded bg-muted hover:bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                      title="Manage Protobuf Schemas & Topic Mappings"
+                  <Select value={selectedProtoType} onValueChange={(val) => setSelectedProtoType(val)}>
+                    <SelectTrigger
+                      className="h-6 text-[11px] min-w-[130px] max-w-[200px] px-2 py-0 bg-background"
+                      title={`Protobuf Type: ${selectedProtoType || 'None selected'}`}
                     >
-                      <Boxes className="w-3 h-3 text-primary" />
-                      <span className="text-[11px] hidden sm:inline">Schemas</span>
-                    </button>
-                  </>
+                      <SelectValue placeholder="Select proto type..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {schemas.map((schema) => {
+                        const types = schema.messageTypes || [];
+                        if (types.length === 0) return null;
+                        return (
+                          <SelectGroup key={schema.id}>
+                            <SelectLabel className="text-[10px] font-semibold text-muted-foreground uppercase">
+                              {schema.name}
+                            </SelectLabel>
+                            {types.map((type) => (
+                              <SelectItem key={`${schema.id}-${type}`} value={type} className="text-xs font-mono">
+                                {type}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
             )}
@@ -756,13 +731,6 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
           )}
         </div>
       </div>
-
-      {/* Protobuf Schema Manager Dialog */}
-      <ProtoManagerDialog
-        isOpen={isProtoDialogOpen}
-        onClose={() => setIsProtoDialogOpen(false)}
-      />
-    </>
   );
 };
 

@@ -49,13 +49,6 @@ export interface ProtoManagerViewProps {
   className?: string;
 }
 
-export interface ProtoManagerDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  initialSelectedSchemaId?: string;
-  initialTab?: 'schemas' | 'mappings';
-}
-
 export interface ProtoPreset {
   id: string;
   name: string;
@@ -1297,26 +1290,6 @@ export const ProtoManagerView: React.FC<ProtoManagerViewProps> = ({
   );
 };
 
-export const ProtoManagerDialog: React.FC<ProtoManagerDialogProps> = ({
-  isOpen,
-  onClose,
-  initialSelectedSchemaId,
-  initialTab = 'schemas',
-}) => {
-  if (!isOpen) return null;
+export default ProtoManagerView;
 
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl w-[95vw] h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
-        <ProtoManagerView
-          onClose={onClose}
-          initialSelectedSchemaId={initialSelectedSchemaId}
-          initialTab={initialTab}
-        />
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-export default ProtoManagerDialog;
 

@@ -36,8 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { Button } from '../ui/button';
-import { ProtoManagerDialog } from '../proto/ProtoManagerDialog';
 import type { EncodingType } from '../../types/zenoh';
 
 export interface PayloadEditorProps {
@@ -158,7 +156,6 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
 }) => {
   const [copied, setCopied] = useState<boolean>(false);
   const [templateMenuOpen, setTemplateMenuOpen] = useState<boolean>(false);
-  const [isProtoDialogOpen, setIsProtoDialogOpen] = useState<boolean>(false);
 
   const rawEnc = (encoding || 'json').toLowerCase();
   const currentEncoding: EncodingType =
@@ -421,11 +418,10 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
   ];
 
   return (
-    <>
-      <div
-        style={style}
-        className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}
-      >
+    <div
+      style={style}
+      className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}
+    >
         {/* Header Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5 shrink-0">
           {/* Encoding Selector Pills */}
@@ -465,17 +461,9 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
             {currentEncoding === 'protobuf' && (
               <div className="flex items-center gap-1.5">
                 {schemas.length === 0 ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsProtoDialogOpen(true)}
-                    className="h-6 text-[11px] px-2 gap-1 text-primary hover:text-primary border-dashed"
-                    title="Open Protobuf Schema Manager to add schemas"
-                  >
-                    <Boxes className="w-3 h-3" />
-                    <span>Add Schema</span>
-                  </Button>
+                  <span className="text-[11px] text-amber-500 font-medium px-1" title="Register schemas in Settings > Protobuf Manager">
+                    No schemas (see Settings &gt; Protobuf)
+                  </span>
                 ) : (
                   <>
                     <Select
@@ -508,16 +496,6 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
                         })}
                       </SelectContent>
                     </Select>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsProtoDialogOpen(true)}
-                      className="flex items-center gap-1 rounded bg-muted hover:bg-muted/80 px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                      title="Manage Protobuf Schemas & Topic Mappings"
-                    >
-                      <Boxes className="w-3 h-3 text-primary" />
-                      <span className="text-[11px] hidden sm:inline">Schemas</span>
-                    </button>
 
                     {selectedProtoType && (
                       <button
@@ -722,13 +700,6 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Protobuf Schema Manager Dialog */}
-      <ProtoManagerDialog
-        isOpen={isProtoDialogOpen}
-        onClose={() => setIsProtoDialogOpen(false)}
-      />
-    </>
   );
 };
 

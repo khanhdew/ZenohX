@@ -30,7 +30,6 @@ import { openProfileInNewWindow } from '../../lib/tauri';
 import { formatFriendlyError } from '../../lib/errorUtils';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
-import { ProtoManagerDialog } from '../proto/ProtoManagerDialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -67,7 +66,6 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
   const [searchQuery, setSearchQuery] = useState('');
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [scoutModalOpen, setScoutModalOpen] = useState(false);
-  const [protoModalOpen, setProtoModalOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfile | null>(null);
   const [deleteConfirmProfile, setDeleteConfirmProfile] = useState<ConnectionProfile | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -570,16 +568,15 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
           <span>
             {profiles.length} profile{profiles.length === 1 ? '' : 's'}
           </span>
-          <span className="text-muted-foreground/40">•</span>
-          <button
-            type="button"
-            onClick={() => setProtoModalOpen(true)}
-            className="flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline transition-colors"
-            title="Manage Protobuf Schemas"
-          >
-            <FileCode2 className="w-3 h-3" />
-            <span>{protoSchemas.length} proto{protoSchemas.length === 1 ? '' : 's'}</span>
-          </button>
+          {protoSchemas.length > 0 && (
+            <>
+              <span className="text-muted-foreground/40">•</span>
+              <span className="flex items-center gap-1 text-muted-foreground" title="Protobuf Schemas (Settings > Protobuf Manager)">
+                <FileCode2 className="w-3 h-3" />
+                <span>{protoSchemas.length} proto{protoSchemas.length === 1 ? '' : 's'}</span>
+              </span>
+            </>
+          )}
         </div>
         <Button
           variant="ghost"
@@ -591,12 +588,6 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
           <RefreshCw className="w-3 h-3" />
         </Button>
       </div>
-
-      {/* Protobuf Schema Manager Dialog */}
-      <ProtoManagerDialog
-        isOpen={protoModalOpen}
-        onClose={() => setProtoModalOpen(false)}
-      />
 
       {/* Profile Modal (Create / Edit) */}
       <ProfileModal

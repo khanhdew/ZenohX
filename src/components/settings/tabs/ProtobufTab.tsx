@@ -1,5 +1,5 @@
 import React from 'react';
-import { ProtoManagerView } from '../../proto/ProtoManagerDialog';
+import { ProtoManagerView } from '../../proto/ProtoManagerView';
 
 export const ProtobufTab: React.FC = () => {
   return (

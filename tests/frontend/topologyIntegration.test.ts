@@ -86,7 +86,7 @@ describe('Topology Integration & Navigation', () => {
     assert.equal(typeof element.props.onNavigateToPubSub, 'function');
   });
 
-  it('syncs topology graph with active sessions and connects edges to local node', () => {
+  it('syncs topology graph with active sessions and marks connected nodes', () => {
     useConnectionStore.setState({
       profiles: [
         {
@@ -116,6 +116,11 @@ describe('Topology Integration & Navigation', () => {
           what: 'Router',
           locators: ['tcp/10.0.0.1:7447'],
         },
+        {
+          zid: 'zid-peer-2',
+          what: 'Peer',
+          locators: ['udp/10.0.0.2:7447'],
+        },
       ],
     });
 
@@ -128,8 +133,8 @@ describe('Topology Integration & Navigation', () => {
 
     const { nodes, edges } = useTopologyStore.getState();
     assert.equal(nodes.length, 2);
-    assert.ok(nodes.some((n) => n.id === 'local-zenohx'));
     assert.ok(nodes.some((n) => n.zid === 'zid-cloud-router' && n.status === 'connected'));
+    assert.ok(nodes.some((n) => n.zid === 'zid-peer-2' && n.status === 'scouted'));
     assert.equal(edges.length, 1);
     assert.equal(edges[0].status, 'active');
   });

@@ -118,16 +118,16 @@ describe('Topology Physics & Coordinate Math', () => {
     assert.ok(newDistance > initialDistance, 'Nodes should repel each other when close');
   });
 
-  it('arranges nodes in radial layout around hub/local node', () => {
+  it('arranges nodes in radial layout around concentric rings', () => {
     const nodes: TopologyNode[] = [
-      { id: 'local-zenohx', zid: 'local', label: 'Local', type: 'local', status: 'connected', locators: [], isTls: false, x: 50, y: 50, vx: 0, vy: 0, fx: null, fy: null, radius: 30 },
-      { id: 'r1', zid: 'r1', label: 'Router 1', type: 'router', status: 'scouted', locators: [], isTls: false, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null, radius: 30 },
+      { id: 'r1', zid: 'r1', label: 'Router 1', type: 'router', status: 'scouted', locators: [], isTls: false, x: 50, y: 50, vx: 0, vy: 0, fx: null, fy: null, radius: 30 },
       { id: 'p1', zid: 'p1', label: 'Peer 1', type: 'peer', status: 'scouted', locators: [], isTls: false, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null, radius: 25 },
+      { id: 'c1', zid: 'c1', label: 'Client 1', type: 'client', status: 'scouted', locators: [], isTls: false, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null, radius: 20 },
     ];
 
     applyRadialLayout(nodes);
-    assert.equal(nodes[0].x, 0);
-    assert.equal(nodes[0].y, 0);
-    assert.ok(Math.hypot(nodes[1].x, nodes[1].y) > 50);
+    assert.ok(Math.abs(Math.hypot(nodes[0].x, nodes[0].y) - 170) < 0.1);
+    assert.ok(Math.abs(Math.hypot(nodes[1].x, nodes[1].y) - 260) < 0.1);
+    assert.ok(Math.abs(Math.hypot(nodes[2].x, nodes[2].y) - 330) < 0.1);
   });
 });

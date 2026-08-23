@@ -154,21 +154,9 @@ export function stepPhysicsSimulation(
 export function applyRadialLayout(nodes: TopologyNode[]): void {
   if (nodes.length === 0) return;
 
-  const localNode = nodes.find((n) => n.type === 'local');
-  if (localNode) {
-    localNode.x = 0;
-    localNode.y = 0;
-    localNode.vx = 0;
-    localNode.vy = 0;
-  }
-
-  const ringNodes = localNode ? nodes.filter((n) => n.id !== localNode.id) : nodes;
-  const routers = ringNodes.filter((n) => n.type === 'router');
-  const peers = ringNodes.filter((n) => n.type === 'peer');
-  const clients = ringNodes.filter((n) => n.type === 'client');
-  const others = ringNodes.filter(
-    (n) => n.type !== 'router' && n.type !== 'peer' && n.type !== 'client'
-  );
+  const routers = nodes.filter((n) => n.type === 'router');
+  const peers = nodes.filter((n) => n.type === 'peer');
+  const clients = nodes.filter((n) => n.type === 'client');
 
   const placeRing = (group: TopologyNode[], radius: number) => {
     group.forEach((node, idx) => {
@@ -183,5 +171,4 @@ export function applyRadialLayout(nodes: TopologyNode[]): void {
   placeRing(routers, 170);
   placeRing(peers, 260);
   placeRing(clients, 330);
-  placeRing(others, 200);
 }

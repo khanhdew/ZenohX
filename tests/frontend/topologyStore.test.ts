@@ -118,7 +118,7 @@ describe('Topology Store', () => {
     // filterType: all -> all nodes
     useTopologyStore.getState().setFilterType('all');
     let filtered = useTopologyStore.getState().getFilteredNodes();
-    assert.equal(filtered.length, 3); // local, r1, p1
+    assert.equal(filtered.length, 2); // r1, p1
 
     // filterType: router -> router nodes only
     useTopologyStore.getState().setFilterType('router');
@@ -132,10 +132,10 @@ describe('Topology Store', () => {
     assert.equal(filtered.length, 1);
     assert.equal(filtered[0].type, 'peer');
 
-    // filterType: connected -> connected nodes (local and r1)
+    // filterType: connected -> connected nodes (r1)
     useTopologyStore.getState().setFilterType('connected');
     filtered = useTopologyStore.getState().getFilteredNodes();
-    assert.equal(filtered.length, 2);
+    assert.equal(filtered.length, 1);
     assert.ok(filtered.every((n) => n.status === 'connected'));
   });
 

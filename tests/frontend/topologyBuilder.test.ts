@@ -23,7 +23,7 @@ describe('Topology Data Builder', () => {
     assert.equal(extractLocatorHostPort('raw-host'), 'raw-host');
   });
 
-  it('builds topology graph with local node and scouted routers/peers', () => {
+  it('builds topology graph with scouted routers/peers and generates router-to-peer edges', () => {
     const scoutedNodes: ScoutedNode[] = [
       {
         zid: '0123456789abcdef',
@@ -66,12 +66,8 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // 1 local node + 2 scouted nodes = 3 nodes
-    assert.equal(nodes.length, 3);
-    const localNode = nodes.find((n) => n.id === 'local-zenohx');
-    assert.ok(localNode);
-    assert.equal(localNode?.type, 'local');
-    assert.equal(localNode?.status, 'connected');
+    // 2 scouted nodes = 2 nodes (router and peer)
+    assert.equal(nodes.length, 2);
 
     const routerNode = nodes.find((n) => n.zid === '0123456789abcdef');
     assert.ok(routerNode);
@@ -85,14 +81,15 @@ describe('Topology Data Builder', () => {
     assert.equal(peerNode?.isTls, false);
     assert.equal(peerNode?.status, 'scouted');
 
-    // Should create an active edge between local and router
-    assert.ok(edges.length >= 1);
-    const activeEdge = edges.find(
-      (e) => e.source === 'local-zenohx' && e.target === routerNode?.id
+    // Should create an active edge between router and peer
+    assert.equal(edges.length, 1);
+    const routerPeerEdge = edges.find(
+      (e) => (e.source === routerNode?.id && e.target === peerNode?.id) ||
+             (e.target === routerNode?.id && e.source === peerNode?.id)
     );
-    assert.ok(activeEdge);
-    assert.equal(activeEdge?.status, 'active');
-    assert.equal(activeEdge?.animated, true);
+    assert.ok(routerPeerEdge);
+    assert.equal(routerPeerEdge?.status, 'active');
+    assert.equal(routerPeerEdge?.animated, true);
   });
 
   it('preserves existing node positions across graph updates', () => {
@@ -159,15 +156,14 @@ describe('Topology Data Builder', () => {
       },
     };
 
-    const { nodes, edges } = buildTopologyGraph({
+    const { nodes } = buildTopologyGraph({
       scoutedNodes: [],
       activeSessions,
       profiles,
       existingNodes: [],
     });
 
-    // 1 local node + 1 remote unmatched node = 2 nodes
-    assert.equal(nodes.length, 2);
+    assert.equal(nodes.length, 1);
     
     const cloudNode = nodes.find((n) => n.id === 'profile-prof-cloud');
     assert.ok(cloudNode);
@@ -175,66 +171,35 @@ describe('Topology Data Builder', () => {
     assert.equal(cloudNode?.isTls, true);
     assert.equal(cloudNode?.status, 'connected');
     assert.equal(cloudNode?.label, 'Cloud Router');
-
-    const activeEdge = edges.find(
-      (e) => e.source === 'local-zenohx' && e.target === 'profile-prof-cloud'
-    );
-    assert.ok(activeEdge);
-    assert.equal(activeEdge?.status, 'active');
-    assert.equal(activeEdge?.isEncrypted, true);
-    assert.equal(activeEdge?.animated, true);
   });
 
-  it('automatically meshes discovered LAN peers when ZenohX is active in peer mode', () => {
+  it('automatically creates peer mesh edges between discovered LAN peers', () => {
     const scoutedNodes: ScoutedNode[] = [
       {
-        zid: 'peer-abc-123',
+        zid: 'peer-1',
         what: 'Peer',
         locators: ['udp/192.168.1.55:7447'],
       },
-    ];
-
-    const profiles: ConnectionProfile[] = [
       {
-        id: 'prof-peer-local',
-        name: 'My Peer Session',
-        mode: 'peer',
-        connect_locators: [],
-        listen_locators: [],
-        scout_multicast: true,
-        created_at: 1704067200000,
-        updated_at: 1704067200000,
+        zid: 'peer-2',
+        what: 'Peer',
+        locators: ['udp/192.168.1.56:7447'],
       },
     ];
-
-    const activeSessions: Record<string, ActiveSession> = {
-      'prof-peer-local': {
-        id: 'sess-peer',
-        profile_id: 'prof-peer-local',
-        zid: 'local-zid-peer',
-        connected_at: '2026-01-01T00:00:00Z',
-      },
-    };
 
     const { nodes, edges } = buildTopologyGraph({
       scoutedNodes,
-      activeSessions,
-      profiles,
+      activeSessions: {},
+      profiles: [],
       existingNodes: [],
     });
 
-    const localNode = nodes.find((n) => n.id === 'local-zenohx');
-    assert.equal(localNode?.label, 'ZenohX (Peer Mesh)');
-    assert.equal(localNode?.mode, 'peer');
+    assert.equal(nodes.length, 2);
+    assert.equal(edges.length, 1);
 
-    const peerNode = nodes.find((n) => n.zid === 'peer-abc-123');
-    assert.ok(peerNode);
-    assert.equal(peerNode?.status, 'connected'); // Meshed with local peer
-
-    const meshEdge = edges.find((e) => e.source === 'local-zenohx' && e.target === peerNode?.id);
+    const meshEdge = edges[0];
     assert.ok(meshEdge);
-    assert.equal(meshEdge?.status, 'active');
-    assert.equal(meshEdge?.animated, true);
+    assert.equal(meshEdge.status, 'scouted');
   });
 
   it('returns empty graph when disconnected with no scouted nodes', () => {

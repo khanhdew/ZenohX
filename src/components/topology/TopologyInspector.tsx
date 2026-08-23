@@ -234,18 +234,16 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         )}
 
         <div className="flex items-center gap-2">
-          {node.type !== 'local' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onOpenProfileEditor(node)}
-              className="flex-1 h-7 text-xs gap-1"
-              title="Save discovered locator into connection profiles"
-            >
-              <Plus className="w-3 h-3" />
-              <span>Save Profile</span>
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenProfileEditor(node)}
+            className="flex-1 h-7 text-xs gap-1"
+            title="Save discovered locator into connection profiles"
+          >
+            <Plus className="w-3 h-3" />
+            <span>Save Profile</span>
+          </Button>
 
           <Button
             variant="outline"

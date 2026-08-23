@@ -139,11 +139,8 @@ export function renderTopologyCanvas(
     ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
 
     if (node.type === 'router') {
-      ctx.fillStyle = isDark ? '#1e1b4b' : '#e0e7ff'; // Indigo tint
-      ctx.strokeStyle = isDark ? '#6366f1' : '#4f46e5';
-    } else if (node.type === 'local') {
-      ctx.fillStyle = isDark ? '#064e3b' : '#d1fae5'; // Emerald tint
-      ctx.strokeStyle = isDark ? '#10b981' : '#059669';
+      ctx.fillStyle = isDark ? '#312e81' : '#e0e7ff'; // Indigo tint
+      ctx.strokeStyle = isDark ? '#818cf8' : '#4f46e5';
     } else if (node.type === 'peer') {
       ctx.fillStyle = isDark ? '#172554' : '#dbeafe'; // Blue tint
       ctx.strokeStyle = isDark ? '#3b82f6' : '#2563eb';
@@ -161,8 +158,7 @@ export function renderTopologyCanvas(
     ctx.font = 'bold 12px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const iconLetter =
-      node.type === 'router' ? 'R' : node.type === 'local' ? 'LX' : node.type === 'peer' ? 'P' : 'C';
+    const iconLetter = node.type === 'router' ? 'R' : node.type === 'peer' ? 'P' : 'C';
     ctx.fillText(iconLetter, node.x, node.y);
 
     // Node Status Dot Badge

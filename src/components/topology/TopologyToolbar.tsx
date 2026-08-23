@@ -3,17 +3,19 @@ import {
   Radar,
   LayoutGrid,
   Sparkles,
-  RefreshCw,
+  ChevronDown,
 } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '../ui/select';
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from '../ui/dropdown-menu';
 import { useTopologyStore } from '../../stores/topologyStore';
 import { useConnectionStore } from '../../stores/connectionStore';
 
@@ -135,53 +137,70 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
           </Button>
         </div>
 
-        {/* Auto-Scout Interval Selector */}
-        <div className="flex items-center gap-1.5">
-          <Select
-            value={String(autoScoutInterval)}
-            onValueChange={(val) => setAutoScoutInterval(Number(val))}
+        {/* Unified Scout Split Button with Auto-Scout Dropdown */}
+        <div className="flex items-center rounded-md border bg-card shadow-xs overflow-hidden">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onTriggerScout}
+            disabled={isScouting}
+            className="h-8 px-2.5 text-xs gap-1.5 font-medium rounded-r-none border-r hover:bg-accent/50"
+            title="Scan local network for Zenoh routers and peers"
           >
-            <SelectTrigger
-              className={`h-8 w-28 text-xs bg-background gap-1 ${
-                autoScoutInterval > 0
-                  ? 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400'
-                  : 'text-muted-foreground'
-              }`}
-              title="Periodic Auto-Scout Interval"
-            >
-              <RefreshCw className={`w-3 h-3 ${autoScoutInterval > 0 ? 'text-emerald-500 animate-spin' : 'text-muted-foreground'}`} />
-              <SelectValue placeholder="Auto Scout" />
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="0" className="text-xs">
-                Auto: Off
-              </SelectItem>
-              <SelectItem value="5000" className="text-xs">
-                Auto: 5s
-              </SelectItem>
-              <SelectItem value="10000" className="text-xs">
-                Auto: 10s
-              </SelectItem>
-              <SelectItem value="30000" className="text-xs">
-                Auto: 30s
-              </SelectItem>
-              <SelectItem value="60000" className="text-xs">
-                Auto: 60s
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            <Radar className={`w-3.5 h-3.5 ${isScouting ? 'animate-spin text-primary' : autoScoutInterval > 0 ? 'text-emerald-500' : ''}`} />
+            <span>{isScouting ? 'Scanning...' : 'Scout LAN'}</span>
+          </Button>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onTriggerScout}
-          disabled={isScouting}
-          className="h-8 text-xs gap-1.5 font-medium"
-        >
-          <Radar className={`w-3.5 h-3.5 ${isScouting ? 'animate-spin text-primary' : autoScoutInterval > 0 ? 'text-emerald-500' : ''}`} />
-          <span>{isScouting ? 'Scanning...' : 'Scout LAN'}</span>
-        </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-8 px-2 text-xs gap-1 rounded-l-none hover:bg-accent/50 ${
+                  autoScoutInterval > 0
+                    ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                    : 'text-muted-foreground'
+                }`}
+                title="Configure Auto-Scout Interval"
+              >
+                <span className="text-[11px] font-mono">
+                  {autoScoutInterval === 0
+                    ? 'Off'
+                    : autoScoutInterval >= 1000
+                    ? `${autoScoutInterval / 1000}s`
+                    : `${autoScoutInterval}ms`}
+                </span>
+                <ChevronDown className="w-3 h-3 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                Auto Scout
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup
+                value={String(autoScoutInterval)}
+                onValueChange={(val) => setAutoScoutInterval(Number(val))}
+              >
+                <DropdownMenuRadioItem value="0" className="text-xs">
+                  Off (Manual)
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="5000" className="text-xs">
+                  Every 5s
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="10000" className="text-xs">
+                  Every 10s
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="30000" className="text-xs">
+                  Every 30s
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="60000" className="text-xs">
+                  Every 60s
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   );

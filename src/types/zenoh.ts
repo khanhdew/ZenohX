@@ -9,7 +9,7 @@
 
 export type ConnectionMode = 'peer' | 'client' | 'router';
 
-export type EncodingType = 'json' | 'cbor' | 'text' | 'raw';
+export type EncodingType = 'json' | 'cbor' | 'text' | 'raw' | 'protobuf';
 
 export type PutKind = 'put' | 'delete';
 

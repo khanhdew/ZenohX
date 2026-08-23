@@ -135,4 +135,53 @@ describe('Topology Data Builder', () => {
     assert.equal(updatedNode?.fx, 350);
     assert.equal(updatedNode?.fy, 420);
   });
+
+  it('includes non-scouted active sessions in graph', () => {
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-cloud',
+        name: 'Cloud Router',
+        mode: 'client',
+        connect_locators: ['tls/router.cloud.zenoh.io:443'],
+        listen_locators: [],
+        scout_multicast: false,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-cloud': {
+        id: 'sess-cloud',
+        profile_id: 'prof-cloud',
+        zid: 'local-zid-001',
+        connected_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    // 1 local node + 1 remote unmatched node = 2 nodes
+    assert.equal(nodes.length, 2);
+    
+    const cloudNode = nodes.find((n) => n.id === 'profile-prof-cloud');
+    assert.ok(cloudNode);
+    assert.equal(cloudNode?.type, 'router');
+    assert.equal(cloudNode?.isTls, true);
+    assert.equal(cloudNode?.status, 'connected');
+    assert.equal(cloudNode?.label, 'Cloud Router');
+
+    const activeEdge = edges.find(
+      (e) => e.source === 'local-zenohx' && e.target === 'profile-prof-cloud'
+    );
+    assert.ok(activeEdge);
+    assert.equal(activeEdge?.status, 'active');
+    assert.equal(activeEdge?.isEncrypted, true);
+    assert.equal(activeEdge?.animated, true);
+  });
 });

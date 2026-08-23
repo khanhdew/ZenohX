@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useTopologyStore } from '../../stores/topologyStore';
 import { TopologyToolbar } from './TopologyToolbar';
@@ -19,16 +19,12 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
   onOpenProfileEditor,
   onNavigateToPubSub,
 }) => {
-  const scoutedNodes = useConnectionStore((s) => s.scoutedNodes);
-  const activeSessions = useConnectionStore((s) => s.activeSessions);
-  const profiles = useConnectionStore((s) => s.profiles);
   const scout = useConnectionStore((s) => s.scout);
   const connect = useConnectionStore((s) => s.connect);
   const saveProfile = useConnectionStore((s) => s.saveProfile);
 
   const nodes = useTopologyStore((s) => s.nodes);
   const selectedNodeId = useTopologyStore((s) => s.selectedNodeId);
-  const syncFromContext = useTopologyStore((s) => s.syncFromContext);
   const setSelectedNodeId = useTopologyStore((s) => s.setSelectedNodeId);
 
   // Context Menu State
@@ -37,14 +33,7 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     position: { x: number; y: number };
   } | null>(null);
 
-  // Sync topology data whenever scout or sessions change
-  useEffect(() => {
-    syncFromContext({
-      scoutedNodes,
-      activeSessions,
-      profiles,
-    });
-  }, [scoutedNodes, activeSessions, profiles, syncFromContext]);
+  // Sync topology data is handled in App.tsx to ensure global state consistency
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
 

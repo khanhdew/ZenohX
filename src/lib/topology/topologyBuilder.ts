@@ -75,6 +75,8 @@ export function buildTopologyGraph({
   };
   nodes.push(localNode);
 
+  const matchedProfileIds = new Set<string>();
+
   // 2. Scouted Nodes
   scoutedNodes.forEach((node, index) => {
     const nodeId = `scouted-${node.zid}`;
@@ -99,6 +101,10 @@ export function buildTopologyGraph({
         )
       )
     );
+
+    if (matchedConnectedProfile) {
+      matchedProfileIds.add(matchedConnectedProfile.id);
+    }
 
     const matchedAnyProfile = profiles.find((prof) =>
       prof.connect_locators.some((loc) =>
@@ -156,6 +162,53 @@ export function buildTopologyGraph({
         animated: true,
       });
     }
+  });
+
+  // 3. Unmatched Active Sessions
+  activeProfileList.forEach((profile, index) => {
+    if (matchedProfileIds.has(profile.id)) return;
+
+    const nodeId = `profile-${profile.id}`;
+    const existing = existingMap.get(nodeId);
+
+    const type = profile.mode === 'client' ? 'router' : 'peer';
+    const isTls = profile.connect_locators.some((loc) => extractLocatorProtocol(loc) === 'tls');
+    const radius = type === 'router' ? 34 : 28;
+
+    const defaultX = 200 + index * 50;
+    const defaultY = -200 + index * 50;
+
+    const topologyNode: TopologyNode = {
+      id: nodeId,
+      zid: `unknown-${profile.id}`,
+      label: profile.name,
+      type,
+      status: 'connected',
+      locators: profile.connect_locators,
+      isTls,
+      profileId: profile.id,
+      x: existing ? existing.x : defaultX,
+      y: existing ? existing.y : defaultY,
+      vx: existing ? existing.vx : 0,
+      vy: existing ? existing.vy : 0,
+      fx: existing?.fx ?? null,
+      fy: existing?.fy ?? null,
+      radius,
+    };
+    nodes.push(topologyNode);
+
+    const primaryLoc = topologyNode.locators[0] || '';
+    const protocol = extractLocatorProtocol(primaryLoc);
+    edges.push({
+      id: `${localId}->${nodeId}`,
+      source: localId,
+      target: nodeId,
+      protocol,
+      locator: primaryLoc,
+      status: 'active',
+      isEncrypted: protocol === 'tls',
+      animated: true,
+    });
   });
 
   return { nodes, edges };

@@ -191,11 +191,26 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+    // Avoid e.preventDefault() to prevent passive listener warnings
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
     const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    const newK = Math.max(0.2, Math.min(3.0, Number((transform.k * zoomFactor).toFixed(2))));
+
+    if (newK === transform.k) return;
+
+    const scaleRatio = newK / transform.k;
+    const newX = mouseX - (mouseX - transform.x) * scaleRatio;
+    const newY = mouseY - (mouseY - transform.y) * scaleRatio;
+
     setTransform((prev) => ({
       ...prev,
-      k: Math.max(0.2, Math.min(3.0, Number((prev.k * zoomFactor).toFixed(2)))),
+      k: newK,
+      x: newX,
+      y: newY,
     }));
   };
 

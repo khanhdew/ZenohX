@@ -7,6 +7,7 @@
 **Modern, high-performance desktop GUI client for Eclipse Zenoh (1.x Protocol).**
 
 [![Release](https://img.shields.io/github/v/release/khanhdew/ZenohX?style=flat-square&color=blue)](https://github.com/khanhdew/ZenohX/releases)
+[![Downloads](https://img.shields.io/github/downloads/khanhdew/ZenohX/total?style=flat-square&color=blue)](https://github.com/khanhdew/ZenohX/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=flat-square)](https://github.com/khanhdew/ZenohX/releases)
 [![Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-24C8D8?style=flat-square&logo=tauri)](https://tauri.app)

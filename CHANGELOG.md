@@ -11,6 +11,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.4.0] - 2026-08-24
+
+### 🚀 Added & Enhanced
+- **query:** add queryable context menu, js editor with formatter, and dev telemetry guard
+- **proto:** add protobufjs and core proto types
+- **proto:** implement dynamic protobuf schema parser and codec engine
+- **proto:** create protoStore for schema and topic mapping management
+- **proto:** integrate protobuf codec into formatters and message stores
+- **proto:** create Protobuf Schema Manager dialog
+- **proto:** add Protobuf decoding tab and inspector to PayloadViewer
+- **proto:** add Protobuf encoding mode and schema validator to PayloadEditor
+- **settings:** embed Protobuf Schema Manager as a dedicated tab in Settings workspace
+- **proto:** auto-generate sample template when changing protobuf type dropdown in PayloadEditor
+- **topology:** add topology types and data builder with unit tests
+- **topology:** add physics simulation engine and 2D canvas renderer with tests
+- **topology:** add topologyStore with filtering and zoom operations
+- **topology:** add interactive Canvas 2D component and floating controls
+- **topology:** add topology toolbar with search, filters, layout switcher, and scout trigger
+- **topology:** add node inspector drawer and right-click context menu
+- **topology:** integrate Topology workspace tab into main app navigation
+- **topology:** add auto-scout interval dropdown selector and background runner
+- **topology:** convert auto-scout selector to connected split button on Scout LAN
+- **topology:** add mesh protocol label for dynamic auto-discovered peer links
+- **zenoh:** enforce hard 1-to-1 binding between UI profile and Rust peer session
+- **topology:** bind persistent node ID to connection profiles and toggle node on/off
+- **topology:** disable duplicate profile creation for already saved nodes
+- **connections:** add strict TLS-only mode, dynamic TLS peer port, and rename presets to Client Mode and Peer
+
+### 🐛 Fixed
+- **topology:** support non-scouted active sessions, mouse-centric zoom, and cleanup sync
+- **topology:** auto-mesh LAN peers in peer mode and restrict connect action to routers
+- **topology:** only show local node when active session exists and show canvas empty state
+- **topology:** remove artificial local node and model real Zenoh router/peer/client network topology
+- **topology:** filter out own ZenohX session and deduplicate localhost/LAN router nodes
+- **topology:** default peer mesh edges to tcp and match sessions by zid
+- **topology:** seamlessly merge active peer sessions with scouted network nodes
+- **connection:** enforce 1-to-1 session lifecycle and prevent duplicate session creation
+- **multi-window:** sync active session state across windows and emit broadcast events
+- **topology:** improve locator parsing, matching, and live session locator recognition
+- **topology:** exclude offline non-scouted profiles from topology graph
+- **topology:** guarantee strictly unique ZID across all topology nodes and scout replies
+- **topology:** verify ZID and existing profile matching before saving or connecting
+- **topology:** clarify empty locator state for dynamic multicast peers in inspector
+- **topology:** resolve auto-scout interval scaling and add initial scan on mount
+- **security:** support TLS and mTLS configuration for Local LAN peers with correct Zenoh 1.10.0 keys
+
+### ⚡ Changed & Refactored
+- **proto:** remove modal dialog and top-left header button in favor of Settings > Protobuf Manager
+
+### 🔧 Maintenance
+- add protobuf schema registry and codec design spec
+- add Protobuf schema registry and codec implementation plan
+- update README with Protobuf schema registry and codec documentation
+- add design spec for network topology graph
+- add implementation plan for network topology graph
+
+---
 ## [v0.3.0] - 2026-08-23
 
 ### 🚀 Added & Enhanced

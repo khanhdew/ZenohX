@@ -48,6 +48,7 @@ export interface TrafficState {
   totalOutboundBytes: number;
   totalInboundMsgs: number;
   totalOutboundMsgs: number;
+  lastEventTimestamp?: number;
   timeline: SecondBucket[];
   keyStats: Record<string, KeyTrafficStats>;
   recordEvent: (event: {

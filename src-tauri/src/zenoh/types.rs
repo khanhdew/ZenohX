@@ -18,6 +18,8 @@ pub struct TlsConfig {
     pub client_cert: Option<String>,
     #[serde(default)]
     pub client_key: Option<String>,
+    #[serde(default)]
+    pub tls_only: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -129,8 +131,8 @@ impl SessionConfig {
                 .insert_json5("listen/endpoints", &json)
                 .map_err(|e| format!("failed to set listen endpoints: {e}"))?;
         } else if self.tls_config.is_some() && mode_str == "peer" {
-            // When TLS is configured on a peer without explicit listen locator, listen on TLS
-            let default_tls_listen = vec!["tls/0.0.0.0:7447".to_string()];
+            // When TLS is configured on a peer without explicit listen locator, listen on dynamic port
+            let default_tls_listen = vec!["tls/0.0.0.0:0".to_string()];
             let json = serde_json::to_string(&default_tls_listen)
                 .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
             config
@@ -199,9 +201,17 @@ impl SessionConfig {
                 }
             }
 
-            if tls.client_cert.is_some() || tls.client_key.is_some() || tls.ca_cert.is_some() {
+            let has_client_auth = tls.client_cert.as_ref().map_or(false, |c| !c.trim().is_empty())
+                && tls.client_key.as_ref().map_or(false, |k| !k.trim().is_empty());
+            if has_client_auth {
                 let _ = config.insert_json5("transport/link/tls/enable_mtls", "true");
-                let _ = config.insert_json5("transport/link/tls/verify_name_on_connect", "false");
+            }
+            let _ = config.insert_json5("transport/link/tls/verify_name_on_connect", "false");
+
+            if tls.tls_only.unwrap_or(false) {
+                config
+                    .insert_json5("transport/link/protocols", "[\"tls\"]")
+                    .map_err(|e| format!("failed to set tls-only protocols: {e}"))?;
             }
         }
 
@@ -254,6 +264,8 @@ pub struct ZenohSample {
     pub encoding: String,
     pub kind: String, // "put" | "delete"
     pub timestamp: i64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub source_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

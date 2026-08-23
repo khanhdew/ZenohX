@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   Send,
   Trash2,
@@ -65,6 +65,11 @@ export const PublishBar: React.FC<PublishBarProps> = ({
   const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // In-flight and debounce guard refs
+  const isSendingRef = useRef<boolean>(false);
+  const lastPublishTimeRef = useRef<number>(0);
+  const DEBOUNCE_DELAY_MS = 400;
+
   // Resizable Editor Height (scale to top)
   const {
     size: editorHeight,
@@ -94,6 +99,11 @@ export const PublishBar: React.FC<PublishBarProps> = ({
 
   // Publish handler
   const handlePublish = useCallback(async () => {
+    const now = Date.now();
+    if (isSendingRef.current || now - lastPublishTimeRef.current < DEBOUNCE_DELAY_MS) {
+      return;
+    }
+
     const trimmedKey = keyExpr.trim();
     if (!trimmedKey) {
       setErrorMessage('Key expression cannot be empty');
@@ -110,6 +120,8 @@ export const PublishBar: React.FC<PublishBarProps> = ({
       return;
     }
 
+    isSendingRef.current = true;
+    lastPublishTimeRef.current = now;
     setIsSending(true);
     setErrorMessage(null);
 
@@ -140,6 +152,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
+      isSendingRef.current = false;
       setIsSending(false);
     }
   }, [
@@ -157,6 +170,7 @@ export const PublishBar: React.FC<PublishBarProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
+      e.stopPropagation();
       handlePublish();
     }
   };

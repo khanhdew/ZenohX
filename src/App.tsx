@@ -168,8 +168,12 @@ export function App() {
     loadProfiles();
     useConnectionStore.getState().refreshSessions();
     initStatusListener();
+    useMessageStore.getState().initListener();
+    useQueryStore.getState().initListener();
     return () => {
       cleanupStatusListener();
+      useMessageStore.getState().cleanupListener();
+      useQueryStore.getState().cleanupListener();
     };
   }, [loadProfiles, initStatusListener, cleanupStatusListener]);
 

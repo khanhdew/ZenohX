@@ -150,6 +150,40 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
           </div>
         </div>
 
+        {/* Connection Type & Mode */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground">Connection Role & Mode</label>
+          <div className="p-2.5 rounded-md bg-muted/40 border space-y-1.5 font-mono text-[11px]">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-[10px] uppercase font-semibold">Node Role</span>
+              <Badge
+                variant="outline"
+                className={`text-[10px] uppercase font-mono px-1.5 py-0 ${
+                  node.type === 'router'
+                    ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
+                    : node.type === 'peer'
+                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
+                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                }`}
+              >
+                {node.type}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-[10px] uppercase font-semibold">Zenoh Mode</span>
+              <span className="font-semibold text-foreground capitalize">
+                {node.mode || (node.type === 'router' ? 'router' : node.type === 'client' ? 'client' : 'peer')}
+              </span>
+            </div>
+            {existingProfile && (
+              <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[10px]">
+                <span className="text-muted-foreground">Profile</span>
+                <span className="font-medium text-foreground truncate max-w-[140px]">{existingProfile.name}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Status and Encryption Badges */}
         <div className="space-y-1.5">
           <label className="text-[11px] font-medium text-muted-foreground">Security & Status</label>
@@ -193,7 +227,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
           ) : (
             <div className="space-y-1">
               {node.locators.map((loc, idx) => {
-                const proto = extractLocatorProtocol(loc);
+                const proto = extractLocatorProtocol(loc, node.isTls);
                 const host = extractLocatorHostPort(loc);
                 const isCopied = copiedLocator === loc;
 
@@ -235,7 +269,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
           <Button
             size="sm"
             onClick={handleConnectDirectly}
-            disabled={actionLoading}
+            disabled={actionLoading || node.status === 'connected'}
             className="w-full h-8 text-xs gap-1.5 font-medium"
           >
             <Power className="w-3.5 h-3.5" />
@@ -246,7 +280,18 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         {node.type === 'peer' && (
           <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
             <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <span>Discovered LAN Peer. Automatically meshed in peer mode.</span>
+            <span>Discovered LAN Peer. Meshed in peer-to-peer mode.</span>
+          </div>
+        )}
+
+        {node.type === 'client' && (
+          <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
+            <Laptop className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <span>
+              {node.status === 'connected'
+                ? 'Active Client Session connected to Zenoh network.'
+                : 'Configured Client Profile.'}
+            </span>
           </div>
         )}
 

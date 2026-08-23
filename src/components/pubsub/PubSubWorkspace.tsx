@@ -54,6 +54,8 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
   const selectedProfileId = useConnectionStore((s) => s.selectedProfileId);
   const profiles = useConnectionStore((s) => s.profiles);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
+  const sessionToProfile = useConnectionStore((s) => s.sessionToProfile);
+  const scoutedNodes = useConnectionStore((s) => s.scoutedNodes);
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
   const saveProfile = useConnectionStore((s) => s.saveProfile);
@@ -76,6 +78,45 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
   const loadHistory = useMessageStore((s) => s.loadHistory);
   const loadSubscriptions = useMessageStore((s) => s.loadSubscriptions);
   const clearMessages = useMessageStore((s) => s.clearMessages);
+
+  // Dynamic sender / origin details for the selected message
+  const selectedMessageSender = useMemo(() => {
+    if (!selectedMessage) return null;
+
+    const msgProfileId =
+      selectedMessage.profileId ||
+      (selectedMessage.sessionId ? sessionToProfile[selectedMessage.sessionId] : undefined) ||
+      selectedProfileId;
+    const msgProfile = profiles.find((p) => p.id === msgProfileId) || null;
+
+    if (selectedMessage.direction === 'outgoing') {
+      const title = msgProfile?.name ? `${msgProfile.name} (Local Client)` : 'Local Client (ZenohX)';
+      return {
+        title,
+        subtitle: 'Sent by this client',
+        profileName: msgProfile?.name,
+        zid: selectedMessage.senderZid || (msgProfileId && activeSessions[msgProfileId]?.zid),
+        isOutgoing: true,
+      };
+    } else {
+      let title = 'Remote Zenoh Publisher';
+      if (selectedMessage.sourceId) {
+        const matchingScout = scoutedNodes.find((n) => n.zid === selectedMessage.sourceId);
+        if (matchingScout?.what) {
+          title = `${matchingScout.what} (${selectedMessage.sourceId.slice(0, 8)})`;
+        } else {
+          title = `Remote Publisher (${selectedMessage.sourceId.slice(0, 8)})`;
+        }
+      }
+      return {
+        title,
+        subtitle: 'Received from network',
+        profileName: msgProfile?.name,
+        zid: selectedMessage.sourceId,
+        isOutgoing: false,
+      };
+    }
+  }, [selectedMessage, profiles, sessionToProfile, selectedProfileId, activeSessions, scoutedNodes]);
 
   // Auto load message history and subscription presets from SQLite when profile/session changes
   useEffect(() => {
@@ -395,10 +436,11 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                   isDragging={isInspectorDragging}
                   onMouseDown={startInspectorDragging}
                   onReset={resetInspectorWidth}
+                  className="hidden md:flex"
                 />
                 <div
                   style={{ width: `${inspectorExpanded ? Math.max(580, inspectorWidth) : inspectorWidth}px` }}
-                  className="border-l border-border bg-card flex flex-col shrink-0 h-full overflow-hidden"
+                  className="border-l border-border bg-card flex flex-col shrink-0 h-full overflow-hidden max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-w-full md:max-w-[75vw] min-w-[280px]"
                 >
                 {/* Inspector Header */}
                 <div className="flex items-center justify-between p-2.5 border-b bg-muted/20">
@@ -410,11 +452,11 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                   </div>
 
                   <div className="flex items-center gap-1">
-                    {/* Expand/Contract Inspector Width */}
+                    {/* Expand/Contract Inspector Width (desktop only) */}
                     <button
                       type="button"
                       onClick={() => setInspectorExpanded(!inspectorExpanded)}
-                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                      className="hidden md:inline-flex p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                       title={inspectorExpanded ? 'Narrow inspector' : 'Widen inspector'}
                     >
                       {inspectorExpanded ? (
@@ -428,7 +470,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                     <button
                       type="button"
                       onClick={() => selectMessage(null)}
-                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+                      className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                       title="Close inspector"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -437,16 +479,77 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                 </div>
 
                 {/* Inspector Message Metadata Overview */}
-                <div className="p-3 border-b bg-muted/10 space-y-2 text-xs">
+                <div className="p-3 border-b bg-muted/10 space-y-2.5 text-xs overflow-y-auto max-h-[45vh] md:max-h-none shrink-0">
                   {/* Key Expression */}
                   <div>
-                    <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                      Key Expression
+                    <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5 flex items-center justify-between">
+                      <span>Key Expression</span>
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(selectedMessage.keyExpr)}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        title="Copy key expression"
+                      >
+                        <Copy className="w-2.5 h-2.5" />
+                        <span>Copy</span>
+                      </button>
                     </div>
                     <div className="font-mono text-xs font-medium text-foreground break-all bg-muted/40 p-1.5 rounded border">
                       {selectedMessage.keyExpr}
                     </div>
                   </div>
+
+                  {/* Sender / Origin Information */}
+                  {selectedMessageSender && (
+                    <div>
+                      <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5 flex items-center justify-between">
+                        <span>Sender / Origin</span>
+                        <span className="text-[9px] text-muted-foreground font-normal">
+                          {selectedMessageSender.subtitle}
+                        </span>
+                      </div>
+                      <div className="p-2 rounded bg-muted/40 border space-y-1.5 font-mono text-[11px]">
+                        <div className="flex items-center gap-1.5 font-medium text-foreground">
+                          {selectedMessageSender.isOutgoing ? (
+                            <>
+                              <ArrowUpRight className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+                              <span className="text-purple-600 dark:text-purple-400 font-semibold truncate">
+                                {selectedMessageSender.title}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowDownLeft className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+                              <span className="text-sky-600 dark:text-sky-400 font-semibold truncate">
+                                {selectedMessageSender.title}
+                              </span>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="text-[10px] text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 pt-1 border-t border-border/50">
+                          {selectedMessageSender.zid && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">
+                                {selectedMessageSender.isOutgoing ? 'Session ZID:' : 'Publisher ZID:'}
+                              </span>
+                              <span className="font-semibold text-foreground break-all">{selectedMessageSender.zid}</span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-1">
+                            <span className="text-muted-foreground">Session:</span>
+                            <span className="font-semibold text-foreground">{selectedMessage.sessionId ? selectedMessage.sessionId.slice(0, 8) : 'N/A'}</span>
+                          </div>
+                          {selectedMessageSender.profileName && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Profile:</span>
+                              <span className="font-semibold text-foreground">{selectedMessageSender.profileName}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Matched Subscription Tag */}
                   {(() => {
@@ -459,7 +562,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                     );
                     if (!matchedSub) return null;
                     return (
-                      <div className="pt-0.5">
+                      <div>
                         <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
                           Matched Subscription Topic
                         </div>
@@ -468,8 +571,8 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                             className="h-2.5 w-2.5 rounded-full shrink-0 shadow-xs"
                             style={{ backgroundColor: subColor }}
                           />
-                          <span className="font-semibold text-foreground">{matchedSub.keyExpr}</span>
-                          <span className="text-[10px] text-muted-foreground ml-auto uppercase font-mono">
+                          <span className="font-semibold text-foreground truncate">{matchedSub.keyExpr}</span>
+                          <span className="text-[10px] text-muted-foreground ml-auto uppercase font-mono shrink-0">
                             {String(matchedSub.encoding || 'raw')}
                           </span>
                         </div>
@@ -478,7 +581,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                   })()}
 
                   {/* Meta pills grid: Direction, Encoding, Payload Size, Timestamp */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="grid grid-cols-2 gap-2 pt-0.5">
                     <div>
                       <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
                         Direction
@@ -540,7 +643,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                 </div>
 
                 {/* Inspector Payload Viewer Area */}
-                <div className="flex-1 overflow-y-auto p-3">
+                <div className="flex-1 min-h-0 flex flex-col p-3 overflow-y-auto">
                   <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-1.5">
                     Payload Content
                   </div>
@@ -548,7 +651,7 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                     payload={selectedMessage.payload}
                     encoding={normalizeEncoding(selectedMessage.encoding, selectedMessage.payload)}
                     showMetrics={true}
-                    maxHeight="460px"
+                    maxHeight="100%"
                   />
                 </div>
               </div>

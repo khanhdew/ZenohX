@@ -1,5 +1,5 @@
 import React from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, ShieldCheck } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
@@ -7,6 +7,8 @@ import { Switch } from '../../ui/switch';
 export interface TlsConfigSectionProps {
   useCustomTls: boolean;
   setUseCustomTls: (val: boolean) => void;
+  tlsOnly?: boolean;
+  setTlsOnly?: (val: boolean) => void;
   caCert: string;
   setCaCert: (val: string) => void;
   clientCert: string;
@@ -18,6 +20,8 @@ export interface TlsConfigSectionProps {
 export const TlsConfigSection: React.FC<TlsConfigSectionProps> = ({
   useCustomTls,
   setUseCustomTls,
+  tlsOnly = false,
+  setTlsOnly,
   caCert,
   setCaCert,
   clientCert,
@@ -26,7 +30,27 @@ export const TlsConfigSection: React.FC<TlsConfigSectionProps> = ({
   setClientKey,
 }) => {
   return (
-    <div className="space-y-2.5 border rounded-lg p-3 bg-muted/10">
+    <div className="space-y-3 border rounded-lg p-3 bg-muted/10">
+      {/* Strict TLS-Only Toggle */}
+      {setTlsOnly && (
+        <div className="flex items-center justify-between pb-2 border-b">
+          <div className="space-y-0.5">
+            <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+              Strict TLS-Only Mode
+            </span>
+            <p className="text-[10px] text-muted-foreground">
+              Disables unencrypted TCP/UDP fallback; only connects to verified TLS nodes.
+            </p>
+          </div>
+          <Switch
+            checked={tlsOnly}
+            onCheckedChange={setTlsOnly}
+          />
+        </div>
+      )}
+
+      {/* Custom Certificates Toggle */}
       <div className="flex items-center justify-between">
         <div>
           <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">

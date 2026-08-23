@@ -25,6 +25,7 @@ export interface ResolveTlsConfigParams {
   caCert?: string;
   clientCert?: string;
   clientKey?: string;
+  tlsOnly?: boolean;
 }
 
 /**
@@ -35,7 +36,8 @@ export function hasCustomTlsConfig(tlsConfig?: TlsConfig | null): boolean {
   return Boolean(
     (tlsConfig.ca_cert && tlsConfig.ca_cert.trim().length > 0) ||
     (tlsConfig.client_cert && tlsConfig.client_cert.trim().length > 0) ||
-    (tlsConfig.client_key && tlsConfig.client_key.trim().length > 0)
+    (tlsConfig.client_key && tlsConfig.client_key.trim().length > 0) ||
+    tlsConfig.tls_only
   );
 }
 
@@ -51,29 +53,34 @@ export function isTlsEnabled(tlsConfig?: TlsConfig | null, locators?: string[]):
 }
 
 /**
- * Resolves the TlsConfig payload based on master toggle, custom toggle, and input fields.
+ * Resolves the TlsConfig payload based on master toggle, custom toggle, input fields, and strict mode.
  * - If `enableTls` is false: returns `null` (plain transport).
- * - If `enableTls` is true and `useCustomTls` is false: returns `{}` (TLS with common system root CAs).
- * - If `enableTls` is true and `useCustomTls` is true: returns custom `{ ca_cert, client_cert, client_key }`.
+ * - If `enableTls` is true and `useCustomTls` is false: returns `{ tls_only }` (TLS with system root CAs).
+ * - If `enableTls` is true and `useCustomTls` is true: returns custom `{ ca_cert, client_cert, client_key, tls_only }`.
  */
 export function resolveTlsConfig(params: ResolveTlsConfigParams): TlsConfig | null {
   if (!params.enableTls) {
     return null;
   }
 
-  if (!params.useCustomTls) {
-    return {};
+  const result: TlsConfig = {};
+  if (params.tlsOnly) {
+    result.tls_only = true;
   }
 
-  const ca = params.caCert?.trim() || undefined;
-  const cert = params.clientCert?.trim() || undefined;
-  const key = params.clientKey?.trim() || undefined;
+  if (!params.useCustomTls) {
+    return result;
+  }
 
-  return {
-    ca_cert: ca,
-    client_cert: cert,
-    client_key: key,
-  };
+  const ca = params.caCert?.trim();
+  const cert = params.clientCert?.trim();
+  const key = params.clientKey?.trim();
+
+  if (ca) result.ca_cert = ca;
+  if (cert) result.client_cert = cert;
+  if (key) result.client_key = key;
+
+  return result;
 }
 
 /**

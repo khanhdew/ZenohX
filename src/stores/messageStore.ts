@@ -146,6 +146,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           encoding: normalizeEncoding(sample.encoding, sample.payload, sample.key_expr),
           kind: (sample.kind as PutKind) || 'put',
           timestamp: sample.timestamp || Date.now(),
+          sourceId: sample.source_id || undefined,
         };
 
         useTrafficStore.getState().recordEvent({
@@ -553,6 +554,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         bytes: normalizedPayload.length,
       });
 
+      const activeSession = useConnectionStore.getState().getActiveSession(sessionId);
       const item: MessageItem = {
         id: generateId(),
         sessionId,
@@ -563,6 +565,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         encoding,
         kind,
         timestamp: Date.now(),
+        senderZid: activeSession?.zid || undefined,
       };
 
       get().addMessage(item);

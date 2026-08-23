@@ -42,6 +42,7 @@ export interface TlsConfig {
   ca_cert?: string;
   client_cert?: string;
   client_key?: string;
+  tls_only?: boolean;
 }
 
 /**
@@ -178,6 +179,7 @@ export interface ZenohSample {
   encoding: EncodingType | string;
   kind: PutKind | string;
   timestamp: number;
+  source_id?: string | null;
 }
 
 /**
@@ -262,6 +264,8 @@ export interface MessageItem {
   encoding: EncodingType | string;
   kind: PutKind | string;
   timestamp: number;
+  sourceId?: string | null;
+  senderZid?: string | null;
 }
 
 export type QueryableReplyMode = 'payload' | 'script';

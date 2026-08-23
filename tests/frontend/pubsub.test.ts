@@ -190,4 +190,9 @@ describe('Pub/Sub Workspace Store Integration', () => {
     useMessageStore.getState().selectMessage(null);
     assert.equal(useMessageStore.getState().selectedMessage, null);
   });
+
+  test('PublishBar component is exported and defined', async () => {
+    const { PublishBar } = await import('../../src/components/pubsub/PublishBar');
+    assert.equal(typeof PublishBar, 'function');
+  });
 });

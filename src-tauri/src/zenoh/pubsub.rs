@@ -45,10 +45,13 @@ pub fn extract_sample(
         zenoh::sample::SampleKind::Delete => "delete".to_string(),
     };
     let encoding = sample.encoding().to_string();
-    let timestamp = sample
-        .timestamp()
-        .map(|t| (t.get_time().as_nanos() / 1_000_000) as i64)
-        .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+    let (timestamp, source_id) = if let Some(t) = sample.timestamp() {
+        let ts_millis = (t.get_time().as_nanos() / 1_000_000) as i64;
+        let zid = t.get_id().to_string();
+        (ts_millis, if zid == "0" || zid.is_empty() { None } else { Some(zid) })
+    } else {
+        (chrono::Utc::now().timestamp_millis(), None)
+    };
 
     ZenohSample {
         session_id,
@@ -58,6 +61,7 @@ pub fn extract_sample(
         encoding,
         kind,
         timestamp,
+        source_id,
     }
 }
 

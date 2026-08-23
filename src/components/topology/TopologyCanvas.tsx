@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { useTopologyStore } from '../../stores/topologyStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useTrafficStore } from '../../stores/trafficStore';
 import {
   screenToWorld,
   findNodeAtPosition,
@@ -83,12 +84,18 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
             stepPhysicsSimulation(nodes, edges, 0.06);
           }
 
+          const traffic = useTrafficStore.getState();
+          const hasTraffic =
+            (traffic.currentInboundMps > 0 || traffic.currentOutboundMps > 0) ||
+            (traffic.lastEventTimestamp ? Date.now() - traffic.lastEventTimestamp < 1500 : false);
+
           renderTopologyCanvas(ctx, clientWidth, clientHeight, transform, nodes, edges, {
             isDark,
             selectedNodeId,
             hoveredNodeId,
             searchQuery,
             animationTick: animationTickRef.current,
+            hasTraffic,
           });
 
           ctx.restore();

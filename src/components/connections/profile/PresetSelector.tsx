@@ -17,7 +17,7 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
     <div className="space-y-1.5">
       <Label className="text-xs font-semibold">Connection Type</Label>
       <div className="grid grid-cols-3 gap-2">
-        {/* Cloud / Remote Preset */}
+        {/* Client Mode Preset */}
         <button
           type="button"
           onClick={() => onSelectPreset('cloud')}
@@ -30,7 +30,7 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold flex items-center gap-1.5">
               <Cloud className="w-3.5 h-3.5 text-primary" />
-              Cloud Router
+              Client Mode
             </span>
             {preset === 'cloud' && (
               <Badge variant="default" className="text-[9px] h-3.5 px-1">
@@ -43,7 +43,7 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
           </span>
         </button>
 
-        {/* Local LAN Preset */}
+        {/* Peer Mode Preset */}
         <button
           type="button"
           onClick={() => onSelectPreset('local')}
@@ -56,7 +56,7 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold flex items-center gap-1.5">
               <Home className="w-3.5 h-3.5 text-emerald-500" />
-              Local LAN
+              Peer
             </span>
             {preset === 'local' && (
               <Badge variant="default" className="text-[9px] h-3.5 px-1">

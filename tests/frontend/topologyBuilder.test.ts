@@ -15,6 +15,9 @@ describe('Topology Data Builder', () => {
     assert.equal(extractLocatorProtocol('tls/router.cloud.zenoh.io:443'), 'tls');
     assert.equal(extractLocatorProtocol('udp/10.0.0.1:7447'), 'udp');
     assert.equal(extractLocatorProtocol('quic/127.0.0.1:7447'), 'quic');
+    assert.equal(extractLocatorProtocol('192.168.1.50:7447'), 'tcp');
+    assert.equal(extractLocatorProtocol('192.168.1.50:7447', true), 'tls');
+    assert.equal(extractLocatorProtocol('192.168.1.50:7448'), 'tls');
     assert.equal(extractLocatorProtocol('invalid-format'), 'unknown');
   });
 
@@ -175,7 +178,7 @@ describe('Topology Data Builder', () => {
     
     const cloudNode = nodes.find((n) => n.id === 'profile-prof-cloud');
     assert.ok(cloudNode);
-    assert.equal(cloudNode?.type, 'router');
+    assert.equal(cloudNode?.type, 'client');
     assert.equal(cloudNode?.isTls, true);
     assert.equal(cloudNode?.status, 'connected');
     assert.equal(cloudNode?.label, 'Cloud Router');

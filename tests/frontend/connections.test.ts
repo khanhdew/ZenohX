@@ -233,6 +233,15 @@ describe('Connection Manager Integration & Helpers', () => {
       client_cert: '/etc/ssl/client.crt',
       client_key: '/etc/ssl/client.key',
     });
+
+    const strictConfig = resolveTlsConfig({
+      enableTls: true,
+      useCustomTls: false,
+      tlsOnly: true,
+    });
+    assert.deepEqual(strictConfig, {
+      tls_only: true,
+    });
   });
 
   test('hasCustomTlsConfig accurately detects if custom TLS certificates are present', () => {
@@ -240,6 +249,7 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.equal(hasCustomTlsConfig(undefined), false);
     assert.equal(hasCustomTlsConfig({ ca_cert: '', client_cert: '', client_key: '' }), false);
     assert.equal(hasCustomTlsConfig({ ca_cert: '/path/ca.pem' }), true);
+    assert.equal(hasCustomTlsConfig({ tls_only: true }), true);
   });
 
   test('parseLocator decomposes Zenoh locator into protocol, host, and port', () => {

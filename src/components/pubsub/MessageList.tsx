@@ -52,7 +52,7 @@ export const MessageList: React.FC<MessageListProps> = ({
     setSearchQuery,
   } = useMessageStore();
 
-  const { getActiveSessionId, selectedProfileId } = useConnectionStore();
+  const { getActiveSessionId, selectedProfileId, profiles, sessionToProfile } = useConnectionStore();
 
   const activeSessionId = propSessionId || getActiveSessionId(propProfileId || selectedProfileId || undefined);
 
@@ -421,7 +421,14 @@ export const MessageList: React.FC<MessageListProps> = ({
                         {/* Direction Badge (IN = Blue/Sky, OUT = Purple) */}
                         <Badge
                           variant="outline"
-                          className={`text-[9px] font-mono font-semibold uppercase px-1.5 py-0 border ${
+                          title={
+                            isIncoming
+                              ? item.sourceId
+                                ? `Incoming from publisher ZID: ${item.sourceId}`
+                                : 'Incoming message from network'
+                              : `Outgoing from ${profiles.find((p) => p.id === (item.profileId || sessionToProfile[item.sessionId]))?.name || 'Local Client'}`
+                          }
+                          className={`text-[9px] font-mono font-semibold uppercase px-1.5 py-0 border cursor-default ${
                             isIncoming
                               ? 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
                               : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/30'

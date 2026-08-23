@@ -7,6 +7,7 @@ export interface RenderOptions {
   hoveredNodeId: string | null;
   searchQuery: string;
   animationTick: number;
+  hasTraffic?: boolean;
 }
 
 export function renderTopologyCanvas(
@@ -18,7 +19,7 @@ export function renderTopologyCanvas(
   edges: TopologyEdge[],
   options: RenderOptions
 ): void {
-  const { isDark, selectedNodeId, hoveredNodeId, searchQuery, animationTick } = options;
+  const { isDark, selectedNodeId, hoveredNodeId, searchQuery, animationTick, hasTraffic } = options;
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -67,11 +68,11 @@ export function renderTopologyCanvas(
     }
     ctx.stroke();
 
-    // Animated packet flow dots along active edges
-    if (edge.animated) {
+    // Animated packet flow dots along active edges ONLY when data is transferring
+    if (edge.animated && hasTraffic) {
       const dotCount = 3;
       for (let i = 0; i < dotCount; i++) {
-        const progress = (animationTick * 0.015 + i / dotCount) % 1;
+        const progress = (animationTick * 0.02 + i / dotCount) % 1;
         const px = source.x + (target.x - source.x) * progress;
         const py = source.y + (target.y - source.y) * progress;
 

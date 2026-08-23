@@ -56,6 +56,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   // TLS State
   const [enableTls, setEnableTls] = useState<boolean>(true);
   const [useCustomTls, setUseCustomTls] = useState<boolean>(false);
+  const [tlsOnly, setTlsOnly] = useState<boolean>(false);
   const [caCert, setCaCert] = useState<string>('');
   const [clientCert, setClientCert] = useState<string>('');
   const [clientKey, setClientKey] = useState<string>('');
@@ -91,6 +92,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         const hasCustomTls = hasCustomTlsConfig(profile.tls_config);
         setEnableTls(isTlsOn);
         setUseCustomTls(hasCustomTls);
+        setTlsOnly(profile.tls_config?.tls_only ?? false);
         setCaCert(profile.tls_config?.ca_cert || '');
         setClientCert(profile.tls_config?.client_cert || '');
         setClientKey(profile.tls_config?.client_key || '');
@@ -256,6 +258,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         caCert,
         clientCert,
         clientKey,
+        tlsOnly,
       });
       return {
         mode: 'client',
@@ -267,13 +270,21 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         custom_config: customConfigObj,
       };
     } else if (preset === 'local') {
+      const tlsConfig = resolveTlsConfig({
+        enableTls,
+        useCustomTls,
+        caCert,
+        clientCert,
+        clientKey,
+        tlsOnly,
+      });
       return {
         mode: 'peer',
         connect_locators: [],
         listen_locators: [],
         scout_multicast: true,
         user_auth: null,
-        tls_config: null,
+        tls_config: tlsConfig,
         custom_config: customConfigObj,
       };
     } else {
@@ -285,6 +296,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         caCert,
         clientCert,
         clientKey,
+        tlsOnly,
       });
       return {
         mode,
@@ -355,6 +367,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         caCert,
         clientCert,
         clientKey,
+        tlsOnly,
       });
 
       if (preset === 'cloud') {
@@ -370,6 +383,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
           caCert,
           clientCert,
           clientKey,
+          tlsOnly,
         });
       } else if (preset === 'local') {
         finalName = localName.trim();
@@ -383,6 +397,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
           caCert,
           clientCert,
           clientKey,
+          tlsOnly,
         });
       } else {
         finalConnectLocators = connectLocators.map((l) => l.trim()).filter(Boolean);
@@ -457,6 +472,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setEnableTls,
     useCustomTls,
     setUseCustomTls,
+    tlsOnly,
+    setTlsOnly,
     caCert,
     setCaCert,
     clientCert,

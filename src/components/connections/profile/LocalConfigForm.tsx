@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, Lock, Shield } from 'lucide-react';
+import { Zap, Lock, Shield, ShieldCheck } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
@@ -11,6 +11,8 @@ export interface LocalConfigFormProps {
   setEnableTls: (val: boolean) => void;
   useCustomTls: boolean;
   setUseCustomTls: (val: boolean) => void;
+  tlsOnly?: boolean;
+  setTlsOnly?: (val: boolean) => void;
   caCert: string;
   setCaCert: (val: string) => void;
   clientCert: string;
@@ -26,6 +28,8 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
   setEnableTls,
   useCustomTls,
   setUseCustomTls,
+  tlsOnly = false,
+  setTlsOnly,
   caCert,
   setCaCert,
   clientCert,
@@ -85,10 +89,29 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
 
         {enableTls && (
           <div className="space-y-3 pt-2 border-t">
+            {/* Strict TLS-Only Mode Toggle */}
+            {setTlsOnly && (
+              <div className="flex items-center justify-between pb-2 border-b">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-medium flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                    Strict TLS-Only Mode
+                  </Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Disables unencrypted TCP/UDP fallback; only connects to verified TLS peers.
+                  </p>
+                </div>
+                <Switch
+                  checked={tlsOnly}
+                  onCheckedChange={setTlsOnly}
+                />
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-xs font-medium flex items-center gap-1.5">
-                  <Shield className="w-3 h-3 text-muted-foreground" />
+                  <Shield className="w-3.5 h-3.5 text-muted-foreground" />
                   Custom Certificate / Key (mTLS)
                 </Label>
                 <p className="text-[10px] text-muted-foreground">
@@ -110,7 +133,7 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
                   <Input
                     value={caCert}
                     onChange={(e) => setCaCert(e.target.value)}
-                    placeholder="e.g. /home/khanhdew/zenoh-certs/ca.crt (Optional if self-signed)"
+                    placeholder="e.g. /path/to/ca.crt (Optional if self-signed)"
                     className="h-7 font-mono text-[11px] bg-background"
                   />
                 </div>
@@ -122,7 +145,7 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
                   <Input
                     value={clientCert}
                     onChange={(e) => setClientCert(e.target.value)}
-                    placeholder="/home/khanhdew/zenoh-certs/server.crt"
+                    placeholder="/path/to/server.crt"
                     className="h-7 font-mono text-[11px] bg-background"
                   />
                 </div>
@@ -134,7 +157,7 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
                   <Input
                     value={clientKey}
                     onChange={(e) => setClientKey(e.target.value)}
-                    placeholder="/home/khanhdew/zenoh-certs/server.key"
+                    placeholder="/path/to/server.key"
                     className="h-7 font-mono text-[11px] bg-background"
                   />
                 </div>

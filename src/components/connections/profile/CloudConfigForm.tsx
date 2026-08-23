@@ -1,7 +1,8 @@
 import React from 'react';
-import { Lock, Globe, Zap, Radio, Shield } from 'lucide-react';
+import { Lock, Globe, Zap, Radio, Shield, ShieldCheck } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
+import { Switch } from '../../ui/switch';
 import { type CloudProtocol, SUPPORTED_CLOUD_PROTOCOLS } from '../../../lib/tls';
 
 export interface CloudConfigFormProps {
@@ -13,6 +14,8 @@ export interface CloudConfigFormProps {
   setCloudPort: (val: string) => void;
   cloudProtocol: CloudProtocol;
   setCloudProtocol: (val: CloudProtocol) => void;
+  tlsOnly?: boolean;
+  setTlsOnly?: (val: boolean) => void;
   username: string;
   setUsername: (val: string) => void;
   password: string;
@@ -28,6 +31,8 @@ export const CloudConfigForm: React.FC<CloudConfigFormProps> = ({
   setCloudPort,
   cloudProtocol,
   setCloudProtocol,
+  tlsOnly = false,
+  setTlsOnly,
   username,
   setUsername,
   password,
@@ -105,9 +110,28 @@ export const CloudConfigForm: React.FC<CloudConfigFormProps> = ({
           })}
         </div>
         {cloudProtocol === 'tls' && (
-          <p className="text-[11px] text-muted-foreground pt-0.5">
-            ✓ Verified automatically against standard system root certificates.
-          </p>
+          <div className="space-y-2 pt-1">
+            <p className="text-[11px] text-muted-foreground">
+              ✓ Verified automatically against standard system root certificates.
+            </p>
+            {setTlsOnly && (
+              <div className="flex items-center justify-between p-2.5 rounded-lg border bg-muted/20">
+                <div className="space-y-0.5">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+                    Strict TLS-Only Mode
+                  </span>
+                  <p className="text-[10px] text-muted-foreground">
+                    Only establish encrypted TLS links; refuse unencrypted fallback.
+                  </p>
+                </div>
+                <Switch
+                  checked={tlsOnly}
+                  onCheckedChange={setTlsOnly}
+                />
+              </div>
+            )}
+          </div>
         )}
       </div>
 

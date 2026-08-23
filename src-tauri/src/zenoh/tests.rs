@@ -112,6 +112,19 @@ mod tests {
         };
         assert!(valid_custom.to_zenoh_config().is_ok());
 
+        // TLS-Only configuration test
+        let tls_only_config = SessionConfig {
+            mode: "peer".to_string(),
+            tls_config: Some(TlsConfig {
+                ca_cert: Some("/tmp/ca.pem".to_string()),
+                client_cert: None,
+                client_key: None,
+                tls_only: Some(true),
+            }),
+            ..SessionConfig::default_peer()
+        };
+        assert!(tls_only_config.to_zenoh_config().is_ok());
+
         // Invalid custom_config (non-object, e.g. JSON array)
         let invalid_custom = SessionConfig {
             custom_config: Some(serde_json::json!(["not", "an", "object"])),
@@ -157,11 +170,18 @@ mod tests {
         let config = SessionConfig::default_peer();
         let session_id = manager.connect(config).await.expect("connect");
 
-        // Clean disconnect should NOT trigger unexpected disconnect event
+        // Verify connected event is emitted upon connect
+        let conn_event = rx.try_recv().expect("receive connect status");
+        assert_eq!(conn_event.status, "connected");
+        assert_eq!(conn_event.session_id, session_id.to_string());
+
+        // Clean disconnect emits disconnected status event
         manager.disconnect(&session_id).await.expect("disconnect");
 
-        // Verify channel is empty since disconnect was clean
-        assert!(rx.try_recv().is_err());
+        // Verify disconnected event is emitted upon disconnect
+        let disc_event = rx.try_recv().expect("receive disconnect status");
+        assert_eq!(disc_event.status, "disconnected");
+        assert_eq!(disc_event.session_id, session_id.to_string());
     }
 }
 

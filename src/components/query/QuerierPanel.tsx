@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   Play,
 
@@ -100,6 +100,11 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // In-flight and debounce guard refs
+  const isRunningRef = useRef<boolean>(false);
+  const lastQueryTimeRef = useRef<number>(0);
+  const DEBOUNCE_DELAY_MS = 400;
+
   // Active view: 'none' | 'params' | 'body'
   const [activeSection, setActiveSection] = useState<'none' | 'params' | 'body'>('none');
 
@@ -180,6 +185,11 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
 
   // Execute Query
   const handleRunQuery = useCallback(async () => {
+    const now = Date.now();
+    if (isRunningRef.current || now - lastQueryTimeRef.current < DEBOUNCE_DELAY_MS) {
+      return;
+    }
+
     if (!selector.trim()) {
       setErrorMessage('Selector expression cannot be empty.');
       return;
@@ -200,6 +210,8 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
       payloadBytes = encResult.bytes;
     }
 
+    isRunningRef.current = true;
+    lastQueryTimeRef.current = now;
     setIsRunning(true);
     setErrorMessage(null);
 
@@ -217,6 +229,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
+      isRunningRef.current = false;
       setIsRunning(false);
     }
   }, [

@@ -73,6 +73,7 @@ export const useTrafficStore = create<TrafficState>((set, get) => ({
       totalOutboundBytes: state.totalOutboundBytes + (isInbound ? 0 : bytes),
       totalInboundMsgs: state.totalInboundMsgs + (isInbound ? 1 : 0),
       totalOutboundMsgs: state.totalOutboundMsgs + (isInbound ? 0 : 1),
+      lastEventTimestamp: now,
       keyStats: {
         ...state.keyStats,
         [key]: updatedKeyStat,

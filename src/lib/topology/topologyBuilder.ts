@@ -12,26 +12,22 @@ import type {
 } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
 
-export function extractLocatorProtocol(locator: string): TopologyProtocol {
-  if (!locator || typeof locator !== 'string') return 'unknown';
-  const prefix = locator.split('/')[0]?.toLowerCase();
-  switch (prefix) {
-    case 'tcp':
-      return 'tcp';
-    case 'tls':
-      return 'tls';
-    case 'udp':
-      return 'udp';
-    case 'quic':
-      return 'quic';
-    case 'ws':
-    case 'websocket':
-      return 'ws';
-    case 'unix':
-      return 'unix';
-    default:
-      return 'unknown';
-  }
+export function extractLocatorProtocol(locator: string, isTls?: boolean): TopologyProtocol {
+  if (!locator || typeof locator !== 'string') return isTls ? 'tls' : 'unknown';
+  const clean = locator.trim().toLowerCase();
+  if (clean.startsWith('tcp/') || clean.startsWith('tcp:') || clean.startsWith('tcp://')) return 'tcp';
+  if (clean.startsWith('tls/') || clean.startsWith('tls:') || clean.startsWith('tls://')) return 'tls';
+  if (clean.startsWith('udp/') || clean.startsWith('udp:') || clean.startsWith('udp://')) return 'udp';
+  if (clean.startsWith('quic/') || clean.startsWith('quic:') || clean.startsWith('quic://')) return 'quic';
+  if (clean.startsWith('ws/') || clean.startsWith('ws:') || clean.startsWith('ws://') || clean.startsWith('websocket/')) return 'ws';
+  if (clean.startsWith('unix/') || clean.startsWith('unix:') || clean.startsWith('unix://')) return 'unix';
+
+  if (isTls) return 'tls';
+  if (clean.includes(':7447')) return 'tcp';
+  if (clean.includes(':7446')) return 'udp';
+  if (clean.includes(':7448')) return 'tls';
+  if (clean.includes(':')) return 'tcp';
+  return 'unknown';
 }
 
 export function extractLocatorHostPort(locator: string): string {
@@ -157,7 +153,24 @@ export function buildTopologyGraph({
     const nodeId = `profile-${profile.id}`;
     const existing = existingMap.get(nodeId) || existingMap.get(`scouted-${nodeZid}`);
 
-    const type: TopologyNode['type'] = profile.mode === 'client' ? 'router' : 'peer';
+    const scoutWhat = (matchingScout?.what || '').toLowerCase();
+    const type: TopologyNode['type'] = matchingScout
+      ? scoutWhat.includes('router')
+        ? 'router'
+        : scoutWhat.includes('peer')
+        ? 'peer'
+        : scoutWhat.includes('client')
+        ? 'client'
+        : profile.mode === 'client'
+        ? 'client'
+        : profile.mode === 'router'
+        ? 'router'
+        : 'peer'
+      : profile.mode === 'client'
+      ? 'client'
+      : profile.mode === 'router'
+      ? 'router'
+      : 'peer';
     const locators = Array.from(
       new Set([
         ...(matchingScout?.locators || []),
@@ -168,10 +181,10 @@ export function buildTopologyGraph({
     ).filter(Boolean);
 
     const isTls =
-      locators.some((l) => extractLocatorProtocol(l) === 'tls') ||
+      locators.some((l) => extractLocatorProtocol(l, Boolean(profile.tls_config)) === 'tls') ||
       Boolean(profile.tls_config);
 
-    const radius = type === 'router' ? 34 : 28;
+    const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
     const defaultX = 180 + index * 60;
     const defaultY = -120 + index * 60;
 
@@ -182,7 +195,10 @@ export function buildTopologyGraph({
       existingInZidMap.label = profile.name || existingInZidMap.label;
       existingInZidMap.profileId = profile.id;
       existingInZidMap.isTls = existingInZidMap.isTls || isTls;
-      existingInZidMap.type = type;
+      if (existingInZidMap.type !== 'router') {
+        existingInZidMap.type = type;
+      }
+      existingInZidMap.mode = profile.mode;
     } else {
       const topologyNode: TopologyNode = {
         id: nodeId,
@@ -193,6 +209,7 @@ export function buildTopologyGraph({
         locators,
         isTls,
         profileId: profile.id,
+        mode: profile.mode,
         x: existing ? existing.x : defaultX,
         y: existing ? existing.y : defaultY,
         vx: existing ? existing.vx : 0,
@@ -278,19 +295,23 @@ export function buildTopologyGraph({
     routers.forEach((router) => {
       peersAndClients.forEach((peer) => {
         const edgeId = `${router.id}<->${peer.id}`;
-        const primaryLoc = router.locators[0] || peer.locators[0] || '';
-        let protocol = extractLocatorProtocol(primaryLoc);
+        const isEncrypted = router.isTls || peer.isTls;
+        const matchingLoc = peer.locators.find((l) =>
+          router.locators.some((rLoc) => isLocatorMatch(l, rLoc))
+        );
+        const primaryLoc = matchingLoc || router.locators[0] || peer.locators[0] || '';
+        let protocol = extractLocatorProtocol(primaryLoc, isEncrypted);
         if (protocol === 'unknown') {
-          protocol = 'mesh';
+          protocol = isEncrypted ? 'tls' : 'tcp';
         }
         edges.push({
           id: edgeId,
           source: router.id,
           target: peer.id,
           protocol,
-          locator: primaryLoc || 'auto/mesh',
+          locator: primaryLoc || 'auto/tcp',
           status: router.status === 'connected' || peer.status === 'connected' ? 'active' : 'scouted',
-          isEncrypted: router.isTls || peer.isTls,
+          isEncrypted,
           animated: router.status === 'connected' || peer.status === 'connected',
         });
       });
@@ -301,8 +322,9 @@ export function buildTopologyGraph({
       for (let j = i + 1; j < nodes.length; j++) {
         const n1 = nodes[i];
         const n2 = nodes[j];
+        const isEncrypted = n1.isTls || n2.isTls;
         const primaryLoc = n1.locators[0] || n2.locators[0] || '';
-        let protocol = extractLocatorProtocol(primaryLoc);
+        let protocol = extractLocatorProtocol(primaryLoc, isEncrypted);
         if (protocol === 'unknown') {
           protocol = 'mesh';
         }
@@ -313,7 +335,7 @@ export function buildTopologyGraph({
           protocol,
           locator: primaryLoc || 'auto/mesh',
           status: n1.status === 'connected' || n2.status === 'connected' ? 'active' : 'scouted',
-          isEncrypted: n1.isTls || n2.isTls,
+          isEncrypted,
           animated: n1.status === 'connected' || n2.status === 'connected',
         });
       }

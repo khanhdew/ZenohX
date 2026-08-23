@@ -197,6 +197,15 @@ impl SessionManager {
             }
         });
 
+        if let Some(cb) = &*self.status_callback.read().await {
+            cb(SessionStatusEvent {
+                session_id: session_id.to_string(),
+                status: "connected".to_string(),
+                error: None,
+                timestamp: Some(now),
+            });
+        }
+
         Ok(session_id)
     }
 
@@ -224,6 +233,17 @@ impl SessionManager {
             }
             // Gracefully close the Zenoh session, ignoring timeout during teardown
             let _ = tokio::time::timeout(Duration::from_millis(1500), context.session.close()).await;
+
+            let status_cb = self.status_callback.read().await.clone();
+            if let Some(cb) = status_cb {
+                cb(SessionStatusEvent {
+                    session_id: session_id.to_string(),
+                    status: "disconnected".to_string(),
+                    error: None,
+                    timestamp: Some(chrono::Utc::now().timestamp()),
+                });
+            }
+
             Ok(())
         } else {
             Err(format!("session with id '{session_id}' not found"))

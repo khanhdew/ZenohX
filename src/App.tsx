@@ -166,6 +166,7 @@ export function App() {
 
   useEffect(() => {
     loadProfiles();
+    useConnectionStore.getState().refreshSessions();
     initStatusListener();
     return () => {
       cleanupStatusListener();

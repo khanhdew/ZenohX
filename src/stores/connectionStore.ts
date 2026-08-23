@@ -327,10 +327,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const sessions = await getAllSessions();
       const currentMapping = get().sessionToProfile;
       const nextActive: Record<string, SessionInfo> = {};
-      const nextSessionToProfile: Record<string, string> = {};
+      const nextSessionToProfile: Record<string, string> = { ...currentMapping };
 
       for (const s of sessions) {
-        const profileId = currentMapping[s.id];
+        const profileId = s.profile_id || currentMapping[s.id];
         if (profileId) {
           nextActive[profileId] = s;
           nextSessionToProfile[s.id] = profileId;
@@ -352,6 +352,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   handleSessionStatus: (event: SessionStatusEvent) => {
     const { sessionId, status, error } = event;
+
+    if (status === 'connected') {
+      get().refreshSessions();
+      return;
+    }
+
     const profileId = get().sessionToProfile[sessionId];
 
     if (status === 'disconnected' || status === 'error') {
@@ -377,12 +383,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
         const errorMsg = error
           ? formatFriendlyError(error, 'Connection Lost').fullMessage
-          : 'Connection to Zenoh router lost unexpectedly. Please reconnect.';
+          : null;
         return {
           activeSessions: nextActive,
           sessionToProfile: nextSessionToProfile,
           connectingProfileIds: nextConnecting,
-          error: errorMsg,
+          ...(errorMsg ? { error: errorMsg } : {}),
         };
       });
     }

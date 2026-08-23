@@ -184,7 +184,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             Advertised Locators ({node.locators.length})
           </label>
           {node.locators.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground italic">No locators reported</p>
+            <div className="p-2.5 rounded-md bg-muted/40 border space-y-1 text-[11px] text-muted-foreground">
+              <p className="font-medium text-foreground">Dynamic LAN Discovery</p>
+              <p className="text-[10px] leading-relaxed">
+                This node is operating via automatic UDP multicast scouting (<code className="font-mono text-[10px]">224.0.0.224:7446</code>) with ephemeral OS-assigned ports.
+              </p>
+            </div>
           ) : (
             <div className="space-y-1">
               {node.locators.map((loc, idx) => {

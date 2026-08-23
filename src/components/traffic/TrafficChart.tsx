@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -26,14 +26,12 @@ interface Point {
   relativeSec: number;
 }
 
-const VIEW_WIDTH = 1000;
-const VIEW_HEIGHT = 280;
-const LEFT_MARGIN = 75;
-const RIGHT_MARGIN = 25;
-const TOP_MARGIN = 25;
-const BOTTOM_MARGIN = 35;
+const VIEW_HEIGHT = 260;
+const LEFT_MARGIN = 70;
+const RIGHT_MARGIN = 20;
+const TOP_MARGIN = 20;
+const BOTTOM_MARGIN = 32;
 
-const CHART_WIDTH = VIEW_WIDTH - LEFT_MARGIN - RIGHT_MARGIN;
 const CHART_HEIGHT = VIEW_HEIGHT - TOP_MARGIN - BOTTOM_MARGIN;
 const BASE_Y = TOP_MARGIN + CHART_HEIGHT;
 
@@ -67,7 +65,10 @@ function computeAreaPath(points: { x: number; y: number }[], baseY: number): str
 }
 
 export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(800);
+
   const timeline = useTrafficStore((s) => s.timeline);
   const selectedMetric = useTrafficStore((s) => s.selectedMetric);
   const setSelectedMetric = useTrafficStore((s) => s.setSelectedMetric);
@@ -78,6 +79,38 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
   const currentOutboundMps = useTrafficStore((s) => s.currentOutboundMps);
 
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  // Responsive container width tracking via ResizeObserver
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const updateWidth = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0) {
+        setContainerWidth(rect.width);
+      }
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.contentRect.width > 0) {
+            setContainerWidth(entry.contentRect.width);
+          }
+        }
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    } else {
+      window.addEventListener('resize', updateWidth);
+      return () => window.removeEventListener('resize', updateWidth);
+    }
+  }, []);
+
+  const chartWidth = Math.max(100, containerWidth - LEFT_MARGIN - RIGHT_MARGIN);
 
   // Normalize rolling 60s timeline
   const fullTimeline = useMemo<SecondBucket[]>(() => {
@@ -123,7 +156,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
   const points = useMemo<Point[]>(() => {
     const count = fullTimeline.length;
     return fullTimeline.map((bucket, i) => {
-      const x = LEFT_MARGIN + (i / (count - 1)) * CHART_WIDTH;
+      const x = LEFT_MARGIN + (i / (count - 1)) * chartWidth;
       const inVal = inVals[i];
       const outVal = outVals[i];
 
@@ -141,7 +174,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
         relativeSec,
       };
     });
-  }, [fullTimeline, inVals, outVals, maxVal]);
+  }, [fullTimeline, inVals, outVals, maxVal, chartWidth]);
 
   // Paths
   const inPoints = useMemo(() => points.map((p) => ({ x: p.x, y: p.inY })), [points]);
@@ -171,16 +204,31 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
     return ticks;
   }, [maxVal, selectedMetric]);
 
-  // X-Axis Time Ticks (-60s, -45s, -30s, -15s, 0s)
+  // X-Axis Time Ticks (Responsive spacing based on containerWidth)
   const xTicks = useMemo(() => {
+    if (containerWidth < 450) {
+      return [
+        { sec: 60, label: '-60s', x: LEFT_MARGIN },
+        { sec: 30, label: '-30s', x: LEFT_MARGIN + chartWidth * 0.5 },
+        { sec: 0, label: 'Now', x: LEFT_MARGIN + chartWidth },
+      ];
+    }
+    if (containerWidth < 700) {
+      return [
+        { sec: 60, label: '-60s', x: LEFT_MARGIN },
+        { sec: 40, label: '-40s', x: LEFT_MARGIN + chartWidth * 0.33 },
+        { sec: 20, label: '-20s', x: LEFT_MARGIN + chartWidth * 0.67 },
+        { sec: 0, label: 'Now', x: LEFT_MARGIN + chartWidth },
+      ];
+    }
     return [
       { sec: 60, label: '-60s', x: LEFT_MARGIN },
-      { sec: 45, label: '-45s', x: LEFT_MARGIN + CHART_WIDTH * 0.25 },
-      { sec: 30, label: '-30s', x: LEFT_MARGIN + CHART_WIDTH * 0.5 },
-      { sec: 15, label: '-15s', x: LEFT_MARGIN + CHART_WIDTH * 0.75 },
-      { sec: 0, label: 'Now', x: LEFT_MARGIN + CHART_WIDTH },
+      { sec: 45, label: '-45s', x: LEFT_MARGIN + chartWidth * 0.25 },
+      { sec: 30, label: '-30s', x: LEFT_MARGIN + chartWidth * 0.5 },
+      { sec: 15, label: '-15s', x: LEFT_MARGIN + chartWidth * 0.75 },
+      { sec: 0, label: 'Now', x: LEFT_MARGIN + chartWidth },
     ];
-  }, []);
+  }, [containerWidth, chartWidth]);
 
   // Mouse hover event handler
   const handleMouseMove = useCallback(
@@ -189,7 +237,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
 
       const rect = svgRef.current.getBoundingClientRect();
       const clientX = e.clientX - rect.left;
-      const scaleX = VIEW_WIDTH / rect.width;
+      const scaleX = containerWidth / (rect.width || 1);
       const svgX = clientX * scaleX;
 
       // Find nearest point
@@ -206,7 +254,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
 
       setHoverIndex(closestIdx);
     },
-    [points]
+    [points, containerWidth]
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -216,11 +264,14 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
   const activePoint = hoverIndex !== null && points[hoverIndex] ? points[hoverIndex] : null;
 
   return (
-    <div className={`flex flex-col bg-card border border-border rounded-lg p-3.5 shadow-xs ${className}`}>
+    <div
+      ref={containerRef}
+      className={`flex flex-col bg-card border border-border rounded-lg p-3.5 shadow-xs w-full overflow-hidden ${className}`}
+    >
       {/* Chart Header: Title, Metric Toggle, and Live Legend */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-2.5">
         <div className="flex items-center gap-2">
-          <div className="p-1 rounded-md bg-muted text-muted-foreground">
+          <div className="p-1 rounded-md bg-muted text-muted-foreground shrink-0">
             <BarChart2 className="w-4 h-4" />
           </div>
           <div>
@@ -233,7 +284,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
           {/* Legend */}
           <div className="flex items-center gap-3 text-xs font-mono">
             <div className="flex items-center gap-1.5">
@@ -258,7 +309,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
           </div>
 
           {/* Metric Toggle Segmented Control */}
-          <div className="inline-flex rounded-md bg-muted p-0.5 border border-border">
+          <div className="inline-flex rounded-md bg-muted p-0.5 border border-border shrink-0">
             <button
               type="button"
               onClick={() => setSelectedMetric('throughput')}
@@ -291,8 +342,10 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
       <div className="relative w-full overflow-hidden select-none">
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-          className="w-full h-auto max-h-[280px] overflow-visible cursor-crosshair"
+          viewBox={`0 0 ${containerWidth} ${VIEW_HEIGHT}`}
+          width="100%"
+          height={VIEW_HEIGHT}
+          className="w-full h-[260px] overflow-visible cursor-crosshair block"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
@@ -316,7 +369,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
               <line
                 x1={LEFT_MARGIN}
                 y1={tick.y}
-                x2={LEFT_MARGIN + CHART_WIDTH}
+                x2={LEFT_MARGIN + chartWidth}
                 y2={tick.y}
                 stroke="currentColor"
                 className="text-border/60"
@@ -421,7 +474,7 @@ export const TrafficChart: React.FC<TrafficChartProps> = ({ className = '' }) =>
             className="absolute top-2 pointer-events-none z-10 bg-popover/95 backdrop-blur-xs text-popover-foreground border border-border shadow-md rounded-md p-2 text-xs font-mono transition-all duration-75"
             style={{
               left: `${Math.min(
-                Math.max(activePoint.x / VIEW_WIDTH * 100, 15),
+                Math.max((activePoint.x / (containerWidth || 1)) * 100, 15),
                 85
               )}%`,
               transform: 'translateX(-50%)',

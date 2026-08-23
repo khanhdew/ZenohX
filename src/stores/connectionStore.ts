@@ -120,6 +120,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     try {
       const config: SessionConfig = {
+        profile_id: profile.id,
         mode: profile.mode,
         connect_locators: profile.connect_locators,
         listen_locators: profile.listen_locators,
@@ -222,6 +223,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
     try {
       const config: SessionConfig = {
+        profile_id: profile.id,
         mode: profile.mode,
         connect_locators: profile.connect_locators,
         listen_locators: profile.listen_locators,

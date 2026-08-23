@@ -3,7 +3,9 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rusqlite::{Connection, Result};
 
-use crate::db::models::{ConnectionProfile, StoredMessage, SubscriptionPreset};
+use crate::db::models::{
+    ConnectionProfile, QueryablePreset, StoredMessage, StoredQueryExecution, SubscriptionPreset,
+};
 use crate::db::schema;
 
 #[derive(Clone)]
@@ -128,6 +130,18 @@ impl Database {
     /// Saves or updates a subscription preset.
     pub fn save_preset(&self, preset: &SubscriptionPreset) -> Result<()> {
         let conn = self.conn.lock();
+        // Check if profile exists before inserting to ensure FK integrity
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM connection_profiles WHERE id = ?1",
+                rusqlite::params![preset.profile_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !exists {
+            return Ok(());
+        }
+
         conn.execute(
             "INSERT OR REPLACE INTO subscription_presets (
                 id, profile_id, key_expr, default_encoding, auto_subscribe, color_tag
@@ -144,32 +158,37 @@ impl Database {
         Ok(())
     }
 
-    /// Fetches all subscription presets associated with a profile ID.
+    /// Fetches all subscription presets associated with a profile ID (or all if empty / "__all__").
     pub fn get_presets(&self, profile_id: &str) -> Result<Vec<SubscriptionPreset>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, profile_id, key_expr, default_encoding, auto_subscribe, color_tag
-             FROM subscription_presets
-             WHERE profile_id = ?1
-             ORDER BY key_expr ASC",
-        )?;
-
-        let rows = stmt.query_map(rusqlite::params![profile_id], |row| {
-            let auto_sub_int: i64 = row.get(4)?;
-            Ok(SubscriptionPreset {
-                id: row.get(0)?,
-                profile_id: row.get(1)?,
-                key_expr: row.get(2)?,
-                default_encoding: row.get(3)?,
-                auto_subscribe: auto_sub_int != 0,
-                color_tag: row.get(5)?,
-            })
-        })?;
+        let target = profile_id.trim();
 
         let mut presets = Vec::new();
-        for preset in rows {
-            presets.push(preset?);
+        if target.is_empty() || target == "__all__" {
+            let mut stmt = conn.prepare(
+                "SELECT id, profile_id, key_expr, default_encoding, auto_subscribe, color_tag
+                 FROM subscription_presets
+                 ORDER BY key_expr ASC",
+            )?;
+
+            let rows = stmt.query_map([], map_preset_row)?;
+            for preset in rows {
+                presets.push(preset?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, profile_id, key_expr, default_encoding, auto_subscribe, color_tag
+                 FROM subscription_presets
+                 WHERE profile_id = ?1
+                 ORDER BY key_expr ASC",
+            )?;
+
+            let rows = stmt.query_map(rusqlite::params![target], map_preset_row)?;
+            for preset in rows {
+                presets.push(preset?);
+            }
         }
+
         Ok(presets)
     }
 
@@ -187,12 +206,30 @@ impl Database {
     /// Inserts a message sample into history and returns the generated row ID.
     pub fn insert_message(&self, message: &StoredMessage) -> Result<i64> {
         let conn = self.conn.lock();
+        let profile_id_param: Option<&str> = if message.profile_id.trim().is_empty() {
+            None
+        } else {
+            // Verify if profile exists in database to ensure FK consistency
+            let exists: bool = conn
+                .query_row(
+                    "SELECT 1 FROM connection_profiles WHERE id = ?1",
+                    rusqlite::params![message.profile_id],
+                    |_| Ok(true),
+                )
+                .unwrap_or(false);
+            if exists {
+                Some(message.profile_id.as_str())
+            } else {
+                None
+            }
+        };
+
         conn.execute(
             "INSERT INTO message_history (
                 profile_id, direction, key_expr, payload, encoding, kind, timestamp
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![
-                message.profile_id,
+                profile_id_param,
                 message.direction,
                 message.key_expr,
                 message.payload,
@@ -205,33 +242,44 @@ impl Database {
     }
 
     /// Fetches messages for a given profile with limit and offset pagination (newest first).
-    pub fn get_messages(&self, profile_id: &str, limit: u32, offset: u32) -> Result<Vec<StoredMessage>> {
+    /// If profile_id is None, empty, or "__all__", queries across all profiles.
+    pub fn get_messages(
+        &self,
+        profile_id: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<StoredMessage>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp
-             FROM message_history
-             WHERE profile_id = ?1
-             ORDER BY timestamp DESC, id DESC
-             LIMIT ?2 OFFSET ?3",
-        )?;
-
-        let rows = stmt.query_map(rusqlite::params![profile_id, limit, offset], |row| {
-            Ok(StoredMessage {
-                id: Some(row.get(0)?),
-                profile_id: row.get(1)?,
-                direction: row.get(2)?,
-                key_expr: row.get(3)?,
-                payload: row.get(4)?,
-                encoding: row.get(5)?,
-                kind: row.get(6)?,
-                timestamp: row.get(7)?,
-            })
-        })?;
+        let target = profile_id.unwrap_or("").trim();
 
         let mut messages = Vec::new();
-        for msg in rows {
-            messages.push(msg?);
+        if target.is_empty() || target == "__all__" {
+            let mut stmt = conn.prepare(
+                "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp
+                 FROM message_history
+                 ORDER BY timestamp DESC, id DESC
+                 LIMIT ?1 OFFSET ?2",
+            )?;
+
+            let rows = stmt.query_map(rusqlite::params![limit, offset], map_message_row)?;
+            for msg in rows {
+                messages.push(msg?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp
+                 FROM message_history
+                 WHERE profile_id = ?1
+                 ORDER BY timestamp DESC, id DESC
+                 LIMIT ?2 OFFSET ?3",
+            )?;
+
+            let rows = stmt.query_map(rusqlite::params![target, limit, offset], map_message_row)?;
+            for msg in rows {
+                messages.push(msg?);
+            }
         }
+
         Ok(messages)
     }
 
@@ -248,6 +296,264 @@ impl Database {
         conn.execute("DELETE FROM message_history", [])?;
         Ok(())
     }
+
+    /// Deletes a specific message by its row ID.
+    pub fn delete_message_by_id(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM message_history WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }
+
+    // ==========================================
+    // Queryable Presets CRUD
+    // ==========================================
+
+    /// Saves or updates a queryable preset.
+    pub fn save_queryable_preset(&self, preset: &QueryablePreset) -> Result<()> {
+        let conn = self.conn.lock();
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM connection_profiles WHERE id = ?1",
+                rusqlite::params![preset.profile_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !exists {
+            return Ok(());
+        }
+
+        conn.execute(
+            "INSERT OR REPLACE INTO queryable_presets (
+                id, profile_id, key_expr, auto_reply, reply_payload, reply_encoding
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                preset.id,
+                preset.profile_id,
+                preset.key_expr,
+                if preset.auto_reply { 1 } else { 0 },
+                preset.reply_payload,
+                preset.reply_encoding,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Fetches all queryable presets for a profile (or all if empty / "__all__").
+    pub fn get_queryable_presets(&self, profile_id: &str) -> Result<Vec<QueryablePreset>> {
+        let conn = self.conn.lock();
+        let target = profile_id.trim();
+
+        let mut presets = Vec::new();
+        if target.is_empty() || target == "__all__" {
+            let mut stmt = conn.prepare(
+                "SELECT id, profile_id, key_expr, auto_reply, reply_payload, reply_encoding
+                 FROM queryable_presets
+                 ORDER BY key_expr ASC",
+            )?;
+            let rows = stmt.query_map([], map_queryable_preset_row)?;
+            for preset in rows {
+                presets.push(preset?);
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, profile_id, key_expr, auto_reply, reply_payload, reply_encoding
+                 FROM queryable_presets
+                 WHERE profile_id = ?1
+                 ORDER BY key_expr ASC",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![target], map_queryable_preset_row)?;
+            for preset in rows {
+                presets.push(preset?);
+            }
+        }
+
+        Ok(presets)
+    }
+
+    /// Deletes a queryable preset by ID.
+    pub fn delete_queryable_preset(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM queryable_presets WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }
+
+    // ==========================================
+    // Query History CRUD
+    // ==========================================
+
+    /// Saves or updates a query execution record.
+    pub fn save_query_execution(&self, execution: &StoredQueryExecution) -> Result<()> {
+        let conn = self.conn.lock();
+        let profile_id = match execution.profile_id {
+            Some(ref pid) if !pid.trim().is_empty() => {
+                let exists: bool = conn
+                    .query_row(
+                        "SELECT 1 FROM connection_profiles WHERE id = ?1",
+                        rusqlite::params![pid],
+                        |_| Ok(true),
+                    )
+                    .unwrap_or(false);
+                if exists {
+                    Some(pid.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        conn.execute(
+            "INSERT OR REPLACE INTO query_history (
+                id, profile_id, selector, target, timeout_ms, status, replies_json, duration_ms, error, timestamp
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                execution.id,
+                profile_id,
+                execution.selector,
+                execution.target,
+                execution.timeout_ms,
+                execution.status,
+                execution.replies_json,
+                execution.duration_ms,
+                execution.error,
+                execution.timestamp,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Queries query execution history with pagination.
+    pub fn get_query_history(
+        &self,
+        profile_id: Option<&str>,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<StoredQueryExecution>> {
+        let conn = self.conn.lock();
+        let mut history = Vec::new();
+
+        match profile_id {
+            None => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, profile_id, selector, target, timeout_ms, status, replies_json, duration_ms, error, timestamp
+                     FROM query_history
+                     ORDER BY timestamp DESC
+                     LIMIT ?1 OFFSET ?2",
+                )?;
+                let rows = stmt.query_map(rusqlite::params![limit, offset], map_query_execution_row)?;
+                for item in rows {
+                    history.push(item?);
+                }
+            }
+            Some(pid) if pid.trim().is_empty() || pid == "__all__" => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, profile_id, selector, target, timeout_ms, status, replies_json, duration_ms, error, timestamp
+                     FROM query_history
+                     ORDER BY timestamp DESC
+                     LIMIT ?1 OFFSET ?2",
+                )?;
+                let rows = stmt.query_map(rusqlite::params![limit, offset], map_query_execution_row)?;
+                for item in rows {
+                    history.push(item?);
+                }
+            }
+            Some(pid) => {
+                let mut stmt = conn.prepare(
+                    "SELECT id, profile_id, selector, target, timeout_ms, status, replies_json, duration_ms, error, timestamp
+                     FROM query_history
+                     WHERE profile_id = ?1
+                     ORDER BY timestamp DESC
+                     LIMIT ?2 OFFSET ?3",
+                )?;
+                let rows = stmt.query_map(rusqlite::params![pid, limit, offset], map_query_execution_row)?;
+                for item in rows {
+                    history.push(item?);
+                }
+            }
+        }
+
+        Ok(history)
+    }
+
+    /// Clears query history for a profile or all profiles.
+    pub fn clear_query_history(&self, profile_id: Option<&str>) -> Result<()> {
+        let conn = self.conn.lock();
+        match profile_id {
+            Some(pid) if !pid.trim().is_empty() && pid != "__all__" => {
+                conn.execute("DELETE FROM query_history WHERE profile_id = ?1", rusqlite::params![pid])?;
+            }
+            _ => {
+                conn.execute("DELETE FROM query_history", [])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Deletes a specific query execution record by ID.
+    pub fn delete_query_execution_by_id(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock();
+        conn.execute("DELETE FROM query_history WHERE id = ?1", rusqlite::params![id])?;
+        Ok(())
+    }
+}
+
+/// Helper function to map a SQLite row to a `StoredMessage`.
+fn map_message_row(row: &rusqlite::Row) -> rusqlite::Result<StoredMessage> {
+    let profile_id: Option<String> = row.get(1)?;
+    Ok(StoredMessage {
+        id: Some(row.get(0)?),
+        profile_id: profile_id.unwrap_or_default(),
+        direction: row.get(2)?,
+        key_expr: row.get(3)?,
+        payload: row.get(4)?,
+        encoding: row.get(5)?,
+        kind: row.get(6)?,
+        timestamp: row.get(7)?,
+    })
+}
+
+/// Helper function to map a SQLite row to a `SubscriptionPreset`.
+fn map_preset_row(row: &rusqlite::Row) -> rusqlite::Result<SubscriptionPreset> {
+    let auto_sub_int: i64 = row.get(4)?;
+    Ok(SubscriptionPreset {
+        id: row.get(0)?,
+        profile_id: row.get(1)?,
+        key_expr: row.get(2)?,
+        default_encoding: row.get(3)?,
+        auto_subscribe: auto_sub_int != 0,
+        color_tag: row.get(5)?,
+    })
+}
+
+/// Helper function to map a SQLite row to a `QueryablePreset`.
+fn map_queryable_preset_row(row: &rusqlite::Row) -> rusqlite::Result<QueryablePreset> {
+    let auto_reply_int: i64 = row.get(3)?;
+    Ok(QueryablePreset {
+        id: row.get(0)?,
+        profile_id: row.get(1)?,
+        key_expr: row.get(2)?,
+        auto_reply: auto_reply_int != 0,
+        reply_payload: row.get(4)?,
+        reply_encoding: row.get(5)?,
+    })
+}
+
+/// Helper function to map a SQLite row to a `StoredQueryExecution`.
+fn map_query_execution_row(row: &rusqlite::Row) -> rusqlite::Result<StoredQueryExecution> {
+    let profile_id: Option<String> = row.get(1)?;
+    let duration_i64: Option<i64> = row.get(7)?;
+    Ok(StoredQueryExecution {
+        id: row.get(0)?,
+        profile_id,
+        selector: row.get(2)?,
+        target: row.get(3)?,
+        timeout_ms: row.get(4)?,
+        status: row.get(5)?,
+        replies_json: row.get(6)?,
+        duration_ms: duration_i64.map(|d| d as u64),
+        error: row.get(8)?,
+        timestamp: row.get(9)?,
+    })
 }
 
 /// Helper function to map a SQLite row to a `ConnectionProfile`.

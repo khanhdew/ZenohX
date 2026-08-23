@@ -102,11 +102,14 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
   // History list expansion
   const [showHistory, setShowHistory] = useState<boolean>(true);
 
-  // Filter executions for current session
+  // Filter executions for current profile / session
   const sessionExecutions = useMemo(() => {
-    if (!sessionId) return executions;
-    return executions.filter((e) => !e.sessionId || e.sessionId === sessionId);
-  }, [executions, sessionId]);
+    return executions.filter((e) => {
+      if (profileId && e.profileId && e.profileId !== profileId) return false;
+      if (sessionId && e.sessionId && e.sessionId !== sessionId) return false;
+      return true;
+    });
+  }, [executions, profileId, sessionId]);
 
   // Parse parameters from current selector
   const parsedParams = useMemo(() => {
@@ -458,7 +461,7 @@ export const QuerierPanel: React.FC<QuerierPanelProps> = ({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => clearExecutions(sessionId)}
+                onClick={() => clearExecutions(sessionId || undefined, profileId || undefined)}
                 className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-destructive"
                 title="Clear query history"
               >

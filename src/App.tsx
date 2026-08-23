@@ -18,7 +18,7 @@ import {
 import { useConnectionStore } from './stores/connectionStore';
 import { useMessageStore } from './stores/messageStore';
 import { useQueryStore } from './stores/queryStore';
-import { useTrafficStore } from './stores/trafficStore';
+import { useTrafficStore, initTrafficTicker } from './stores/trafficStore';
 import { useSettingsStore, applyThemeToDom } from './stores/settingsStore';
 import { checkForAppUpdates, downloadAndInstallUpdate } from './lib/updater';
 import { ConnectionProfile } from './types/zenoh';
@@ -144,6 +144,12 @@ export function App() {
   useEffect(() => {
     loadProfiles();
   }, [loadProfiles]);
+
+  // Initialize continuous global traffic ticker
+  useEffect(() => {
+    const cleanup = initTrafficTicker();
+    return cleanup;
+  }, []);
 
   // Global keyboard shortcuts
   useEffect(() => {

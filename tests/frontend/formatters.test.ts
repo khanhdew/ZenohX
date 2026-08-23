@@ -12,6 +12,10 @@ import {
   normalizeEncoding,
   bytesToUint8Array,
   matchesKeyExpr,
+  findMatchingSubscription,
+  getTopicColorTag,
+  formatTimeWithMs,
+  formatFullDateTime,
 } from '../../src/lib/formatters';
 import * as cbor from 'cbor-x';
 
@@ -292,4 +296,94 @@ describe('normalizeEncoding', () => {
     assert.equal(normalizeEncoding('zenoh/bytes', binBytes), 'raw');
   });
 });
+
+describe('findMatchingSubscription & getTopicColorTag', () => {
+  const subscriptions = [
+    {
+      id: 'sub-wildcard',
+      profileId: 'p1',
+      keyExpr: 'demo/**',
+      colorTag: '#3b82f6', // Blue
+    },
+    {
+      id: 'sub-prefix',
+      profileId: 'p1',
+      keyExpr: 'demo/sensor/*',
+      colorTag: '#10b981', // Green
+    },
+    {
+      id: 'sub-exact',
+      profileId: 'p1',
+      keyExpr: 'demo/sensor/temperature',
+      colorTag: '#ef4444', // Red
+    },
+    {
+      id: 'sub-other-profile',
+      profileId: 'p2',
+      keyExpr: 'demo/**',
+      colorTag: '#eab308', // Yellow
+    },
+  ];
+
+  test('prioritizes exact match over prefix and double wildcard', () => {
+    const matched = findMatchingSubscription(subscriptions, 'demo/sensor/temperature', 'p1');
+    assert.ok(matched);
+    assert.equal(matched.id, 'sub-exact');
+    assert.equal(matched.colorTag, '#ef4444');
+
+    const colorRes = getTopicColorTag(subscriptions, 'demo/sensor/temperature', 'incoming', 'p1');
+    assert.equal(colorRes.color, '#ef4444');
+    assert.equal(colorRes.matchedSub?.id, 'sub-exact');
+  });
+
+  test('prioritizes single wildcard over recursive double wildcard', () => {
+    const matched = findMatchingSubscription(subscriptions, 'demo/sensor/humidity', 'p1');
+    assert.ok(matched);
+    assert.equal(matched.id, 'sub-prefix');
+    assert.equal(matched.colorTag, '#10b981');
+
+    const colorRes = getTopicColorTag(subscriptions, 'demo/sensor/humidity', 'incoming', 'p1');
+    assert.equal(colorRes.color, '#10b981');
+  });
+
+  test('falls back to double wildcard when no more specific match exists', () => {
+    const matched = findMatchingSubscription(subscriptions, 'demo/telemetry/cpu', 'p1');
+    assert.ok(matched);
+    assert.equal(matched.id, 'sub-wildcard');
+    assert.equal(matched.colorTag, '#3b82f6');
+  });
+
+  test('respects profileId scoping', () => {
+    const matchedP2 = findMatchingSubscription(subscriptions, 'demo/anything', 'p2');
+    assert.ok(matchedP2);
+    assert.equal(matchedP2.id, 'sub-other-profile');
+    assert.equal(matchedP2.colorTag, '#eab308');
+  });
+
+  test('uses fallback colors when no subscription matches', () => {
+    const inRes = getTopicColorTag(subscriptions, 'other/unmatched/topic', 'incoming', 'p1');
+    assert.equal(inRes.color, '#0284c7');
+    assert.equal(inRes.matchedSub, undefined);
+
+    const outRes = getTopicColorTag(subscriptions, 'other/unmatched/topic', 'outgoing', 'p1');
+    assert.equal(outRes.color, '#8b5cf6');
+    assert.equal(outRes.matchedSub, undefined);
+  });
+});
+
+describe('formatTimeWithMs & formatFullDateTime', () => {
+  test('formatTimeWithMs formats time correctly', () => {
+    const date = new Date(2026, 7, 23, 14, 30, 45, 123); // August 23, 2026
+    const res = formatTimeWithMs(date.getTime());
+    assert.equal(res, '14:30:45.123');
+  });
+
+  test('formatFullDateTime formats year/month/day and time correctly', () => {
+    const date = new Date(2026, 7, 23, 14, 30, 45, 123); // Month 7 is August (0-indexed)
+    const res = formatFullDateTime(date.getTime());
+    assert.equal(res, '2026/08/23 14:30:45.123');
+  });
+});
+
+
 

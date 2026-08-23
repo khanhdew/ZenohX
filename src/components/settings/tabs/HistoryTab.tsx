@@ -7,6 +7,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
@@ -35,6 +36,7 @@ export interface HistoryTabProps {
   selectedMessage: StoredMessage | null;
   setSelectedMessage: (msg: StoredMessage | null) => void;
   onReload: () => void;
+  onClearHistory?: () => void;
 }
 
 export const HistoryTab: React.FC<HistoryTabProps> = ({
@@ -50,6 +52,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   selectedMessage,
   setSelectedMessage,
   onReload,
+  onClearHistory,
 }) => {
   const profiles = useConnectionStore((state) => state.profiles);
 
@@ -102,7 +105,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               </Select>
             </div>
 
-            <div className="pt-4">
+            <div className="pt-4 flex items-center gap-1">
               <Button
                 size="sm"
                 variant="outline"
@@ -113,6 +116,18 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isLoadingHistory ? 'animate-spin' : ''}`} />
               </Button>
+              {onClearHistory && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onClearHistory}
+                  disabled={isLoadingHistory || filteredHistory.length === 0}
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                  title="Clear message history from SQLite"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
             </div>
           </div>
 

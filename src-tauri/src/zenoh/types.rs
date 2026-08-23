@@ -22,6 +22,8 @@ pub struct TlsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionConfig {
+    #[serde(default)]
+    pub profile_id: Option<String>,
     #[serde(default = "default_mode")]
     pub mode: String,
     #[serde(default)]
@@ -55,6 +57,7 @@ impl Default for SessionConfig {
 impl SessionConfig {
     pub fn default_peer() -> Self {
         Self {
+            profile_id: None,
             mode: "peer".to_string(),
             connect_locators: vec![],
             listen_locators: vec![],
@@ -67,6 +70,7 @@ impl SessionConfig {
 
     pub fn default_client() -> Self {
         Self {
+            profile_id: None,
             mode: "client".to_string(),
             connect_locators: vec![],
             listen_locators: vec![],
@@ -195,6 +199,7 @@ pub struct ScoutedNode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionInfo {
     pub id: uuid::Uuid,
+    pub profile_id: Option<String>,
     pub zid: String,
     pub mode: String,
     pub scout_multicast: bool,

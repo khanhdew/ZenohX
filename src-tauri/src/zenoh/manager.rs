@@ -14,6 +14,7 @@ use uuid::Uuid;
 /// Context representing an active Zenoh session and its associated metadata.
 pub struct SessionContext {
     pub id: Uuid,
+    pub profile_id: Option<String>,
     pub session: zenoh::Session,
     pub config: SessionConfig,
     pub created_at: i64,
@@ -53,10 +54,12 @@ impl SessionManager {
             .map_err(|e| format!("failed to open zenoh session: {e}"))?;
 
         let session_id = Uuid::new_v4();
+        let profile_id = config.profile_id.clone();
         let now = chrono::Utc::now().timestamp();
 
         let context = SessionContext {
             id: session_id,
+            profile_id,
             session,
             config,
             created_at: now,
@@ -290,6 +293,12 @@ impl SessionManager {
         lock.contains_key(session_id)
     }
 
+    /// Retrieves the profile ID associated with a session if any.
+    pub async fn get_session_profile_id(&self, session_id: &Uuid) -> Option<String> {
+        let lock = self.sessions.read().await;
+        lock.get(session_id).and_then(|ctx| ctx.profile_id.clone())
+    }
+
     /// Retrieves a cloned `zenoh::Session` handle for a given session ID.
     pub async fn get_session(&self, session_id: &Uuid) -> Result<zenoh::Session, String> {
         let lock = self.sessions.read().await;
@@ -309,6 +318,7 @@ impl SessionManager {
 
         Ok(SessionInfo {
             id: ctx.id,
+            profile_id: ctx.profile_id.clone(),
             zid,
             mode: ctx.config.mode.clone(),
             scout_multicast: ctx.config.scout_multicast,
@@ -324,6 +334,7 @@ impl SessionManager {
         lock.values()
             .map(|ctx| SessionInfo {
                 id: ctx.id,
+                profile_id: ctx.profile_id.clone(),
                 zid: ctx.session.zid().to_string(),
                 mode: ctx.config.mode.clone(),
                 scout_multicast: ctx.config.scout_multicast,

@@ -7,6 +7,7 @@ mod tests {
     async fn test_session_manager_open_and_close() {
         let manager = SessionManager::new();
         let config = SessionConfig {
+            profile_id: None,
             mode: "peer".to_string(),
             connect_locators: vec![],
             listen_locators: vec![],
@@ -69,6 +70,7 @@ mod tests {
     #[test]
     fn test_session_config_validation_and_conversion() {
         let valid_config = SessionConfig {
+            profile_id: None,
             mode: "client".to_string(),
             connect_locators: vec!["tcp/127.0.0.1:7447".to_string()],
             listen_locators: vec![],

@@ -246,7 +246,7 @@ describe('Query / RPC Store Operations & Reply Timeline Data', () => {
     assert.equal(useQueryStore.getState().inboundQueries.length, 0);
   });
 
-  test('execution selection and session filtering', () => {
+  test('execution selection and session filtering', async () => {
     useQueryStore.setState({
       executions: [
         {
@@ -280,7 +280,7 @@ describe('Query / RPC Store Operations & Reply Timeline Data', () => {
     useQueryStore.getState().selectExecution('exec-2');
     assert.equal(useQueryStore.getState().activeExecutionId, 'exec-2');
 
-    useQueryStore.getState().clearExecutions('sess-1');
+    await useQueryStore.getState().clearExecutions('sess-1');
     assert.equal(useQueryStore.getState().executions.length, 1);
     assert.equal(useQueryStore.getState().executions[0].id, 'exec-2');
   });

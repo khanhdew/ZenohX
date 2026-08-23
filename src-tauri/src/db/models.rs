@@ -36,3 +36,27 @@ pub struct StoredMessage {
     pub kind: String,     // "put" | "delete"
     pub timestamp: i64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QueryablePreset {
+    pub id: String,
+    pub profile_id: String,
+    pub key_expr: String,
+    pub auto_reply: bool,
+    pub reply_payload: Option<String>,
+    pub reply_encoding: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StoredQueryExecution {
+    pub id: String,
+    pub profile_id: Option<String>,
+    pub selector: String,
+    pub target: String,
+    pub timeout_ms: u64,
+    pub status: String,
+    pub replies_json: String,
+    pub duration_ms: Option<u64>,
+    pub error: Option<String>,
+    pub timestamp: i64,
+}

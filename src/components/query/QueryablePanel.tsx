@@ -112,11 +112,14 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
   const [isSendingManualReply, setIsSendingManualReply] = useState<boolean>(false);
   const [manualReplyError, setManualReplyError] = useState<string | null>(null);
 
-  // Filter queryables & inbound queries for current session
+  // Filter queryables & inbound queries for current session / profile
   const sessionQueryables = useMemo(() => {
-    if (!sessionId) return activeQueryables;
-    return activeQueryables.filter((q) => !q.sessionId || q.sessionId === sessionId);
-  }, [activeQueryables, sessionId]);
+    return activeQueryables.filter((q) => {
+      if (profileId && q.profileId && q.profileId !== profileId) return false;
+      if (sessionId && q.sessionId && q.sessionId !== sessionId) return false;
+      return true;
+    });
+  }, [activeQueryables, profileId, sessionId]);
 
   const sessionInboundQueries = useMemo(() => {
     if (!sessionId) return inboundQueries;
@@ -131,17 +134,12 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
       return;
     }
 
-    if (!sessionId) {
-      setFormError('No active Zenoh session connected');
-      return;
-    }
-
     setIsSubmitting(true);
     setFormError(null);
 
     try {
       await declareQueryable(
-        sessionId,
+        sessionId || '',
         cleanKey,
         autoReply,
         replyPayload,
@@ -157,9 +155,8 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
 
   // Undeclare Queryable Handler
   const handleUndeclare = async (queryableId: string) => {
-    if (!sessionId) return;
     try {
-      await undeclareQueryable(sessionId, queryableId);
+      await undeclareQueryable(sessionId || '', queryableId);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err));
     }

@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS subscription_presets (
 
 CREATE TABLE IF NOT EXISTS message_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    profile_id TEXT NOT NULL,
+    profile_id TEXT,
     direction TEXT NOT NULL,
     key_expr TEXT NOT NULL,
     payload BLOB NOT NULL,
@@ -40,6 +40,34 @@ CREATE TABLE IF NOT EXISTS message_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_msg_profile_ts ON message_history(profile_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_msg_ts ON message_history(timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS queryable_presets (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT NOT NULL,
+    key_expr TEXT NOT NULL,
+    auto_reply INTEGER NOT NULL DEFAULT 0,
+    reply_payload TEXT,
+    reply_encoding TEXT NOT NULL DEFAULT 'json',
+    FOREIGN KEY(profile_id) REFERENCES connection_profiles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS query_history (
+    id TEXT PRIMARY KEY,
+    profile_id TEXT,
+    selector TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT 'all',
+    timeout_ms INTEGER NOT NULL DEFAULT 2000,
+    status TEXT NOT NULL,
+    replies_json TEXT NOT NULL DEFAULT '[]',
+    duration_ms INTEGER,
+    error TEXT,
+    timestamp INTEGER NOT NULL,
+    FOREIGN KEY(profile_id) REFERENCES connection_profiles(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_query_profile_ts ON query_history(profile_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_query_ts ON query_history(timestamp DESC);
 "#;
 
 pub fn initialize_schema(conn: &Connection) -> Result<()> {

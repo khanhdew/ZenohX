@@ -6,11 +6,10 @@ import {
   Keyboard,
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
-import { useConnectionStore } from '../../stores/connectionStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { checkForAppUpdates, downloadAndInstallUpdate, type UpdateProgress } from '../../lib/updater';
 import { APP_VERSION } from '../../lib/version';
-import { queryMessages } from '../../lib/tauri';
+import { clearMessageHistory, queryMessages } from '../../lib/tauri';
 import type { StoredMessage } from '../../types/zenoh';
 import type { Update } from '@tauri-apps/plugin-updater';
 
@@ -26,7 +25,6 @@ export interface SettingsWorkspaceProps {
 type TabType = 'preferences' | 'updates' | 'history' | 'shortcuts';
 
 export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className = '' }) => {
-  const profiles = useConnectionStore((state) => state.profiles);
   const setLastCheckedUpdate = useSettingsStore((state) => state.setLastCheckedUpdate);
 
   const [activeTab, setActiveTab] = useState<TabType>('preferences');
@@ -51,21 +49,30 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
   }, [historyProfileId, historyLimit]);
 
   const loadHistory = async () => {
-    const targetProfileId = historyProfileId || profiles[0]?.id;
-    if (!targetProfileId) {
-      setHistoryMessages([]);
-      setIsLoadingHistory(false);
-      return;
-    }
-
     setIsLoadingHistory(true);
     setHistoryError(null);
     try {
-      const msgs = await queryMessages(targetProfileId, historyLimit, 0);
+      const msgs = await queryMessages(historyProfileId || undefined, historyLimit, 0);
       setHistoryMessages(msgs);
       if (msgs.length > 0 && !selectedMessage) {
         setSelectedMessage(msgs[0]);
+      } else if (msgs.length === 0) {
+        setSelectedMessage(null);
       }
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    setIsLoadingHistory(true);
+    setHistoryError(null);
+    try {
+      await clearMessageHistory(historyProfileId || undefined);
+      setHistoryMessages([]);
+      setSelectedMessage(null);
     } catch (err) {
       setHistoryError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -245,6 +252,7 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
             selectedMessage={selectedMessage}
             setSelectedMessage={setSelectedMessage}
             onReload={loadHistory}
+            onClearHistory={handleClearHistory}
           />
         )}
 

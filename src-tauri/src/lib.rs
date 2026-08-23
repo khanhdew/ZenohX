@@ -39,10 +39,23 @@ pub fn run() {
             declare_queryable,
             undeclare_queryable,
             reply_query,
+            save_queryable_preset,
+            load_queryable_presets,
+            delete_queryable_preset,
+            save_query_execution,
+            load_query_history,
+            clear_query_history,
+            delete_query_execution,
             save_profile,
             load_profiles,
             delete_profile,
+            save_subscription_preset,
+            load_subscription_presets,
+            delete_subscription_preset,
             query_messages,
+            save_message,
+            clear_message_history,
+            delete_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

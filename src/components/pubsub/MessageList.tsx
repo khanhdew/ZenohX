@@ -21,7 +21,7 @@ import {
   formatByteSize,
   formatTimeWithMs,
   getPayloadSnippet,
-  matchesKeyExpr,
+  getTopicColorTag,
   normalizeEncoding,
 } from '../../lib/formatters';
 import { JsonHighlightedCode } from '../viewer/PayloadViewer';
@@ -80,12 +80,18 @@ export const MessageList: React.FC<MessageListProps> = ({
         return false;
       }
 
-      // 2. Direction filter
+      // 2. Profile filter
+      const currentProfileId = propProfileId || selectedProfileId;
+      if (currentProfileId && m.profileId && m.profileId !== currentProfileId) {
+        return false;
+      }
+
+      // 3. Direction filter
       if (directionFilter !== 'all' && m.direction !== directionFilter) {
         return false;
       }
 
-      // 3. Key expression active filter
+      // 4. Key expression active filter
       if (activeFilterKey) {
         const cleanFilter = activeFilterKey.replace(/\*\*?$/, '');
         if (!m.keyExpr.includes(cleanFilter)) {
@@ -93,7 +99,7 @@ export const MessageList: React.FC<MessageListProps> = ({
         }
       }
 
-      // 4. Text search query
+      // 5. Text search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchKey = m.keyExpr.toLowerCase().includes(q);
@@ -116,6 +122,8 @@ export const MessageList: React.FC<MessageListProps> = ({
     frozenMessages,
     isPaused,
     activeSessionId,
+    propProfileId,
+    selectedProfileId,
     directionFilter,
     activeFilterKey,
     searchQuery,
@@ -157,7 +165,8 @@ export const MessageList: React.FC<MessageListProps> = ({
   }, [filteredMessages.length, autoScroll, isPaused]);
 
   const handleClearAll = () => {
-    clearMessages(activeSessionId || undefined);
+    const currentProfileId = propProfileId || selectedProfileId;
+    clearMessages(activeSessionId || undefined, currentProfileId || undefined);
     selectMessage(null);
     if (onSelectMessage) onSelectMessage(null);
   };
@@ -365,8 +374,14 @@ export const MessageList: React.FC<MessageListProps> = ({
               const byteSize = item.payload?.length || 0;
               const effectiveEncoding = normalizeEncoding(item.encoding, item.payload);
               const snippet = getPayloadSnippet(item.payload, effectiveEncoding);
-              const matchedSub = subscriptions.find((s) => matchesKeyExpr(s.keyExpr, item.keyExpr));
-              const colorTag = matchedSub?.colorTag || (isIncoming ? '#0284c7' : '#8b5cf6');
+              const effectiveProfileId = item.profileId || propProfileId || selectedProfileId;
+              const { color: colorTag, matchedSub } = getTopicColorTag(
+                subscriptions,
+                item.keyExpr,
+                item.direction,
+                effectiveProfileId,
+                item.sessionId || activeSessionId
+              );
 
               return (
                 <div
@@ -426,6 +441,17 @@ export const MessageList: React.FC<MessageListProps> = ({
                             DEL
                           </Badge>
                         )}
+
+                        {/* Topic Color Indicator Dot */}
+                        <span
+                          className="h-2 w-2 rounded-full shrink-0 shadow-xs"
+                          style={{ backgroundColor: colorTag }}
+                          title={
+                            matchedSub
+                              ? `Matched subscription: ${matchedSub.keyExpr} (${colorTag})`
+                              : `Topic color: ${colorTag}`
+                          }
+                        />
 
                         {/* Key Expression (Topic Name) */}
                         <span

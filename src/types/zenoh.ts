@@ -45,6 +45,7 @@ export interface TlsConfig {
  * Low-level configuration for opening a Zenoh session.
  */
 export interface SessionConfig {
+  profile_id?: string;
   mode: ConnectionMode | string;
   connect_locators: string[];
   listen_locators: string[];
@@ -84,6 +85,34 @@ export interface SubscriptionPreset {
 }
 
 /**
+ * Queryable preset linked to a connection profile.
+ */
+export interface QueryablePreset {
+  id: string;
+  profile_id: string;
+  key_expr: string;
+  auto_reply: boolean;
+  reply_payload?: string | null;
+  reply_encoding: EncodingType | string;
+}
+
+/**
+ * Stored query execution history in SQLite.
+ */
+export interface StoredQueryExecution {
+  id: string;
+  profile_id?: string | null;
+  selector: string;
+  target: string;
+  timeout_ms: number;
+  status: string;
+  replies_json: string;
+  duration_ms?: number | null;
+  error?: string | null;
+  timestamp: number;
+}
+
+/**
  * Stored message in SQLite persistence history.
  */
 export interface StoredMessage {
@@ -102,6 +131,7 @@ export interface StoredMessage {
  */
 export interface SessionInfo {
   id: string;
+  profile_id?: string | null;
   zid: string;
   mode: ConnectionMode | string;
   scout_multicast: boolean;

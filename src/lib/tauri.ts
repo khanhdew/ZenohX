@@ -13,10 +13,13 @@ import type {
   QueryTarget,
   ReplySample,
   ScoutedNode,
+  QueryablePreset,
   SessionConfig,
   SessionInfo,
   SessionStatusEvent,
   StoredMessage,
+  StoredQueryExecution,
+  SubscriptionPreset,
   ZenohSample,
 } from '../types/zenoh';
 
@@ -207,18 +210,125 @@ export async function deleteProfile(profileId: string): Promise<void> {
 }
 
 /**
- * Queries message history for a profile with pagination.
+ * Saves or updates a subscription preset in SQLite.
+ */
+export async function saveSubscriptionPreset(preset: SubscriptionPreset): Promise<void> {
+  return invoke<void>('save_subscription_preset', { preset });
+}
+
+/**
+ * Loads all subscription presets for a profile from SQLite.
+ */
+export async function loadSubscriptionPresets(profileId?: string): Promise<SubscriptionPreset[]> {
+  return invoke<SubscriptionPreset[]>('load_subscription_presets', {
+    profileId: profileId && profileId !== '__all__' ? profileId : undefined,
+  });
+}
+
+/**
+ * Deletes a subscription preset by its ID from SQLite.
+ */
+export async function deleteSubscriptionPreset(presetId: string): Promise<void> {
+  return invoke<void>('delete_subscription_preset', { presetId });
+}
+
+/**
+ * Queries message history for a profile (or all profiles) with pagination.
  */
 export async function queryMessages(
-  profileId: string,
+  profileId?: string,
   limit: number = 100,
   offset: number = 0
 ): Promise<StoredMessage[]> {
   return invoke<StoredMessage[]>('query_messages', {
-    profileId,
+    profileId: profileId && profileId !== '__all__' ? profileId : undefined,
     limit,
     offset,
   });
+}
+
+/**
+ * Saves a message directly into SQLite message history.
+ */
+export async function saveMessage(message: StoredMessage): Promise<number> {
+  return invoke<number>('save_message', { message });
+}
+
+/**
+ * Clears message history for a specific profile or all profiles.
+ */
+export async function clearMessageHistory(profileId?: string): Promise<void> {
+  return invoke<void>('clear_message_history', {
+    profileId: profileId && profileId !== '__all__' ? profileId : undefined,
+  });
+}
+
+/**
+ * Deletes a single message by its row ID.
+ */
+export async function deleteMessage(messageId: number): Promise<void> {
+  return invoke<void>('delete_message', { messageId });
+}
+
+/**
+ * Saves or updates a queryable preset in SQLite.
+ */
+export async function saveQueryablePreset(preset: QueryablePreset): Promise<void> {
+  return invoke<void>('save_queryable_preset', { preset });
+}
+
+/**
+ * Loads all queryable presets for a profile from SQLite.
+ */
+export async function loadQueryablePresets(profileId?: string): Promise<QueryablePreset[]> {
+  return invoke<QueryablePreset[]>('load_queryable_presets', {
+    profileId: profileId && profileId !== '__all__' ? profileId : undefined,
+  });
+}
+
+/**
+ * Deletes a queryable preset by ID from SQLite.
+ */
+export async function deleteQueryablePreset(presetId: string): Promise<void> {
+  return invoke<void>('delete_queryable_preset', { presetId });
+}
+
+/**
+ * Saves a query execution record to SQLite.
+ */
+export async function saveQueryExecution(execution: StoredQueryExecution): Promise<void> {
+  return invoke<void>('save_query_execution', { execution });
+}
+
+/**
+ * Queries query execution history from SQLite with pagination.
+ */
+export async function loadQueryHistory(
+  profileId?: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<StoredQueryExecution[]> {
+  return invoke<StoredQueryExecution[]>('load_query_history', {
+    profileId: profileId && profileId !== '__all__' ? profileId : undefined,
+    limit,
+    offset,
+  });
+}
+
+/**
+ * Clears query execution history from SQLite.
+ */
+export async function clearQueryHistory(profileId?: string): Promise<void> {
+  return invoke<void>('clear_query_history', {
+    profileId: profileId && profileId !== '__all__' ? profileId : undefined,
+  });
+}
+
+/**
+ * Deletes a specific query execution from SQLite.
+ */
+export async function deleteQueryExecution(executionId: string): Promise<void> {
+  return invoke<void>('delete_query_execution', { executionId });
 }
 
 // ============================================================================

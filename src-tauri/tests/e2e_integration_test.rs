@@ -62,6 +62,7 @@ async fn test_full_e2e_integration_workflow() {
     let session_manager = SessionManager::new();
 
     let session1_config = SessionConfig {
+        profile_id: Some(profile1_id.clone()),
         mode: "peer".to_string(),
         connect_locators: vec![],
         listen_locators: vec!["tcp/127.0.0.1:17448".to_string()],
@@ -72,6 +73,7 @@ async fn test_full_e2e_integration_workflow() {
     };
 
     let session2_config = SessionConfig {
+        profile_id: Some(profile2_id.clone()),
         mode: "peer".to_string(),
         connect_locators: vec!["tcp/127.0.0.1:17448".to_string()],
         listen_locators: vec![],

@@ -92,15 +92,21 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
 
   const { getActiveSessionId, selectedProfileId } = useConnectionStore();
 
-  const activeSessionId = propSessionId || getActiveSessionId(propProfileId || selectedProfileId || undefined);
+  const currentProfileId = propProfileId || selectedProfileId;
+  const activeSessionId = propSessionId || getActiveSessionId(currentProfileId || undefined);
 
-  // Filter subscriptions to the active session if available
+  // Filter subscriptions to the active profile / session
   const sessionSubscriptions = useMemo(() => {
-    if (!activeSessionId) return subscriptions;
-    return subscriptions.filter(
-      (s) => !s.sessionId || s.sessionId === activeSessionId
-    );
-  }, [subscriptions, activeSessionId]);
+    return subscriptions.filter((s) => {
+      if (currentProfileId && s.profileId && s.profileId !== currentProfileId) {
+        return false;
+      }
+      if (activeSessionId && s.sessionId && s.sessionId !== activeSessionId) {
+        return false;
+      }
+      return true;
+    });
+  }, [subscriptions, currentProfileId, activeSessionId]);
 
   // Form State for Adding Subscription
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
@@ -139,12 +145,7 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
       return;
     }
 
-    if (!activeSessionId) {
-      setFormError('No active Zenoh session connected');
-      return;
-    }
-
-    // Check for duplicate key expression in active session
+    // Check for duplicate key expression in active profile / session
     const existing = sessionSubscriptions.find((s) => s.keyExpr === key);
     if (existing) {
       setFormError(`Already subscribed to '${key}'`);
@@ -156,11 +157,11 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
 
     try {
       await subscribe(
-        activeSessionId,
+        activeSessionId || '',
         key,
         newEncoding,
         selectedColor,
-        propProfileId || selectedProfileId || undefined
+        currentProfileId || undefined
       );
       setNewKeyExpr('');
       // Auto cycle to next color for subsequent subscription
@@ -177,7 +178,7 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const handleToggle = async (sub: SubscriptionItem, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await toggleSubscription(sub.sessionId, sub.id);
+      await toggleSubscription(activeSessionId || sub.sessionId, sub.id);
     } catch (err) {
       // Handled by store
     }
@@ -186,7 +187,7 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const handleUnsubscribe = async (sub: SubscriptionItem, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await unsubscribe(sub.sessionId, sub.id);
+      await unsubscribe(activeSessionId || sub.sessionId, sub.id);
       if (activeFilterKey === sub.keyExpr) {
         setActiveFilterKey('');
       }

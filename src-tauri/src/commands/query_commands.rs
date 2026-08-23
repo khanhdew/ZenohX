@@ -1,6 +1,7 @@
 use crate::AppState;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
+use crate::db::models::{QueryablePreset, StoredQueryExecution};
 use crate::zenoh::types::ReplySample;
 
 /// Executes a distributed Zenoh query (`session.get`) and returns all collected replies with latency metrics.
@@ -62,4 +63,93 @@ pub async fn reply_query(
         .session_manager
         .reply_query(&token, &key_expr, payload, &encoding)
         .await
+}
+
+/// Saves or updates a queryable preset in SQLite.
+#[tauri::command]
+pub async fn save_queryable_preset(
+    state: State<'_, AppState>,
+    preset: QueryablePreset,
+) -> Result<(), String> {
+    state
+        .db
+        .save_queryable_preset(&preset)
+        .map_err(|e| format!("failed to save queryable preset: {e}"))
+}
+
+/// Loads all queryable presets for a profile (or all profiles) from SQLite.
+#[tauri::command]
+pub async fn load_queryable_presets(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<Vec<QueryablePreset>, String> {
+    let pid = profile_id.unwrap_or_default();
+    state
+        .db
+        .get_queryable_presets(&pid)
+        .map_err(|e| format!("failed to load queryable presets: {e}"))
+}
+
+/// Deletes a queryable preset by ID from SQLite.
+#[tauri::command]
+pub async fn delete_queryable_preset(
+    state: State<'_, AppState>,
+    preset_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .delete_queryable_preset(&preset_id)
+        .map_err(|e| format!("failed to delete queryable preset: {e}"))
+}
+
+/// Saves a query execution record to SQLite.
+#[tauri::command]
+pub async fn save_query_execution(
+    state: State<'_, AppState>,
+    execution: StoredQueryExecution,
+) -> Result<(), String> {
+    state
+        .db
+        .save_query_execution(&execution)
+        .map_err(|e| format!("failed to save query execution: {e}"))
+}
+
+/// Queries query execution history from SQLite with pagination.
+#[tauri::command]
+pub async fn load_query_history(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<Vec<StoredQueryExecution>, String> {
+    let limit_val = limit.unwrap_or(50);
+    let offset_val = offset.unwrap_or(0);
+    state
+        .db
+        .get_query_history(profile_id.as_deref(), limit_val, offset_val)
+        .map_err(|e| format!("failed to query history: {e}"))
+}
+
+/// Clears query history for a profile or all profiles from SQLite.
+#[tauri::command]
+pub async fn clear_query_history(
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+) -> Result<(), String> {
+    state
+        .db
+        .clear_query_history(profile_id.as_deref())
+        .map_err(|e| format!("failed to clear query history: {e}"))
+}
+
+/// Deletes a specific query execution record by ID from SQLite.
+#[tauri::command]
+pub async fn delete_query_execution(
+    state: State<'_, AppState>,
+    execution_id: String,
+) -> Result<(), String> {
+    state
+        .db
+        .delete_query_execution_by_id(&execution_id)
+        .map_err(|e| format!("failed to delete query execution: {e}"))
 }

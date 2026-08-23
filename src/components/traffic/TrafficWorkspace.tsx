@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Activity,
   Play,
@@ -8,7 +8,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
-import { useTrafficStore, initTrafficTicker } from '../../stores/trafficStore';
+import { useTrafficStore } from '../../stores/trafficStore';
 import { TrafficMetricCards } from './TrafficMetricCards';
 import { TrafficChart } from './TrafficChart';
 import { KeyTrafficTable } from './KeyTrafficTable';
@@ -40,12 +40,6 @@ export const TrafficWorkspace: React.FC<TrafficWorkspaceProps> = ({ className = 
   const clearTrafficHistory = useTrafficStore((s) => s.clearTrafficHistory);
 
   const [copiedZid, setCopiedZid] = useState<boolean>(false);
-
-  // Initialize and tear down global traffic ticker interval
-  useEffect(() => {
-    const cleanup = initTrafficTicker();
-    return cleanup;
-  }, []);
 
   const handleCopyZid = () => {
     if (session?.zid) {

@@ -465,6 +465,21 @@ export function formatTimeWithMs(timestamp: number): string {
 }
 
 /**
+ * Formats a unix timestamp (ms) to YYYY/MM/DD HH:mm:ss.SSS date-time string.
+ */
+export function formatFullDateTime(timestamp: number): string {
+  const d = new Date(timestamp);
+  const year = d.getFullYear();
+  const month = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  const hours = d.getHours().toString().padStart(2, '0');
+  const minutes = d.getMinutes().toString().padStart(2, '0');
+  const seconds = d.getSeconds().toString().padStart(2, '0');
+  const ms = d.getMilliseconds().toString().padStart(3, '0');
+  return `${year}/${month}/${day} ${hours}:${minutes}:${seconds}.${ms}`;
+}
+
+/**
  * Creates a single-line preview string from a message payload.
  */
 export function getPayloadSnippet(
@@ -564,5 +579,82 @@ export function matchesKeyExpr(pattern: string, key: string): boolean {
 
   return pattern === key;
 }
+
+export interface SubscriptionLike {
+  id?: string;
+  profileId?: string | null;
+  sessionId?: string | null;
+  keyExpr: string;
+  colorTag?: string | null;
+  encoding?: string | null;
+}
+
+/**
+ * Finds the most specific matching subscription for a given topic/key expression.
+ * Prioritizes:
+ * 1. Matching profile/session scope
+ * 2. Exact match (s.keyExpr === keyExpr)
+ * 3. Most specific wildcard match (e.g. single '*' or longest literal prefix over multi-level '**')
+ */
+export function findMatchingSubscription<T extends SubscriptionLike>(
+  subscriptions: T[],
+  keyExpr: string,
+  profileId?: string | null,
+  sessionId?: string | null
+): T | undefined {
+  if (!subscriptions || subscriptions.length === 0 || !keyExpr) return undefined;
+
+  // Filter by profile or session if available
+  const scoped = subscriptions.filter((s) => {
+    if (profileId && s.profileId && s.profileId !== profileId) return false;
+    if (sessionId && s.sessionId && s.sessionId !== sessionId) return false;
+    return true;
+  });
+
+  const candidates = scoped.length > 0 ? scoped : subscriptions;
+  const matching = candidates.filter((s) => matchesKeyExpr(s.keyExpr, keyExpr));
+  if (matching.length === 0) return undefined;
+  if (matching.length === 1) return matching[0];
+
+  // Sort by specificity:
+  // 1. Exact match
+  // 2. Single '*' wildcard over recursive '**'
+  // 3. Longest literal prefix before first wildcard
+  // 4. Longest key expression length
+  return matching.slice().sort((a, b) => {
+    if (a.keyExpr === keyExpr && b.keyExpr !== keyExpr) return -1;
+    if (b.keyExpr === keyExpr && a.keyExpr !== keyExpr) return 1;
+
+    const aHasDoubleStar = a.keyExpr.includes('**');
+    const bHasDoubleStar = b.keyExpr.includes('**');
+    if (!aHasDoubleStar && bHasDoubleStar) return -1;
+    if (aHasDoubleStar && !bHasDoubleStar) return 1;
+
+    const aPrefix = a.keyExpr.split('*')[0].length;
+    const bPrefix = b.keyExpr.split('*')[0].length;
+    if (aPrefix !== bPrefix) return bPrefix - aPrefix;
+
+    return b.keyExpr.length - a.keyExpr.length;
+  })[0];
+}
+
+/**
+ * Resolves the color tag for a message based on its topic and matching subscriptions.
+ */
+export function getTopicColorTag<T extends SubscriptionLike>(
+  subscriptions: T[],
+  keyExpr: string,
+  direction?: 'incoming' | 'outgoing' | string,
+  profileId?: string | null,
+  sessionId?: string | null
+): { color: string; matchedSub?: T } {
+  const matchedSub = findMatchingSubscription(subscriptions, keyExpr, profileId, sessionId);
+  if (matchedSub?.colorTag) {
+    return { color: matchedSub.colorTag, matchedSub };
+  }
+  const fallbackColor = direction === 'outgoing' ? '#8b5cf6' : '#0284c7';
+  return { color: fallbackColor, matchedSub };
+}
+
 
 

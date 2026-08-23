@@ -1,6 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Radio,
   Layers,
   Info,
   Clock,
@@ -10,6 +9,14 @@ import {
   AlertCircle,
   Maximize2,
   Minimize2,
+  Settings2,
+  MoreVertical,
+  Play,
+  Power,
+  Copy,
+  Check,
+  CopyPlus,
+  Trash2,
 } from 'lucide-react';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useMessageStore } from '../../stores/messageStore';
@@ -21,7 +28,20 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { ResizeHandle } from '../ui/resize-handle';
 import { useResizable } from '../../hooks/useResizable';
-import { formatByteSize, formatTimeWithMs, matchesKeyExpr, normalizeEncoding } from '../../lib/formatters';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import { ProfileModal } from '../connections/ProfileModal';
+import {
+  formatByteSize,
+  formatFullDateTime,
+  getTopicColorTag,
+  normalizeEncoding,
+} from '../../lib/formatters';
 
 interface PubSubWorkspaceProps {
   className?: string;
@@ -33,6 +53,10 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
   const profiles = useConnectionStore((s) => s.profiles);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
   const connect = useConnectionStore((s) => s.connect);
+  const disconnect = useConnectionStore((s) => s.disconnect);
+  const saveProfile = useConnectionStore((s) => s.saveProfile);
+  const deleteProfile = useConnectionStore((s) => s.deleteProfile);
+  const selectProfile = useConnectionStore((s) => s.selectProfile);
 
   // Active session and profile details
   const profile = useMemo(
@@ -47,10 +71,71 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
   const selectedMessage = useMessageStore((s) => s.selectedMessage);
   const selectMessage = useMessageStore((s) => s.selectMessage);
   const subscriptions = useMessageStore((s) => s.subscriptions);
+  const loadHistory = useMessageStore((s) => s.loadHistory);
+  const loadSubscriptions = useMessageStore((s) => s.loadSubscriptions);
+  const clearMessages = useMessageStore((s) => s.clearMessages);
 
-  // Panel layout toggles
+  // Auto load message history and subscription presets from SQLite when profile/session changes
+  useEffect(() => {
+    if (selectedProfileId) {
+      loadHistory(selectedProfileId);
+      loadSubscriptions(selectedProfileId, sessionId);
+    }
+  }, [selectedProfileId, sessionId, loadHistory, loadSubscriptions]);
+
+  // Panel layout and modal toggles
   const [showSubscriptionPanel, setShowSubscriptionPanel] = useState<boolean>(true);
   const [inspectorExpanded, setInspectorExpanded] = useState<boolean>(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [copiedZid, setCopiedZid] = useState<boolean>(false);
+
+  const handleCopyZid = () => {
+    if (session?.zid) {
+      navigator.clipboard.writeText(session.zid);
+      setCopiedZid(true);
+      setTimeout(() => setCopiedZid(false), 2000);
+    }
+  };
+
+  const handleToggleConnect = async () => {
+    if (!selectedProfileId) return;
+    try {
+      if (isConnected) {
+        await disconnect(selectedProfileId);
+      } else {
+        await connect(selectedProfileId);
+      }
+    } catch {
+      // Handled by connection store
+    }
+  };
+
+  const handleDuplicateProfile = async () => {
+    if (!profile) return;
+    const now = Math.floor(Date.now() / 1000);
+    const duplicated = {
+      ...profile,
+      id: crypto.randomUUID ? crypto.randomUUID() : `profile-${Date.now()}`,
+      name: `${profile.name} (Copy)`,
+      created_at: now,
+      updated_at: now,
+    };
+    await saveProfile(duplicated);
+    selectProfile(duplicated.id);
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!profile) return;
+    if (window.confirm(`Are you sure you want to delete profile "${profile.name}"?`)) {
+      await deleteProfile(profile.id);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    if (selectedProfileId) {
+      await clearMessages(sessionId || undefined, selectedProfileId);
+    }
+  };
 
   // Resizable Subscriptions Left Panel
   const {
@@ -89,46 +174,54 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
     <div className={`flex flex-col h-full w-full bg-background text-foreground overflow-hidden ${className}`}>
       {/* Workspace Top Header Bar */}
       <header className="flex flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-2 select-none shrink-0">
-        {/* Left: Profile name, Mode badge, Session ZID */}
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <Radio className="w-3.5 h-3.5 text-muted-foreground" />
-            <h2 className="text-xs font-semibold text-foreground">
-              {profile ? profile.name : 'Pub / Sub Workspace'}
-            </h2>
-          </div>
+        {/* Left: Connection name (no icon) + Mode badge + Session ZID */}
+        <div className="flex items-center gap-2 min-w-0">
+          <h2
+            className="text-xs font-semibold text-foreground truncate max-w-[220px]"
+            title={profile ? profile.name : 'Pub / Sub Workspace'}
+          >
+            {profile ? profile.name : 'Pub / Sub Workspace'}
+          </h2>
 
           {profile && (
-            <Badge variant="secondary" className="text-[10px] uppercase font-mono px-1.5 py-0">
+            <Badge variant="secondary" className="text-[10px] uppercase font-mono px-1.5 py-0 shrink-0">
               {profile.mode}
             </Badge>
           )}
 
-          {/* Connection Status Indicator */}
+          {/* Connection Status Indicator & ZID */}
           {isConnected ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+              <span
+                className="text-[11px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded cursor-pointer hover:text-foreground transition-colors"
+                title={session?.zid ? `Click to copy ZID: ${session.zid}` : 'Connected'}
+                onClick={handleCopyZid}
+              >
                 ZID: {session?.zid ? `${session.zid.slice(0, 8)}…` : 'Connected'}
               </span>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/40"></span>
               <span className="text-[11px] text-muted-foreground">Disconnected</span>
             </div>
           )}
         </div>
 
-        {/* Right: Subscriptions panel toggle */}
-        <div className="flex items-center gap-2">
-          {/* Subscriptions Panel Toggle Button */}
+        {/* Right: Topics toggle, Connection Edit, 3-dot dropdown menu */}
+        <div className="flex items-center gap-1.5">
+          {/* Subscriptions / Topics Panel Toggle Button */}
           <Button
             type="button"
             variant="outline"
             size="sm"
             onClick={() => setShowSubscriptionPanel(!showSubscriptionPanel)}
-            className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+            className={`h-7 px-2 text-xs gap-1.5 transition-colors ${
+              showSubscriptionPanel
+                ? 'bg-accent text-accent-foreground border-accent-foreground/20'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
             title={
               showSubscriptionPanel
                 ? 'Hide Topics panel'
@@ -138,6 +231,94 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
             <Layers className="w-3.5 h-3.5" />
             <span>Topics ({sessionSubs.length})</span>
           </Button>
+
+          {/* Connection Edit Button */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!profile}
+            onClick={() => setIsEditModalOpen(true)}
+            className="h-7 px-2 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+            title="Edit Connection Profile"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+            <span>Connection Edit</span>
+          </Button>
+
+          {/* 3-dot Actions Dropdown Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                title="More Actions"
+              >
+                <MoreVertical className="w-3.5 h-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {profile && (
+                <>
+                  <DropdownMenuItem onClick={handleToggleConnect}>
+                    {isConnected ? (
+                      <>
+                        <Power className="w-3.5 h-3.5 mr-2 text-rose-500" />
+                        <span>Disconnect</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                        <span>Connect</span>
+                      </>
+                    )}
+                  </DropdownMenuItem>
+
+                  {session?.zid && (
+                    <DropdownMenuItem onClick={handleCopyZid}>
+                      {copiedZid ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+                          <span>Copied ZID!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 mr-2" />
+                          <span>Copy ZID</span>
+                        </>
+                      )}
+                    </DropdownMenuItem>
+                  )}
+
+                  <DropdownMenuItem onClick={() => setIsEditModalOpen(true)}>
+                    <Settings2 className="w-3.5 h-3.5 mr-2" />
+                    <span>Edit Profile</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem onClick={handleDuplicateProfile}>
+                    <CopyPlus className="w-3.5 h-3.5 mr-2" />
+                    <span>Duplicate Profile</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem onClick={handleClearHistory} className="text-muted-foreground hover:text-destructive">
+                    <Trash2 className="w-3.5 h-3.5 mr-2" />
+                    <span>Clear Messages</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem onClick={handleDeleteProfile} className="text-destructive focus:text-destructive">
+                    <Trash2 className="w-3.5 h-3.5 mr-2" />
+                    <span>Delete Profile</span>
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -262,11 +443,14 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
 
                   {/* Matched Subscription Tag */}
                   {(() => {
-                    const matchedSub = subscriptions.find((s) =>
-                      matchesKeyExpr(s.keyExpr, selectedMessage.keyExpr)
+                    const { color: subColor, matchedSub } = getTopicColorTag(
+                      subscriptions,
+                      selectedMessage.keyExpr,
+                      selectedMessage.direction,
+                      selectedMessage.profileId || selectedProfileId,
+                      selectedMessage.sessionId || sessionId
                     );
                     if (!matchedSub) return null;
-                    const subColor = matchedSub.colorTag || '#3b82f6';
                     return (
                       <div className="pt-0.5">
                         <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
@@ -279,14 +463,14 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
                           />
                           <span className="font-semibold text-foreground">{matchedSub.keyExpr}</span>
                           <span className="text-[10px] text-muted-foreground ml-auto uppercase font-mono">
-                            {matchedSub.encoding || 'raw'}
+                            {String(matchedSub.encoding || 'raw')}
                           </span>
                         </div>
                       </div>
                     );
                   })()}
 
-                  {/* Meta pills grid: Direction, Kind, Timestamp, Size, Encoding */}
+                  {/* Meta pills grid: Direction, Encoding, Payload Size, Timestamp */}
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <div>
                       <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
@@ -318,11 +502,10 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
 
                     <div>
                       <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                        Timestamp
+                        Encoding
                       </div>
-                      <div className="font-mono text-[11px] text-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3 text-muted-foreground" />
-                        {formatTimeWithMs(selectedMessage.timestamp)}
+                      <div className="font-mono text-xs uppercase font-medium text-foreground">
+                        {normalizeEncoding(selectedMessage.encoding, selectedMessage.payload)}
                       </div>
                     </div>
 
@@ -337,10 +520,13 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
 
                     <div>
                       <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                        Encoding
+                        Timestamp
                       </div>
-                      <div className="font-mono text-xs uppercase font-medium text-foreground">
-                        {normalizeEncoding(selectedMessage.encoding, selectedMessage.payload)}
+                      <div className="font-mono text-[11px] text-foreground flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span className="truncate" title={formatFullDateTime(selectedMessage.timestamp)}>
+                          {formatFullDateTime(selectedMessage.timestamp)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -371,6 +557,19 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
           />
         </div>
       </div>
+
+      {/* Profile Modal for Connection Edit */}
+      {profile && (
+        <ProfileModal
+          isOpen={isEditModalOpen}
+          onClose={() => setIsEditModalOpen(false)}
+          profile={profile}
+          onSaved={(saved) => {
+            saveProfile(saved);
+            setIsEditModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -75,20 +75,20 @@ export function buildTopologyGraph({
 
   const activeProfileList = profiles.filter((p) => Boolean(activeSessions[p.id]));
   const matchedProfileIds = new Set<string>();
+  const processedZids = new Set<string>();
 
-  // Extract own session ZIDs to avoid displaying ZenohX's own client session as a scouted node
-  const activeSessionZids = new Set(
-    Object.values(activeSessions)
-      .map((s) => s.zid)
-      .filter((z) => Boolean(z) && z !== 'local')
-  );
+  // 1. Process Scouted Nodes
+  scoutedNodes.forEach((node, index) => {
+    if (processedZids.has(node.zid)) return;
 
-  // 1. Process Scouted Nodes (filtering out ZenohX's own session)
-  const validScoutedNodes = scoutedNodes.filter(
-    (node) => !activeSessionZids.has(node.zid)
-  );
+    // If this scouted node is an active client-mode session inside ZenohX connecting to a router, skip it
+    const isLocalClientSession = activeProfileList.some(
+      (prof) => prof.mode === 'client' && activeSessions[prof.id]?.zid === node.zid
+    );
+    if (isLocalClientSession) return;
 
-  validScoutedNodes.forEach((node, index) => {
+    processedZids.add(node.zid);
+
     const nodeId = `scouted-${node.zid}`;
     const existing = existingMap.get(nodeId);
 
@@ -131,7 +131,7 @@ export function buildTopologyGraph({
 
     const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
 
-    const angle = (index / Math.max(1, validScoutedNodes.length)) * 2 * Math.PI;
+    const angle = (index / Math.max(1, scoutedNodes.length)) * 2 * Math.PI;
     const distance = 160 + (index % 2) * 50;
     const defaultX = Math.cos(angle) * distance;
     const defaultY = Math.sin(angle) * distance;
@@ -156,9 +156,12 @@ export function buildTopologyGraph({
     nodes.push(topologyNode);
   });
 
-  // 2. Unmatched Active Sessions (e.g. connected remote/cloud routers or peers)
+  // 2. Unmatched Active Sessions (e.g. connected remote/cloud routers or peers that haven't responded to multicast scout yet)
   activeProfileList.forEach((profile, index) => {
     if (matchedProfileIds.has(profile.id)) return;
+
+    const sessionZid = activeSessions[profile.id]?.zid;
+    if (sessionZid && processedZids.has(sessionZid)) return;
 
     const nodeId = `profile-${profile.id}`;
     const existing = existingMap.get(nodeId);
@@ -172,7 +175,7 @@ export function buildTopologyGraph({
 
     const topologyNode: TopologyNode = {
       id: nodeId,
-      zid: activeSessions[profile.id]?.zid || `remote-${profile.id}`,
+      zid: sessionZid || `remote-${profile.id}`,
       label: profile.name,
       type,
       status: 'connected',

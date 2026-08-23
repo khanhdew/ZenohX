@@ -12,14 +12,46 @@ concurrency:
 
 jobs:
   publish-release:
-    name: Build & Publish Release (${{ matrix.platform }})
+    name: Build & Publish Release (${{ matrix.name }})
     permissions:
       contents: write
     runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-22.04, macos-latest, windows-latest]
+        include:
+          # Linux x86_64
+          - platform: ubuntu-22.04
+            name: Linux x86_64
+            args: ''
+            target: 'x86_64-unknown-linux-gnu'
+
+          # Linux ARM64 (Native GitHub ARM64 Runner)
+          - platform: ubuntu-24.04-arm
+            name: Linux ARM64
+            args: ''
+            target: 'aarch64-unknown-linux-gnu'
+
+          # macOS Universal (Apple Silicon M1-M4 + Intel)
+          - platform: macos-latest
+            name: macOS Universal
+            args: '--target universal-apple-darwin'
+            target: 'aarch64-apple-darwin,x86_64-apple-darwin'
+
+          # Windows x86_64
+          - platform: windows-latest
+            name: Windows x86_64
+            args: ''
+            target: 'x86_64-pc-windows-msvc'
+
+          # Windows ARM64
+          - platform: windows-latest
+            name: Windows ARM64
+            args: '--target aarch64-pc-windows-msvc'
+            target: 'aarch64-pc-windows-msvc'
 
     steps:
       - name: Checkout repository
@@ -33,6 +65,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
@@ -40,7 +74,7 @@ jobs:
           workspaces: 'src-tauri -> src-tauri/target'
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -101,4 +135,5 @@ jobs:
           releaseBody: ${{ steps.release_notes.outputs.body }}
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}

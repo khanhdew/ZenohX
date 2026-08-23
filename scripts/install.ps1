@@ -18,8 +18,19 @@ Write-Host "         ZenohX Windows Installer      " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Dynamically Query Latest Release metadata from GitHub API
+# 1. Detect System Architecture
+$RawArch = $env:PROCESSOR_ARCHITECTURE
+if ($env:PROCESSOR_ARCHITEW6432) {
+    # Handles 32-bit PowerShell process running on 64-bit OS
+    $RawArch = $env:PROCESSOR_ARCHITEW6432
+}
+
+$IsArm64 = ($RawArch -eq "ARM64")
+$ArchLabel = if ($IsArm64) { "ARM64" } else { "x64" }
+
+# 2. Dynamically Query Latest Release metadata from GitHub API
 Write-Host "[1/3] Checking latest release on GitHub (https://github.com/$Repo)..." -ForegroundColor Yellow
+Write-Host "  Detected system architecture: $ArchLabel ($RawArch)" -ForegroundColor Cyan
 
 $LatestReleaseUrl = "https://api.github.com/repos/$Repo/releases/latest"
 $Release = $null
@@ -47,16 +58,44 @@ if (-not $Release -or -not $Release.tag_name) {
 $Tag = $Release.tag_name
 Write-Host "  Found latest release: $Tag" -ForegroundColor Green
 
-# 2. Dynamically Locate Windows Installer Asset (.msi or .exe)
-$Asset = $Release.assets | Where-Object { 
-    $_.name -like "*x64*.msi" -or 
-    $_.name -like "*.msi" -or 
-    $_.name -like "*setup*.exe" -or 
-    $_.name -like "*x64*.exe" 
-} | Select-Object -First 1
+# 3. Dynamically Locate Windows Installer Asset (.msi or .exe)
+$Asset = $null
+
+if ($IsArm64) {
+    $Asset = $Release.assets | Where-Object { 
+        $_.name -like "*arm64*.msi" -or 
+        $_.name -like "*aarch64*.msi" -or 
+        $_.name -like "*arm64*.exe" -or 
+        $_.name -like "*aarch64*.exe" 
+    } | Select-Object -First 1
+
+    # Fallback to x64 if native ARM64 build not yet available (runs via Windows 11 on ARM emulation)
+    if (-not $Asset) {
+        $Asset = $Release.assets | Where-Object { 
+            $_.name -like "*x64*.msi" -or 
+            $_.name -like "*setup*.exe" -or 
+            $_.name -like "*x64*.exe" -or
+            $_.name -like "*.msi"
+        } | Select-Object -First 1
+    }
+} else {
+    $Asset = $Release.assets | Where-Object { 
+        ($_.name -like "*x64*.msi" -or 
+         $_.name -like "*setup*.exe" -or 
+         $_.name -like "*x64*.exe" -or
+         $_.name -like "*.msi") -and
+        ($_.name -notlike "*arm64*" -and $_.name -notlike "*aarch64*")
+    } | Select-Object -First 1
+}
 
 if (-not $Asset) {
-    Write-Host "Error: No Windows installer (.msi or .exe) was found in release $Tag." -ForegroundColor Red
+    $Asset = $Release.assets | Where-Object { 
+        $_.name -like "*.msi" -or $_.name -like "*.exe" 
+    } | Select-Object -First 1
+}
+
+if (-not $Asset) {
+    Write-Host "Error: No Windows installer (.msi or .exe) was found in release $Tag for $ArchLabel." -ForegroundColor Red
     Write-Host "Available assets in release:" -ForegroundColor Yellow
     $Release.assets | ForEach-Object { Write-Host "  - $($_.name)" -ForegroundColor Gray }
     Exit 1

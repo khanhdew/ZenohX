@@ -27,9 +27,27 @@ error() { echo -e "${RED}[ZenohX Error] ✗${NC} $1" >&2; exit 1; }
 
 # 1. Detect OS, Architecture & Linux Distribution
 OS="$(uname -s)"
-ARCH="$(uname -m)"
+RAW_ARCH="$(uname -m)"
 DISTRO="unknown"
 PACKAGE_TYPE="appimage"
+
+case "${RAW_ARCH}" in
+  x86_64|amd64)
+    ARCH="x86_64"
+    DEB_ARCH="amd64"
+    RPM_ARCH="x86_64"
+    APPIMAGE_ARCH="amd64"
+    ;;
+  aarch64|arm64|armv8*)
+    ARCH="aarch64"
+    DEB_ARCH="arm64"
+    RPM_ARCH="aarch64"
+    APPIMAGE_ARCH="aarch64"
+    ;;
+  *)
+    error "Unsupported architecture: ${RAW_ARCH}. ZenohX supports x86_64 and aarch64 (ARM64)."
+    ;;
+esac
 
 if [ "${OS}" = "Linux" ]; then
   if [ -f /etc/os-release ]; then
@@ -88,36 +106,60 @@ RELEASE_META="$(curl -fsSL -H "User-Agent: ZenohX-Installer" "https://api.github
 DOWNLOAD_URL=""
 
 if [ "${PACKAGE_TYPE}" = "dmg" ]; then
-  if [ "${ARCH}" = "arm64" ] || [ "${ARCH}" = "aarch64" ]; then
-    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*aarch64[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+  # Prefer universal, then matching architecture, then any DMG
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*universal[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+  if [ -z "${DOWNLOAD_URL}" ]; then
+    if [ "${ARCH}" = "aarch64" ]; then
+      DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*aarch64[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+    else
+      DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*x64[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
+    fi
   fi
   if [ -z "${DOWNLOAD_URL}" ]; then
     DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.dmg"' | head -n 1 | cut -d'"' -f4 || true)"
   fi
 
 elif [ "${PACKAGE_TYPE}" = "rpm" ]; then
-  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*'"${RPM_ARCH}"'[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
+  if [ -z "${DOWNLOAD_URL}" ] && [ "${ARCH}" = "aarch64" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*arm64[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
+  if [ -z "${DOWNLOAD_URL}" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.rpm"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
 
 elif [ "${PACKAGE_TYPE}" = "deb" ]; then
-  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*'"${DEB_ARCH}"'[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
+  if [ -z "${DOWNLOAD_URL}" ] && [ "${ARCH}" = "aarch64" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*aarch64[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
+  if [ -z "${DOWNLOAD_URL}" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.deb"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
 fi
 
-# Fallback to universal AppImage if specific package not found
+# Fallback to AppImage if specific package not found
 if [ -z "${DOWNLOAD_URL}" ] && [ "${OS}" = "Linux" ]; then
   PACKAGE_TYPE="appimage"
-  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
+  DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*'"${APPIMAGE_ARCH}"'[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
+  if [ -z "${DOWNLOAD_URL}" ] && [ "${ARCH}" = "aarch64" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*arm64[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
+  if [ -z "${DOWNLOAD_URL}" ]; then
+    DOWNLOAD_URL="$(echo "${RELEASE_META}" | grep -i -o '"browser_download_url": *"[^"]*\.AppImage"' | head -n 1 | cut -d'"' -f4 || true)"
+  fi
 fi
 
 # Fallback to direct latest pattern if API meta was empty
 if [ -z "${DOWNLOAD_URL}" ]; then
   if [ "${PACKAGE_TYPE}" = "rpm" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX-${TAG#v}-1.x86_64.rpm"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX-${TAG#v}-1.${RPM_ARCH}.rpm"
   elif [ "${PACKAGE_TYPE}" = "deb" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_amd64.deb"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_${DEB_ARCH}.deb"
   elif [ "${PACKAGE_TYPE}" = "dmg" ]; then
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_aarch64.dmg"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_universal.dmg"
   else
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_amd64.AppImage"
+    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/ZenohX_${TAG#v}_${APPIMAGE_ARCH}.AppImage"
   fi
 fi
 

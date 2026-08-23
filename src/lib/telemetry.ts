@@ -36,6 +36,34 @@ export function getAnonymousDistinctId(): string {
 }
 
 /**
+ * Detects the client's ISO country code from navigator locale or Intl API.
+ */
+export function getClientCountryCode(): string | undefined {
+  try {
+    if (
+      typeof Intl !== 'undefined' &&
+      typeof Intl.Locale === 'function' &&
+      typeof navigator !== 'undefined' &&
+      navigator.language
+    ) {
+      const loc = new Intl.Locale(navigator.language);
+      if (loc.region) {
+        return loc.region.toUpperCase();
+      }
+    }
+    if (typeof navigator !== 'undefined' && navigator.language) {
+      const parts = navigator.language.split(/[-_]/);
+      if (parts.length > 1 && parts[parts.length - 1].length === 2) {
+        return parts[parts.length - 1].toUpperCase();
+      }
+    }
+  } catch {
+    // Fallback safely
+  }
+  return undefined;
+}
+
+/**
  * Initializes telemetry configuration.
  */
 export function initTelemetry(customKey?: string, customHost?: string): void {
@@ -75,7 +103,14 @@ export async function trackEvent(
         $lib: 'web',
         $lib_version: '1.0.0',
         app_version: APP_VERSION,
+        $app_version: APP_VERSION,
         $os: typeof navigator !== 'undefined' ? navigator.platform : undefined,
+        country: getClientCountryCode(),
+        locale: typeof navigator !== 'undefined' ? navigator.language : undefined,
+        timezone:
+          typeof Intl !== 'undefined'
+            ? Intl.DateTimeFormat().resolvedOptions().timeZone
+            : undefined,
         ...props,
       },
       timestamp: new Date().toISOString(),

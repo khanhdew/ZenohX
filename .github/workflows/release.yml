@@ -105,15 +105,34 @@ jobs:
           
           VERSION="${TAG#v}"
           
-          # Fetch GitHub's native automated release notes
-          NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name="$TAG" --jq .body 2>/dev/null || true)
-          
+          # 1. Extract curated version notes from CHANGELOG.md
+          CHANGELOG_NOTES=$(VERSION="$VERSION" node -e '
+            const fs = require("fs");
+            const version = process.env.VERSION || "";
+            if (fs.existsSync("CHANGELOG.md") && version) {
+              const content = fs.readFileSync("CHANGELOG.md", "utf8");
+              const regex = new RegExp(`##\\s*\\[v?${version.replace(/\\./g, "\\.")}\\][\\s\\S]*?(?=(?:\\n---|\\n##\\s*\\[|$))`, "i");
+              const match = content.match(regex);
+              if (match && match[0]) {
+                const body = match[0].trim().replace(/^##\\s*\\[[^\\]]+\\][^\n]*/i, "").trim();
+                process.stdout.write(body);
+              }
+            }
+          ' 2>/dev/null || true)
+
           HEADER=$(printf "**Version:** %s\n**Build Number:** %s\n**Commit:** %s" "$VERSION" "${{ github.run_number }}" "${{ github.sha }}")
-          if [ -n "$NOTES" ]; then
-            FULL_BODY="${HEADER}"$'\n\n'"${NOTES}"
+          
+          if [ -n "$CHANGELOG_NOTES" ]; then
+            FULL_BODY="${HEADER}"$'\n\n'"${CHANGELOG_NOTES}"
           else
-            CHANGES=$(git log -n 15 --oneline --no-merges)
-            FULL_BODY="${HEADER}"$'\n\n'"### What's Changed"$'\n'"${CHANGES}"
+            # 2. Fallback to GitHub auto-generated notes or git log
+            NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name="$TAG" --jq .body 2>/dev/null || true)
+            if [ -n "$NOTES" ]; then
+              FULL_BODY="${HEADER}"$'\n\n'"${NOTES}"
+            else
+              CHANGES=$(git log -n 15 --oneline --no-merges)
+              FULL_BODY="${HEADER}"$'\n\n'"### What's Changed"$'\n'"${CHANGES}"
+            fi
           fi
 
           EOF_DELIMITER=$(openssl rand -hex 8)

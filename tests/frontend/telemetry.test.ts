@@ -1,7 +1,12 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { useSettingsStore } from '../../src/stores/settingsStore';
-import { initTelemetry, trackEvent, trackAppStart } from '../../src/lib/telemetry';
+import {
+  initTelemetry,
+  trackEvent,
+  trackAppStart,
+  getClientCountryCode,
+} from '../../src/lib/telemetry';
 
 describe('Telemetry & Anonymous Analytics', () => {
   beforeEach(() => {
@@ -42,5 +47,13 @@ describe('Telemetry & Anonymous Analytics', () => {
     await assert.doesNotReject(async () => {
       await trackEvent('custom_test_event', { sample_prop: 'value' });
     });
+  });
+
+  test('getClientCountryCode safely returns string code or undefined without throwing', () => {
+    const code = getClientCountryCode();
+    if (code !== undefined) {
+      assert.equal(typeof code, 'string');
+      assert.ok(code.length >= 2);
+    }
   });
 });

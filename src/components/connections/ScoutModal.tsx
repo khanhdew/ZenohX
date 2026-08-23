@@ -314,6 +314,7 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
             filteredNodes.map((node, index) => {
               const isLoading = actionLoadingZid === node.zid;
               const nodeState = getNodeState(node);
+              const matchingProfile = findMatchingProfile(profiles, node);
 
               return (
                 <ScoutNodeCard
@@ -327,6 +328,8 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
                   onOpenInEditor={handleOpenInEditor}
                   onCreateProfile={handleCreateProfile}
                   onConnectDirectly={handleConnectDirectly}
+                  isAlreadySaved={Boolean(matchingProfile)}
+                  savedProfileName={matchingProfile?.name}
                 />
               );
             })

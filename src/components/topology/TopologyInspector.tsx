@@ -11,15 +11,14 @@ import {
   Server,
   Users,
   Laptop,
+  Settings,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
-import { extractLocatorProtocol, extractLocatorHostPort } from '../../lib/topology/topologyBuilder';
+import { extractLocatorProtocol, extractLocatorHostPort, findMatchingProfile } from '../../lib/topology/topologyBuilder';
 import type { TopologyNode } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
-
-import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 
 export interface TopologyInspectorProps {
   node: TopologyNode | null;
@@ -44,6 +43,8 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
   if (!node) return null;
 
+  const existingProfile = findMatchingProfile(profiles, node);
+
   const handleCopyZid = () => {
     navigator.clipboard.writeText(node.zid);
     setCopiedZid(true);
@@ -59,9 +60,8 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
   const handleConnectDirectly = async () => {
     setActionLoading(true);
     try {
-      const existing = findMatchingProfile(profiles, node);
-      if (existing) {
-        await connect(existing.id);
+      if (existingProfile) {
+        await connect(existingProfile.id);
         return;
       }
 
@@ -105,9 +105,16 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
           </div>
           <div className="min-w-0">
             <h3 className="text-xs font-semibold truncate">{node.label}</h3>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              {node.type} node
-            </p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                {node.type} node
+              </span>
+              {existingProfile && (
+                <Badge variant="outline" className="text-[9px] h-3.5 bg-primary/10 text-primary border-primary/20 px-1 py-0 font-normal">
+                  Saved
+                </Badge>
+              )}
+            </div>
           </div>
         </div>
         <Button
@@ -244,10 +251,19 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             size="sm"
             onClick={() => onOpenProfileEditor(node)}
             className="flex-1 h-7 text-xs gap-1"
-            title="Save discovered locator into connection profiles"
+            title={existingProfile ? 'Edit existing connection profile' : 'Save discovered locator into connection profiles'}
           >
-            <Plus className="w-3 h-3" />
-            <span>Save Profile</span>
+            {existingProfile ? (
+              <>
+                <Settings className="w-3 h-3 text-primary" />
+                <span>Edit Profile</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-3 h-3" />
+                <span>Save Profile</span>
+              </>
+            )}
           </Button>
 
           <Button

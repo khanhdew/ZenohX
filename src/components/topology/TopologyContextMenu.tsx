@@ -3,8 +3,11 @@ import {
   Power,
   Plus,
   Copy,
+  Settings,
 } from 'lucide-react';
 import type { TopologyNode } from '../../types/topology';
+import { useConnectionStore } from '../../stores/connectionStore';
+import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 
 export interface TopologyContextMenuProps {
   node: TopologyNode;
@@ -24,6 +27,8 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
   onCopyZid,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const profiles = useConnectionStore((s) => s.profiles);
+  const existingProfile = findMatchingProfile(profiles, node);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -41,7 +46,7 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
       style={{ left: `${position.x}px`, top: `${position.y}px` }}
       className="fixed z-50 min-w-[180px] rounded-md border bg-popover p-1 shadow-md text-popover-foreground text-xs animate-in fade-in-80"
     >
-      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase">
+      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase truncate max-w-[200px]">
         {node.label}
       </div>
 
@@ -61,17 +66,32 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={() => {
-          onSaveProfile(node);
-          onClose();
-        }}
-        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-      >
-        <Plus className="w-3.5 h-3.5 text-primary" />
-        <span>Save as Profile...</span>
-      </button>
+      {existingProfile ? (
+        <button
+          type="button"
+          onClick={() => {
+            onSaveProfile(node);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+          title="Node is already saved as a profile"
+        >
+          <Settings className="w-3.5 h-3.5 text-primary" />
+          <span>Edit Saved Profile</span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            onSaveProfile(node);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+        >
+          <Plus className="w-3.5 h-3.5 text-primary" />
+          <span>Save as Profile...</span>
+        </button>
+      )}
 
       <button
         type="button"

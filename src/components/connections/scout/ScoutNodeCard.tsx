@@ -42,6 +42,8 @@ export interface ScoutNodeCardProps {
   onOpenInEditor: (node: ScoutedNode) => void;
   onCreateProfile: (node: ScoutedNode) => void;
   onConnectDirectly: (node: ScoutedNode) => void;
+  isAlreadySaved?: boolean;
+  savedProfileName?: string;
 }
 
 export const ScoutNodeCard: React.FC<ScoutNodeCardProps> = ({
@@ -54,6 +56,8 @@ export const ScoutNodeCard: React.FC<ScoutNodeCardProps> = ({
   onOpenInEditor,
   onCreateProfile,
   onConnectDirectly,
+  isAlreadySaved = false,
+  savedProfileName,
 }) => {
   const isRouter = (node.what || '').toLowerCase() === 'router';
   const hasTlsLocator = Boolean(
@@ -88,13 +92,19 @@ export const ScoutNodeCard: React.FC<ScoutNodeCardProps> = ({
             )}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-semibold text-foreground">
                 Zenoh {isRouter ? 'Router' : 'Peer'}
               </span>
               <Badge variant="secondary" className="text-[10px] capitalize">
                 {node.what}
               </Badge>
+              {isAlreadySaved && (
+                <Badge variant="outline" className="text-[9px] h-4 bg-primary/10 text-primary border-primary/20 gap-1 px-1.5 font-normal">
+                  <Check className="w-2.5 h-2.5 text-emerald-500" />
+                  Saved ({savedProfileName})
+                </Badge>
+              )}
               {hasTlsLocator && (
                 <Badge className="text-[9px] h-4 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 gap-1 px-1.5 font-normal">
                   <Lock className="w-2.5 h-2.5" />
@@ -144,10 +154,19 @@ export const ScoutNodeCard: React.FC<ScoutNodeCardProps> = ({
             onClick={() => onCreateProfile(node)}
             disabled={isLoading}
             className="h-7 text-xs gap-1"
-            title="Save as connection profile"
+            title={isAlreadySaved ? `Node is already saved as "${savedProfileName}"` : 'Save as connection profile'}
           >
-            <Plus className="w-3 h-3" />
-            Profile
+            {isAlreadySaved ? (
+              <>
+                <Check className="w-3 h-3 text-emerald-500" />
+                <span className="text-muted-foreground">Saved</span>
+              </>
+            ) : (
+              <>
+                <Plus className="w-3 h-3" />
+                Profile
+              </>
+            )}
           </Button>
 
           <Button

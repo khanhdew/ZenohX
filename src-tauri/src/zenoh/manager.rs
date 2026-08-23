@@ -65,9 +65,25 @@ impl SessionManager {
     ///
     /// Returns the unique `Uuid` identifier assigned to this session.
     pub async fn connect(&self, config: SessionConfig) -> Result<Uuid, String> {
-        // If a session for this profile_id is already running, disconnect it first to ensure exactly 1 session per profile
+        // Strict Hard-Bind: 1 Connection Profile on UI == Exactly 1 Peer Node in Rust
         if let Some(pid) = &config.profile_id {
-            let existing_ids: Vec<Uuid> = {
+            let existing_active_session: Option<Uuid> = {
+                let lock = self.sessions.read().await;
+                lock.iter().find_map(|(id, ctx)| {
+                    if ctx.profile_id.as_ref() == Some(pid) && !ctx.session.is_closed() {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                })
+            };
+
+            if let Some(active_id) = existing_active_session {
+                // Return existing session directly without creating another Zenoh peer node
+                return Ok(active_id);
+            }
+
+            let stale_ids: Vec<Uuid> = {
                 let lock = self.sessions.read().await;
                 lock.iter()
                     .filter_map(|(id, ctx)| {
@@ -79,7 +95,7 @@ impl SessionManager {
                     })
                     .collect()
             };
-            for id in existing_ids {
+            for id in stale_ids {
                 let _ = self.disconnect(&id).await;
             }
         }

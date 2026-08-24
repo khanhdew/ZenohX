@@ -16,11 +16,15 @@ import {
   Activity,
   ArrowRight,
   Zap,
+  FileCode,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { extractLocatorProtocol, extractLocatorHostPort, findMatchingProfile } from '../../lib/topology/topologyBuilder';
+import { generateZenohJson5 } from '../../lib/tls';
 import type { TopologyNode } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
 
@@ -39,6 +43,8 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 }) => {
   const [copiedLocator, setCopiedLocator] = useState<string | null>(null);
   const [copiedZid, setCopiedZid] = useState(false);
+  const [copiedJson5, setCopiedJson5] = useState(false);
+  const [showJson5, setShowJson5] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   const connect = useConnectionStore((s) => s.connect);
@@ -482,6 +488,74 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             </div>
           </div>
         )}
+
+        {/* Node Configuration & Synchronized JSON5 */}
+        {(() => {
+          const nodeJson5 = generateZenohJson5({
+            id: node.zid,
+            zid: node.zid,
+            mode: node.type,
+            connect_locators:
+              (node.connectLocators && node.connectLocators.length > 0
+                ? node.connectLocators
+                : existingProfile?.connect_locators) || [],
+            listen_locators:
+              (node.locators && node.locators.length > 0
+                ? node.locators
+                : existingProfile?.listen_locators) || [],
+            scout_multicast: existingProfile?.scout_multicast ?? true,
+            scout_gossip: existingProfile?.scout_gossip ?? true,
+            reconnect_retry: existingProfile?.reconnect_retry,
+            user_auth: existingProfile?.user_auth,
+            tls_config: existingProfile?.tls_config,
+            custom_config: existingProfile?.custom_config,
+          });
+
+          const handleCopyJson5 = () => {
+            navigator.clipboard.writeText(nodeJson5);
+            setCopiedJson5(true);
+            setTimeout(() => setCopiedJson5(false), 2000);
+          };
+
+          return (
+            <div className="space-y-1.5 pt-1 border-t border-border/50">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setShowJson5(!showJson5)}
+                  className="text-[11px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                >
+                  <FileCode className="w-3 h-3 text-indigo-500" />
+                  <span>Node Configuration (JSON5)</span>
+                  {showJson5 ? (
+                    <ChevronUp className="w-3 h-3" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3" />
+                  )}
+                </button>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={handleCopyJson5}
+                  className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                  title="Copy Node JSON5 Configuration"
+                >
+                  {copiedJson5 ? (
+                    <Check className="w-3 h-3 text-emerald-500" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </Button>
+              </div>
+
+              {showJson5 && (
+                <div className="relative rounded-md bg-muted/70 border p-2 font-mono text-[10px] text-foreground overflow-x-auto max-h-48 whitespace-pre animate-in fade-in duration-150">
+                  {nodeJson5}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Action Buttons Footer */}

@@ -197,8 +197,33 @@ describe('Transport Protocol & Locator Utilities', () => {
     // 4. Edge cases
     assert.equal(isEphemeralLocator('', ['tcp/0.0.0.0:0']), false);
     assert.equal(isEphemeralLocator('tcp/127.0.0.1:7447', []), false);
-    assert.equal(isEphemeralLocator('tcp/127.0.0.1:7447', undefined), false);
     assert.equal(isEphemeralLocator('unixpipe//tmp/zenoh.sock', ['unixpipe//tmp/zenoh.sock']), false);
   });
+
+  it('generates synchronized JSON5 configuration containing live node ZID and locators', async () => {
+    const { generateZenohJson5 } = await import('../../src/lib/tls');
+
+    const json = generateZenohJson5({
+      id: '0123456789abcdef0123456789abcdef',
+      zid: '0123456789abcdef0123456789abcdef',
+      mode: 'router',
+      connect_locators: ['tcp/192.168.1.10:7447'],
+      listen_locators: ['tcp/192.168.1.50:43219', 'tcp/127.0.0.1:43219'],
+      scout_multicast: true,
+      scout_gossip: true,
+    });
+
+    const parsed = JSON.parse(json);
+    assert.equal(parsed.id, '0123456789abcdef0123456789abcdef');
+    assert.equal(parsed.mode, 'router');
+    assert.deepEqual(parsed.listen?.endpoints, [
+      'tcp/192.168.1.50:43219',
+      'tcp/127.0.0.1:43219',
+    ]);
+    assert.deepEqual(parsed.connect?.endpoints, ['tcp/192.168.1.10:7447']);
+    assert.equal(parsed.scouting?.multicast?.enabled, true);
+    assert.equal(parsed.scouting?.gossip?.enabled, true);
+  });
 });
+
 

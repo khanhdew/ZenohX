@@ -395,6 +395,11 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
     mode,
   };
 
+  const zid = (config as any).zid || ((config as any).id && !(config as any).id.startsWith('profile-') ? (config as any).id : undefined);
+  if (zid) {
+    result.id = zid;
+  }
+
   const connectLocs = Array.isArray(config.connect_locators)
     ? config.connect_locators.filter((l: any) => typeof l === 'string' && l.trim().length > 0)
     : [];

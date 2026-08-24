@@ -4,6 +4,7 @@ import {
   Plus,
   Copy,
   Settings,
+  Trash2,
 } from 'lucide-react';
 import type { TopologyNode } from '../../types/topology';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -104,6 +105,27 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
         <Copy className="w-3.5 h-3.5 text-muted-foreground" />
         <span>Copy Zenoh ID</span>
       </button>
+
+      {node.status !== 'connected' && (
+        <>
+          <div className="h-px bg-border my-1" />
+          <button
+            type="button"
+            onClick={() => {
+              if (existingProfile) {
+                useConnectionStore.getState().deleteProfile(existingProfile.id);
+              } else {
+                useConnectionStore.getState().removeScoutedNode(node.zid);
+              }
+              onClose();
+            }}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>{existingProfile ? 'Delete Saved Profile' : 'Remove from Topology'}</span>
+          </button>
+        </>
+      )}
     </div>
   );
 };

@@ -19,6 +19,7 @@ import {
   FileCode,
   ChevronDown,
   ChevronUp,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -612,6 +613,25 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             <Radio className="w-3 h-3" />
             <span>Pub/Sub</span>
           </Button>
+
+          {node.status !== 'connected' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (existingProfile) {
+                  useConnectionStore.getState().deleteProfile(existingProfile.id);
+                } else {
+                  useConnectionStore.getState().removeScoutedNode(node.zid);
+                }
+                onClose();
+              }}
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+              title={existingProfile ? 'Delete Profile' : 'Remove node from topology'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          )}
         </div>
       </div>
     </aside>

@@ -48,6 +48,7 @@ export interface ConnectionState {
   saveAndConnect: (profile: ConnectionProfile) => Promise<string>;
   testConnection: (config: SessionConfig) => Promise<{ success: boolean; message: string }>;
   deleteProfile: (profileId: string) => Promise<void>;
+  removeScoutedNode: (zid: string) => void;
   connect: (profileId: string) => Promise<string>;
   disconnect: (profileId: string) => Promise<void>;
   scout: (timeoutMs?: number) => Promise<ScoutedNode[]>;
@@ -238,6 +239,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         await get().disconnect(profileId);
       }
 
+      const deletingProfile = get().profiles.find((p) => p.id === profileId);
+
       await deleteProfileIpc(profileId);
       set((state) => {
         const newProfiles = state.profiles.filter((p) => p.id !== profileId);
@@ -245,9 +248,26 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           state.selectedProfileId === profileId
             ? newProfiles[0]?.id ?? null
             : state.selectedProfileId;
+
+        // Immediately purge matching cached scoutedNodes so deleted node does not linger as ghost
+        const deletingZid = deletingProfile?.id?.toLowerCase();
+        const deletingLocs = (deletingProfile?.listen_locators || []).concat(deletingProfile?.connect_locators || []);
+        const newScouted = state.scoutedNodes.filter((sNode) => {
+          const sZid = sNode.zid.toLowerCase();
+          if (deletingZid && (sZid === deletingZid || sZid.includes(deletingZid) || deletingZid.includes(sZid))) {
+            return false;
+          }
+          if (deletingLocs.length > 0) {
+            const hasMatchingLoc = sNode.locators.some((loc) => deletingLocs.includes(loc));
+            if (hasMatchingLoc) return false;
+          }
+          return true;
+        });
+
         return {
           profiles: newProfiles,
           selectedProfileId: newSelectedId,
+          scoutedNodes: newScouted,
         };
       });
     } catch (err) {
@@ -256,6 +276,16 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set({ error: friendly });
       throw new Error(friendly);
     }
+  },
+
+  removeScoutedNode: (zid: string) => {
+    if (!zid) return;
+    const cleanZid = zid.toLowerCase();
+    set((state) => ({
+      scoutedNodes: state.scoutedNodes.filter(
+        (n) => n.zid.toLowerCase() !== cleanZid
+      ),
+    }));
   },
 
   connect: async (profileId: string) => {

@@ -135,6 +135,68 @@ describe('Connection Store', () => {
     assert.equal(useConnectionStore.getState().selectedProfileId, 'prof-2');
   });
 
+  test('deleteProfile immediately purges matching scoutedNodes', async () => {
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'delete_profile') return undefined;
+      return undefined;
+    };
+
+    useConnectionStore.setState({
+      profiles: [
+        {
+          id: 'prof-router-1',
+          name: 'My Router',
+          mode: 'router',
+          connect_locators: [],
+          listen_locators: ['tcp/127.0.0.1:7447'],
+          scout_multicast: true,
+          created_at: 1000,
+          updated_at: 1000,
+        },
+      ],
+      scoutedNodes: [
+        {
+          zid: 'prof-router-1',
+          locators: ['tcp/127.0.0.1:7447'],
+          whatami: 'router',
+        },
+        {
+          zid: 'other-node-2',
+          locators: ['tcp/192.168.1.50:7447'],
+          whatami: 'peer',
+        },
+      ],
+      selectedProfileId: 'prof-router-1',
+    });
+
+    await useConnectionStore.getState().deleteProfile('prof-router-1');
+    const scouted = useConnectionStore.getState().scoutedNodes;
+    assert.equal(scouted.length, 1);
+    assert.equal(scouted[0].zid, 'other-node-2');
+  });
+
+  test('removeScoutedNode removes scouted node by ZID without full scout', () => {
+    useConnectionStore.setState({
+      scoutedNodes: [
+        {
+          zid: 'node-to-remove',
+          locators: ['tcp/10.0.0.1:7447'],
+          whatami: 'router',
+        },
+        {
+          zid: 'keep-node',
+          locators: ['tcp/10.0.0.2:7447'],
+          whatami: 'peer',
+        },
+      ],
+    });
+
+    useConnectionStore.getState().removeScoutedNode('node-to-remove');
+    const scouted = useConnectionStore.getState().scoutedNodes;
+    assert.equal(scouted.length, 1);
+    assert.equal(scouted[0].zid, 'keep-node');
+  });
+
   test('connect and disconnect lifecycle', async () => {
     const testProfile: ConnectionProfile = {
       id: 'prof-100',

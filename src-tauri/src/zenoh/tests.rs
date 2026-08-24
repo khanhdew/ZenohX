@@ -355,6 +355,30 @@ mod tests {
         assert!(legacy_info.scout_gossip); // default_scout_gossip is true
         assert!(legacy_info.bound_locators.is_empty());
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_ephemeral_port_resolution_and_multi_transport() {
+        let manager = SessionManager::new();
+        let mut config = SessionConfig::default();
+        config.mode = "router".to_string();
+        config.listen_locators = vec![
+            "tcp/127.0.0.1:0".to_string(),
+            "udp/127.0.0.1:0".to_string(),
+        ];
+
+        let session_id = manager.connect(config).await.expect("connect router on ephemeral ports");
+        let info = manager.get_session_info(&session_id).await.expect("get session info");
+
+        assert_eq!(info.mode, "router");
+        assert!(!info.bound_locators.is_empty(), "bound_locators must not be empty");
+        // Ensure the bound locators resolved to non-zero ports
+        for loc in &info.bound_locators {
+            assert!(!loc.ends_with(":0"), "resolved locator must have an allocated port: {loc}");
+        }
+
+        manager.disconnect(&session_id).await.expect("disconnect");
+    }
 }
+
 
 

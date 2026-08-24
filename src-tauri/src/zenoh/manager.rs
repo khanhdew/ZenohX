@@ -650,11 +650,6 @@ impl SessionManager {
         for loc in session.info().locators().await {
             real_listen_locators.push(loc.to_string());
         }
-        let listen_locators = if !real_listen_locators.is_empty() {
-            real_listen_locators
-        } else {
-            config.listen_locators.clone()
-        };
 
         // Retrieve authoritative live transports & links with full telemetry
         let mut transport_map = std::collections::HashMap::new();
@@ -695,8 +690,8 @@ impl SessionManager {
             scout_multicast: config.scout_multicast,
             scout_gossip: config.scout_gossip,
             connect_locators: config.connect_locators,
-            listen_locators,
-            bound_locators: Vec::new(),
+            listen_locators: config.listen_locators.clone(),
+            bound_locators: real_listen_locators,
             created_at,
             connected_routers,
             connected_peers,

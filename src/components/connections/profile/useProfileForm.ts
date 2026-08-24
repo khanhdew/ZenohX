@@ -85,7 +85,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const [token, setToken] = useState<string>('');
 
   // TLS State
-  const [enableTls, setEnableTls] = useState<boolean>(true);
+  const [enableTls, setEnableTls] = useState<boolean>(false);
   const [useCustomTls, setUseCustomTls] = useState<boolean>(false);
   const [tlsOnly, setTlsOnly] = useState<boolean>(false);
   const [caCert, setCaCert] = useState<string>('');
@@ -206,7 +206,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setUsername('');
         setPassword('');
         setToken('');
-        setEnableTls(true);
+        setEnableTls(false);
         setUseCustomTls(false);
         setCaCert('');
         setClientCert('');

@@ -80,4 +80,87 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.ok(roles.includes('peer'));
     assert.ok(roles.includes('client'));
   });
+
+  it('generates valid JSON5 configuration for client mode', async () => {
+    const { generateZenohJson5 } = await import('../../src/lib/tls');
+    const clientJson = generateZenohJson5({
+      mode: 'client',
+      connect_locators: ['tcp/127.0.0.1:7447'],
+      listen_locators: [],
+      scout_multicast: false,
+      scout_gossip: false,
+      reconnect_retry: {
+        period_init_ms: 1000,
+        period_max_ms: 10000,
+        factor: 2,
+        timeout_ms: 0,
+      },
+    });
+
+    const parsed = JSON.parse(clientJson);
+    assert.equal(parsed.mode, 'client');
+    assert.deepEqual(parsed.connect?.endpoints, ['tcp/127.0.0.1:7447']);
+    assert.equal(parsed.connect?.retry?.period_init_ms, 1000);
+    assert.equal(parsed.connect?.retry?.period_max_ms, 10000);
+    assert.equal(parsed.scouting?.multicast?.enabled, false);
+    assert.equal(parsed.scouting?.gossip?.enabled, false);
+  });
+
+  it('generates valid JSON5 configuration for router mode with multi-transport listen endpoints', async () => {
+    const { generateZenohJson5 } = await import('../../src/lib/tls');
+    const routerJson = generateZenohJson5({
+      mode: 'router',
+      connect_locators: ['tcp/10.0.0.1:7447'],
+      listen_locators: ['tcp/0.0.0.0:7447', 'ws/0.0.0.0:8080', 'unixpipe//tmp/zenoh.sock'],
+      scout_multicast: true,
+      scout_gossip: true,
+    });
+
+    const parsed = JSON.parse(routerJson);
+    assert.equal(parsed.mode, 'router');
+    assert.deepEqual(parsed.listen?.endpoints, [
+      'tcp/0.0.0.0:7447',
+      'ws/0.0.0.0:8080',
+      'unixpipe//tmp/zenoh.sock',
+    ]);
+    assert.deepEqual(parsed.connect?.endpoints, ['tcp/10.0.0.1:7447']);
+    assert.equal(parsed.scouting?.multicast?.enabled, true);
+    assert.equal(parsed.scouting?.gossip?.enabled, true);
+  });
+
+  it('generates valid JSON5 configuration with TLS and user auth', async () => {
+    const { generateZenohJson5 } = await import('../../src/lib/tls');
+    const secureJson = generateZenohJson5({
+      mode: 'peer',
+      connect_locators: ['tls/secure.zenoh.io:7447'],
+      listen_locators: ['tls/0.0.0.0:7446'],
+      scout_multicast: true,
+      scout_gossip: true,
+      user_auth: {
+        username: 'admin',
+        password: 'secretpassword',
+      },
+      tls_config: {
+        ca_cert: '/etc/ssl/ca.pem',
+        client_cert: '/etc/ssl/client.crt',
+        client_key: '/etc/ssl/client.key',
+      },
+      custom_config: {
+        transport: {
+          unicast: {
+            max_sessions: 50,
+          },
+        },
+      },
+    });
+
+    const parsed = JSON.parse(secureJson);
+    assert.equal(parsed.mode, 'peer');
+    assert.equal(parsed.transport?.auth?.usrpwd?.user, 'admin');
+    assert.equal(parsed.transport?.auth?.usrpwd?.password, 'secretpassword');
+    assert.equal(parsed.transport?.link?.tls?.root_ca_certificate, '/etc/ssl/ca.pem');
+    assert.equal(parsed.transport?.link?.tls?.connect_certificate, '/etc/ssl/client.crt');
+    assert.equal(parsed.transport?.link?.tls?.connect_private_key, '/etc/ssl/client.key');
+    assert.equal(parsed.transport?.unicast?.max_sessions, 50);
+  });
 });

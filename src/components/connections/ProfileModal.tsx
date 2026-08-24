@@ -18,6 +18,7 @@ import { ClientConfigForm } from './profile/ClientConfigForm';
 import { PeerConfigForm } from './profile/PeerConfigForm';
 import { RouterConfigForm } from './profile/RouterConfigForm';
 import { TlsConfigSection } from './profile/TlsConfigSection';
+import { MeshRoutingSection } from './profile/MeshRoutingSection';
 import { RawJsonConfigSection } from './profile/RawJsonConfigSection';
 
 export interface ProfileModalProps {
@@ -212,13 +213,23 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               ) : (
                 <ChevronDown className="w-3.5 h-3.5" />
               )}
-              {form.showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings (mTLS, Custom JSON)'}
+              {form.showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings (Mesh, mTLS, JSON5)'}
             </button>
           </div>
 
           {/* Advanced Settings Body */}
           {form.showAdvanced && (
             <div className="space-y-5 pt-2 border-t animate-in fade-in duration-200">
+              {/* Mesh Routing & Discovery Policy Card */}
+              <MeshRoutingSection
+                scoutMulticast={form.preset === 'router' ? form.routerScoutMulticast : form.scoutMulticast}
+                setScoutMulticast={form.preset === 'router' ? form.setRouterScoutMulticast : form.setScoutMulticast}
+                scoutGossip={form.preset === 'router' ? form.routerScoutGossip : form.scoutGossip}
+                setScoutGossip={form.preset === 'router' ? form.setRouterScoutGossip : form.setScoutGossip}
+                autoReconnect={form.enableReconnectRetry}
+                setAutoReconnect={form.setEnableReconnectRetry}
+              />
+
               {/* Custom TLS / Certificates (mTLS) Card */}
               <TlsConfigSection
                 useCustomTls={form.useCustomTls}
@@ -233,10 +244,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 setClientKey={form.setClientKey}
               />
 
-              {/* Custom JSON Overrides */}
+              {/* Custom JSON Overrides & Live JSON5 Preview */}
               <RawJsonConfigSection
                 customConfigText={form.customConfigText}
                 setCustomConfigText={form.setCustomConfigText}
+                generatedConfigJson={form.generatedConfigJson}
               />
             </div>
           )}

@@ -9,6 +9,7 @@ import {
   buildLocator,
   detectProfilePreset,
   getSuggestedRouterPort,
+  generateZenohJson5,
   DEFAULT_TRANSPORT_PROTOCOL,
   type TransportProtocol,
   type ConnectionPreset,
@@ -685,6 +686,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     }
   };
 
+  const generatedConfigJson = generateZenohJson5(buildCurrentSessionConfig());
+
   return {
     isEditing,
     preset,
@@ -749,6 +752,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setClientKey,
     customConfigText,
     setCustomConfigText,
+    generatedConfigJson,
+    buildCurrentSessionConfig,
     validationError,
     testSuccessMessage,
     isSaving,

@@ -352,3 +352,94 @@ export function buildProfileFromScoutedNode(
   };
 }
 
+/**
+ * Generates a clean, valid Zenoh JSON5 configuration string corresponding to the active SessionConfig or ConnectionProfile.
+ */
+export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<string, any>): string {
+  const mode = (config.mode || 'peer').toLowerCase();
+  const result: Record<string, any> = {
+    mode,
+  };
+
+  const connectLocs = Array.isArray(config.connect_locators)
+    ? config.connect_locators.filter((l: any) => typeof l === 'string' && l.trim().length > 0)
+    : [];
+
+  if (connectLocs.length > 0) {
+    const reconnect = (config as any).reconnect_retry;
+    result.connect = {
+      endpoints: connectLocs,
+      timeout_ms: reconnect?.timeout_ms ?? 0,
+      exit_on_failure: false,
+      retry: {
+        period_init_ms: reconnect?.period_init_ms ?? 1000,
+        period_max_ms: reconnect?.period_max_ms ?? 10000,
+        period_increase_factor: reconnect?.factor ?? 2,
+      },
+    };
+  }
+
+  const listenLocs = Array.isArray(config.listen_locators)
+    ? config.listen_locators.filter((l: any) => typeof l === 'string' && l.trim().length > 0)
+    : [];
+
+  if (listenLocs.length > 0) {
+    result.listen = {
+      endpoints: listenLocs,
+    };
+  }
+
+  result.scouting = {
+    multicast: {
+      enabled: typeof config.scout_multicast === 'boolean' ? config.scout_multicast : mode !== 'client',
+    },
+    gossip: {
+      enabled: typeof (config as any).scout_gossip === 'boolean' ? (config as any).scout_gossip : mode !== 'client',
+    },
+  };
+
+  const auth = (config as any).user_auth;
+  if (auth && (auth.username || auth.password || auth.token)) {
+    result.transport = result.transport || {};
+    result.transport.auth = {
+      usrpwd: {
+        user: auth.username || (auth.token ? 'token' : undefined),
+        password: auth.password || auth.token || undefined,
+      },
+    };
+  }
+
+  const tls = (config as any).tls_config;
+  if (tls && typeof tls === 'object') {
+    const hasTlsParams = tls.ca_cert || tls.client_cert || tls.client_key || tls.tls_only;
+    if (hasTlsParams) {
+      result.transport = result.transport || {};
+      result.transport.link = result.transport.link || {};
+      const tlsObj: Record<string, any> = {};
+      if (tls.ca_cert) tlsObj.root_ca_certificate = tls.ca_cert;
+      if (tls.client_cert) {
+        tlsObj.connect_certificate = tls.client_cert;
+        tlsObj.listen_certificate = tls.client_cert;
+      }
+      if (tls.client_key) {
+        tlsObj.connect_private_key = tls.client_key;
+        tlsObj.listen_private_key = tls.client_key;
+      }
+      result.transport.link.tls = tlsObj;
+    }
+  }
+
+  const custom = (config as any).custom_config;
+  if (custom && typeof custom === 'object' && !Array.isArray(custom)) {
+    for (const [k, v] of Object.entries(custom)) {
+      if (v && typeof v === 'object' && !Array.isArray(v) && result[k] && typeof result[k] === 'object') {
+        result[k] = { ...result[k], ...v };
+      } else {
+        result[k] = v;
+      }
+    }
+  }
+
+  return JSON.stringify(result, null, 2);
+}
+

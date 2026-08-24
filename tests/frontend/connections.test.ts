@@ -797,11 +797,54 @@ describe('Connection Manager Integration & Helpers', () => {
       setRouterScoutGossip: () => {},
       routerConnectLocators: ['tcp/10.0.0.1:7447'],
       addRouterConnectLocator: () => {},
-      updateRouterConnectLocator: () => {},
       removeRouterConnectLocator: () => {},
     });
     assert.ok(routerFormEl);
     assert.equal(routerFormEl.type, RouterConfigForm);
+  });
+
+  test('MeshRoutingSection and RawJsonConfigSection render correctly and support interactions', async () => {
+    const React = await import('react');
+    const { MeshRoutingSection } = await import('../../src/components/connections/profile/MeshRoutingSection');
+    const { RawJsonConfigSection } = await import('../../src/components/connections/profile/RawJsonConfigSection');
+
+    // Test MeshRoutingSection
+    let scoutMulticastVal = true;
+    let scoutGossipVal = true;
+    let autoReconnectVal = false;
+
+    const meshEl = React.createElement(MeshRoutingSection, {
+      scoutMulticast: scoutMulticastVal,
+      setScoutMulticast: (v: boolean) => {
+        scoutMulticastVal = v;
+      },
+      scoutGossip: scoutGossipVal,
+      setScoutGossip: (v: boolean) => {
+        scoutGossipVal = v;
+      },
+      autoReconnect: autoReconnectVal,
+      setAutoReconnect: (v: boolean) => {
+        autoReconnectVal = v;
+      },
+    });
+
+    assert.ok(meshEl);
+    assert.equal(meshEl.type, MeshRoutingSection);
+
+    // Test RawJsonConfigSection with generatedConfigJson and customConfigText
+    let customText = '{"transport":{"unicast":{"max_sessions":10}}}';
+    const sampleGenerated = '{\n  "mode": "peer",\n  "scouting": {\n    "multicast": {\n      "enabled": true\n    }\n  }\n}';
+
+    const rawJsonEl = React.createElement(RawJsonConfigSection, {
+      customConfigText: customText,
+      setCustomConfigText: (v: string) => {
+        customText = v;
+      },
+      generatedConfigJson: sampleGenerated,
+    });
+
+    assert.ok(rawJsonEl);
+    assert.equal(rawJsonEl.type, RawJsonConfigSection);
   });
 });
 

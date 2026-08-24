@@ -5,6 +5,7 @@ import {
   extractLocatorProtocol,
   extractLocatorHostPort,
   isLocatorMatch,
+  findMatchingProfile,
 } from '../../src/lib/topology/topologyBuilder.ts';
 import type { ScoutedNode, ConnectionProfile, ActiveSession } from '../../src/types/zenoh.ts';
 import type { TopologyNode } from '../../src/types/topology.ts';
@@ -451,5 +452,59 @@ describe('Topology Data Builder', () => {
     assert.deepEqual(routerNode?.locators, ['tcp/192.168.1.100:43219', 'tcp/127.0.0.1:43219']);
     assert.equal(routerNode?.locators.some((l) => l.includes('0.0.0.0:0')), false);
   });
+
+  it('matches existing profiles in storage by profileId, listen_locators, connect_locators, or label', () => {
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-router-1',
+        name: 'Core Router',
+        mode: 'router',
+        connect_locators: [],
+        listen_locators: ['tcp/0.0.0.0:7447'],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+      {
+        id: 'prof-peer-1',
+        name: 'Mesh Peer Alpha',
+        mode: 'peer',
+        connect_locators: ['tcp/192.168.1.200:7447'],
+        listen_locators: ['tcp/0.0.0.0:7448'],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    // 1. Match router by listen locator
+    const matchByListen = findMatchingProfile(profiles, {
+      zid: 'unknown-zid-1',
+      locators: ['tcp/127.0.0.1:7447'],
+    });
+    assert.equal(matchByListen?.id, 'prof-router-1');
+
+    // 2. Match router by profileId
+    const matchById = findMatchingProfile(profiles, {
+      zid: 'any-zid',
+      profileId: 'profile-prof-router-1',
+    });
+    assert.equal(matchById?.id, 'prof-router-1');
+
+    // 3. Match peer by connect locator
+    const matchByConnect = findMatchingProfile(profiles, {
+      zid: 'unknown-zid-2',
+      connectLocators: ['tcp/192.168.1.200:7447'],
+    });
+    assert.equal(matchByConnect?.id, 'prof-peer-1');
+
+    // 4. Match by label
+    const matchByLabel = findMatchingProfile(profiles, {
+      zid: 'unknown-zid-3',
+      label: 'Mesh Peer Alpha',
+    });
+    assert.equal(matchByLabel?.id, 'prof-peer-1');
+  });
 });
+
 

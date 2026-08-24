@@ -79,27 +79,62 @@ export function derivePersistentZid(profileId: string): string {
 
 /**
  * Finds an existing saved ConnectionProfile matching a given Node/ZID/locator
- * to prevent creating duplicate profiles.
+ * to prevent creating duplicate profiles in storage.
  */
 export function findMatchingProfile(
   profiles: ConnectionProfile[],
-  zidOrNode: { zid: string; locators?: string[]; profileId?: string }
+  zidOrNode: { zid: string; locators?: string[]; connectLocators?: string[]; profileId?: string; label?: string }
 ): ConnectionProfile | undefined {
   if (!zidOrNode || !profiles || profiles.length === 0) return undefined;
+
+  // 1. Direct profileId match (with or without 'profile-' prefix)
   if (zidOrNode.profileId) {
-    const p = profiles.find((prof) => prof.id === zidOrNode.profileId);
+    const cleanId = zidOrNode.profileId.replace(/^profile-/, '');
+    const p = profiles.find((prof) => prof.id === zidOrNode.profileId || prof.id === cleanId);
     if (p) return p;
   }
-  const targetZid = zidOrNode.zid;
-  const targetLocators = zidOrNode.locators || [];
 
-  return profiles.find((prof) => {
-    const pZid = derivePersistentZid(prof.id);
-    if (pZid === targetZid) return true;
-    return (prof.connect_locators || []).some((loc: string) =>
-      targetLocators.some((nLoc) => isLocatorMatch(nLoc, loc))
-    );
+  const targetZid = (zidOrNode.zid || '').toLowerCase();
+  const targetLocators = zidOrNode.locators || [];
+  const targetConnectLocs = zidOrNode.connectLocators || [];
+
+  // 2. Direct ID or persistent ZID match
+  const byZid = profiles.find((prof) => {
+    if (prof.id.toLowerCase() === targetZid) return true;
+    const pZid = derivePersistentZid(prof.id).toLowerCase();
+    return pZid === targetZid;
   });
+  if (byZid) return byZid;
+
+  // 3. Connect locators match (for peers and clients)
+  if (targetConnectLocs.length > 0) {
+    const byConnect = profiles.find((prof) =>
+      (prof.connect_locators || []).some((loc) =>
+        targetConnectLocs.some((nLoc) => isLocatorMatch(nLoc, loc))
+      )
+    );
+    if (byConnect) return byConnect;
+  }
+
+  // 4. Listen locators match (for routers and peers)
+  if (targetLocators.length > 0) {
+    const byListen = profiles.find((prof) =>
+      (prof.listen_locators || []).some((loc) =>
+        targetLocators.some((nLoc) => isLocatorMatch(nLoc, loc))
+      )
+    );
+    if (byListen) return byListen;
+  }
+
+  // 5. Exact name match if label provided
+  if (zidOrNode.label) {
+    const byName = profiles.find(
+      (prof) => prof.name && prof.name.trim().toLowerCase() === zidOrNode.label?.trim().toLowerCase()
+    );
+    if (byName) return byName;
+  }
+
+  return undefined;
 }
 
 export function buildTopologyGraph({

@@ -262,13 +262,24 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         </div>
 
         {/* Configured Upstreams (Connect Endpoints) */}
-        {node.connectLocators && node.connectLocators.length > 0 && (
+        {((node.connectLocators && node.connectLocators.length > 0) ||
+          (existingProfile?.connect_locators && existingProfile.connect_locators.length > 0)) && (
           <div className="space-y-1.5">
             <label className="text-[11px] font-medium text-muted-foreground">
-              Configured Upstreams ({node.connectLocators.length})
+              Configured Upstreams (
+                {(
+                  (node.connectLocators && node.connectLocators.length > 0
+                    ? node.connectLocators
+                    : existingProfile?.connect_locators) || []
+                ).length}
+              )
             </label>
             <div className="space-y-1">
-              {node.connectLocators.map((loc, idx) => {
+              {(
+                (node.connectLocators && node.connectLocators.length > 0
+                  ? node.connectLocators
+                  : existingProfile?.connect_locators) || []
+              ).map((loc, idx) => {
                 const proto = extractLocatorProtocol(loc, node.isTls);
                 const host = extractLocatorHostPort(loc);
                 const isCopied = copiedLocator === loc;

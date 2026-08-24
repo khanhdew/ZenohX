@@ -112,6 +112,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   saveProfile: async (profile: ConnectionProfile) => {
     set({ error: null });
     try {
+      const isCurrentlyConnected = get().isConnected(profile.id);
       await saveProfileIpc(profile);
       set((state) => {
         const index = state.profiles.findIndex((p) => p.id === profile.id);
@@ -124,6 +125,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           selectedProfileId: state.selectedProfileId ?? profile.id,
         };
       });
+
+      // If profile was connected when saved, automatically reconnect the live Zenoh session so new upstreams / listeners take effect immediately
+      if (isCurrentlyConnected) {
+        await get().disconnect(profile.id);
+        await get().connect(profile.id);
+      }
     } catch (err) {
       console.error('Save profile failed:', err);
       const friendly = formatFriendlyError(err, 'Save Profile').fullMessage;
@@ -133,6 +140,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   saveAndConnect: async (profile: ConnectionProfile) => {
+    // If currently connected, disconnect previous session first to cleanly apply new configuration
+    if (get().isConnected(profile.id)) {
+      try {
+        await get().disconnect(profile.id);
+      } catch (err) {
+        console.warn('Disconnect before reconnecting failed:', err);
+      }
+    }
+
     set((state) => ({
       connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: true },
       error: null,
@@ -173,6 +189,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: false },
         };
       });
+
+      // Multi-stage background refresh to capture newly negotiated physical links
+      setTimeout(() => get().refreshSessions(), 150);
+      setTimeout(() => get().refreshSessions(), 400);
+      setTimeout(() => get().refreshSessions(), 1000);
+      setTimeout(() => get().refreshSessions(), 2000);
 
       return sessionId;
     } catch (err) {

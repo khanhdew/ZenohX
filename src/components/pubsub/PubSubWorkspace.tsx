@@ -38,8 +38,6 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { ProfileModal } from '../connections/ProfileModal';
-import { BoundLocatorBadge } from '../connections/BoundLocatorBadge';
-import { isEphemeralLocator } from '../../lib/tls';
 import {
   formatByteSize,
   formatFullDateTime,
@@ -250,26 +248,6 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/40"></span>
               <span className="text-[11px] text-muted-foreground">Disconnected</span>
-            </div>
-          )}
-
-          {/* Resolved Bound Listening Locators with 1-Click Copy */}
-          {isConnected && session?.bound_locators && session.bound_locators.length > 0 && (
-            <div className="flex items-center gap-1.5 shrink-0 ml-1">
-              <span className="text-[10px] text-muted-foreground/70 hidden xl:inline font-mono">
-                Listening:
-              </span>
-              {session.bound_locators.map((loc) => {
-                const isAuto = isEphemeralLocator(loc, profile?.listen_locators);
-                return (
-                  <BoundLocatorBadge
-                    key={loc}
-                    locator={loc}
-                    isAutoPort={isAuto}
-                    size="sm"
-                  />
-                );
-              })}
             </div>
           )}
         </div>

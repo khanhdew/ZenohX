@@ -82,6 +82,16 @@ export interface TlsConfig {
 }
 
 /**
+ * Configuration for exponential reconnection retry strategy.
+ */
+export interface ReconnectRetryConfig {
+  period_init_ms: number;
+  period_max_ms: number;
+  factor: number;
+  timeout_ms: number;
+}
+
+/**
  * Low-level configuration for opening a Zenoh session.
  */
 export interface SessionConfig {
@@ -90,6 +100,8 @@ export interface SessionConfig {
   connect_locators: string[];
   listen_locators: string[];
   scout_multicast: boolean;
+  scout_gossip?: boolean;
+  reconnect_retry?: ReconnectRetryConfig | null;
   user_auth?: UserAuth | null;
   tls_config?: TlsConfig | null;
   custom_config?: Record<string, unknown> | null;
@@ -105,6 +117,8 @@ export interface ConnectionProfile {
   connect_locators: string[];
   listen_locators: string[];
   scout_multicast: boolean;
+  scout_gossip?: boolean;
+  reconnect_retry?: ReconnectRetryConfig | null;
   user_auth?: UserAuth | null;
   tls_config?: TlsConfig | null;
   custom_config?: Record<string, unknown> | null;
@@ -191,8 +205,10 @@ export interface SessionInfo {
   zid: string;
   mode: ConnectionMode | string;
   scout_multicast: boolean;
+  scout_gossip?: boolean;
   connect_locators: string[];
   listen_locators: string[];
+  bound_locators?: string[];
   created_at: number;
   connected_routers?: string[];
   connected_peers?: string[];
@@ -211,8 +227,10 @@ export interface ActiveSession {
   zid?: string;
   mode?: ConnectionMode | string;
   scout_multicast?: boolean;
+  scout_gossip?: boolean;
   connect_locators?: string[];
   listen_locators?: string[];
+  bound_locators?: string[];
   connected_at?: string | number;
   created_at?: string | number;
   connected_routers?: string[];

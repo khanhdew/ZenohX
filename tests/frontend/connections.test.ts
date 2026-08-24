@@ -538,7 +538,7 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.equal(SUPPORTED_CLOUD_PROTOCOLS[0].label, 'TCP (Plain)');
     assert.deepEqual(
       SUPPORTED_CLOUD_PROTOCOLS.map((p) => p.id),
-      ['tcp', 'tls', 'quic', 'udp']
+      ['tcp', 'tls', 'quic', 'udp', 'ws', 'wss', 'unix']
     );
   });
 

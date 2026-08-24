@@ -1,20 +1,75 @@
-import type { ConnectionProfile, ScoutedNode, TlsConfig } from '../types/zenoh';
+import type { ConnectionMode, ConnectionProfile, ScoutedNode, TlsConfig } from '../types/zenoh';
 
 export type ConnectionPreset = 'client' | 'peer' | 'router';
 
-export type TransportProtocol = 'tcp' | 'tls' | 'quic' | 'udp';
+export type TransportProtocol = 'tcp' | 'tls' | 'quic' | 'udp' | 'ws' | 'wss' | 'unix';
 export type CloudProtocol = TransportProtocol; // Backward-compatibility alias
 
 export const DEFAULT_TRANSPORT_PROTOCOL: TransportProtocol = 'tcp';
 export const DEFAULT_CLOUD_PROTOCOL = DEFAULT_TRANSPORT_PROTOCOL;
 
 export const SUPPORTED_TRANSPORT_PROTOCOLS = [
-  { id: 'tcp', label: 'TCP (Plain)' },
-  { id: 'tls', label: 'TLS (Secure)' },
-  { id: 'quic', label: 'QUIC' },
-  { id: 'udp', label: 'UDP' },
+  { id: 'tcp', label: 'TCP (Plain)', defaultPort: '7447' },
+  { id: 'tls', label: 'TLS (Secure)', defaultPort: '7446' },
+  { id: 'quic', label: 'QUIC', defaultPort: '7448' },
+  { id: 'udp', label: 'UDP', defaultPort: '7449' },
+  { id: 'ws', label: 'WebSocket', defaultPort: '8080' },
+  { id: 'wss', label: 'WS Secure', defaultPort: '8443' },
+  { id: 'unix', label: 'Unix Socket', defaultPort: '' },
 ] as const;
 export const SUPPORTED_CLOUD_PROTOCOLS = SUPPORTED_TRANSPORT_PROTOCOLS;
+
+export interface ProductionPreset {
+  id: string;
+  role: 'router' | 'peer' | 'client';
+  label: string;
+  description: string;
+  mode: ConnectionMode;
+  defaultProtocol: TransportProtocol;
+  defaultPort: string;
+  suggestedLocators: string[];
+  scoutMulticast: boolean;
+  scoutGossip: boolean;
+}
+
+export const PRODUCTION_PRESETS: ProductionPreset[] = [
+  {
+    id: 'router-standard',
+    role: 'router',
+    label: 'Standard Router / Broker',
+    description: 'Multi-transport hub routing traffic for local and remote clients & peers.',
+    mode: 'router',
+    defaultProtocol: 'tcp',
+    defaultPort: '7447',
+    suggestedLocators: ['tcp/0.0.0.0:7447', 'ws/0.0.0.0:8080'],
+    scoutMulticast: true,
+    scoutGossip: true,
+  },
+  {
+    id: 'peer-mesh',
+    role: 'peer',
+    label: 'P2P Mesh Node',
+    description: 'Autonomous mesh participant with peer-to-peer multicast and gossip scouting.',
+    mode: 'peer',
+    defaultProtocol: 'tcp',
+    defaultPort: '7447',
+    suggestedLocators: [],
+    scoutMulticast: true,
+    scoutGossip: true,
+  },
+  {
+    id: 'client-edge',
+    role: 'client',
+    label: 'Edge Client',
+    description: 'Lightweight unidirectional node connecting to an upstream cloud or edge router.',
+    mode: 'client',
+    defaultProtocol: 'tcp',
+    defaultPort: '7447',
+    suggestedLocators: ['tcp/127.0.0.1:7447'],
+    scoutMulticast: false,
+    scoutGossip: false,
+  },
+];
 
 export interface ParsedLocator {
   protocol: TransportProtocol | string;
@@ -99,12 +154,17 @@ export function resolveTlsConfig(params: ResolveTlsConfigParams): TlsConfig | nu
 }
 
 /**
- * Parses a single Zenoh locator (e.g. "tls/router.example.com:7447") into protocol, host, and port.
+ * Parses a single Zenoh locator (e.g. "tls/router.example.com:7447" or "unixpipe//tmp/zenoh.sock") into protocol, host, and port.
  */
 export function parseLocator(locator: string): ParsedLocator | null {
   if (!locator || typeof locator !== 'string') return null;
   const trimmed = locator.trim();
   if (!trimmed) return null;
+
+  if (trimmed.startsWith('unixpipe/')) {
+    const path = trimmed.slice('unixpipe/'.length).trim();
+    return { protocol: 'unix', host: path.startsWith('/') ? path : `/${path}`, port: '' };
+  }
 
   const slashIdx = trimmed.indexOf('/');
   if (slashIdx === -1) {
@@ -119,20 +179,23 @@ export function parseLocator(locator: string): ParsedLocator | null {
     return null;
   }
 
-  const protocol = trimmed.slice(0, slashIdx).toLowerCase();
+  const rawProtocol = trimmed.slice(0, slashIdx).toLowerCase();
+  const protocol = rawProtocol === 'unixpipe' ? 'unix' : rawProtocol;
   const hostAndPort = trimmed.slice(slashIdx + 1);
+
+  if (protocol === 'unix') {
+    return { protocol: 'unix', host: hostAndPort.startsWith('/') ? hostAndPort : `/${hostAndPort}`, port: '' };
+  }
+
   const colonIdx = hostAndPort.lastIndexOf(':');
   if (colonIdx === -1) {
     const host = hostAndPort.trim();
-    if (host) {
-      return { protocol, host, port: '7447' };
-    }
+    if (host) return { protocol, host, port: '7447' };
     return null;
   }
 
   const host = hostAndPort.slice(0, colonIdx).trim();
   const port = hostAndPort.slice(colonIdx + 1).trim() || '7447';
-
   if (!host) return null;
 
   return { protocol, host, port };
@@ -145,15 +208,19 @@ export function buildLocator(protocol: string, host: string, port: string): stri
   const h = host.trim();
   if (!h) return '';
 
+  const proto = protocol.trim().toLowerCase() || 'tcp';
+  if (proto === 'unix' || proto === 'unixpipe') {
+    const cleanPath = h.startsWith('/') ? h : `/${h}`;
+    return `unixpipe/${cleanPath}`;
+  }
+
   const parsed = parseLocator(h);
-  if (parsed) {
-    const proto = protocol.trim().toLowerCase() || parsed.protocol || 'tcp';
+  if (parsed && parsed.protocol !== 'unix') {
     const p = port.trim() !== '' ? port.trim() : parsed.port || '7447';
     return `${proto}/${parsed.host}:${p}`;
   }
 
   const p = port.trim() !== '' ? port.trim() : '7447';
-  const proto = protocol.trim().toLowerCase() || 'tcp';
   return `${proto}/${h}:${p}`;
 }
 
@@ -214,13 +281,16 @@ export function detectProfilePreset(profile?: Partial<ConnectionProfile> | null)
 }
 
 /**
- * Extracts protocol prefix from a locator string (e.g. "tls", "tcp", "quic", "udp").
+ * Extracts protocol prefix from a locator string (e.g. "tls", "tcp", "quic", "udp", "unix").
  */
 export function getLocatorProtocol(locator: string): string {
   if (!locator || typeof locator !== 'string') return '';
-  const slashIdx = locator.indexOf('/');
+  const trimmed = locator.trim();
+  if (trimmed.startsWith('unixpipe/')) return 'unix';
+  const slashIdx = trimmed.indexOf('/');
   if (slashIdx === -1) return '';
-  return locator.slice(0, slashIdx).trim().toLowerCase();
+  const proto = trimmed.slice(0, slashIdx).trim().toLowerCase();
+  return proto === 'unixpipe' ? 'unix' : proto;
 }
 
 /**

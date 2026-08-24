@@ -25,12 +25,11 @@ import {
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useProtoStore } from '../../stores/protoStore';
 import { ConnectionProfile } from '../../types/zenoh';
-import { isTlsEnabled, isEphemeralLocator } from '../../lib/tls';
+import { isTlsEnabled } from '../../lib/tls';
 import { openProfileInNewWindow } from '../../lib/tauri';
 import { formatFriendlyError } from '../../lib/errorUtils';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
-import { BoundLocatorBadge } from './BoundLocatorBadge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -330,14 +329,6 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
             const mode = (p.mode || 'peer').toLowerCase();
             const ModeIcon = mode === 'router' ? Server : mode === 'client' ? Radio : Zap;
 
-            // Locator preview
-            const locatorPreview =
-              p.connect_locators && p.connect_locators.length > 0
-                ? p.connect_locators[0]
-                : p.scout_multicast
-                ? 'Multicast'
-                : 'Local Peer';
-
             return (
               <ContextMenu key={p.id}>
                 <ContextMenuTrigger asChild>
@@ -471,7 +462,7 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
 
                     {/* Subtitle / Details Row */}
                     <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
-                      {/* Mode Badge, SSL Badge & Locator Info */}
+                      {/* Mode Badge & SSL Badge */}
                       <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-2">
                         <Badge
                           variant="outline"
@@ -490,42 +481,18 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
                             SSL
                           </Badge>
                         )}
-                        <span className="truncate font-mono" title={locatorPreview}>
-                          {locatorPreview}
-                        </span>
                       </div>
 
-                      {/* Connected ZID pill or locators count */}
+                      {/* Connected ZID pill */}
                       {isConnected && session?.zid ? (
-                        <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1 rounded shrink-0">
-                          {session.zid.slice(0, 6)}
+                        <span
+                          className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded shrink-0 border border-border/40"
+                          title={`ZID: ${session.zid}`}
+                        >
+                          {session.zid.slice(0, 8)}
                         </span>
-                      ) : (
-                        p.connect_locators &&
-                        p.connect_locators.length > 1 && (
-                          <span className="text-[10px] text-muted-foreground shrink-0">
-                            +{p.connect_locators.length - 1}
-                          </span>
-                        )
-                      )}
+                      ) : null}
                     </div>
-
-                    {/* Bound Locators Row (When connected with active bound listening endpoints) */}
-                    {isConnected && session?.bound_locators && session.bound_locators.length > 0 && (
-                      <div className="mt-1.5 pt-1.5 border-t border-border/40 flex flex-wrap items-center gap-1">
-                        {session.bound_locators.map((loc) => {
-                          const isAuto = isEphemeralLocator(loc, p.listen_locators);
-                          return (
-                            <BoundLocatorBadge
-                              key={loc}
-                              locator={loc}
-                              isAutoPort={isAuto}
-                              size="xs"
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
                   </div>
                 </ContextMenuTrigger>
 

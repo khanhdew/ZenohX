@@ -23,8 +23,8 @@ import {
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useConnectionJsonStore } from '../../stores/connectionJsonStore';
 import { extractLocatorProtocol, extractLocatorHostPort, findMatchingProfile } from '../../lib/topology/topologyBuilder';
-import { generateZenohJson5 } from '../../lib/tls';
 import type { TopologyNode } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
 
@@ -50,10 +50,21 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
   const connect = useConnectionStore((s) => s.connect);
   const saveProfile = useConnectionStore((s) => s.saveProfile);
   const profiles = useConnectionStore((s) => s.profiles);
+  const activeSessions = useConnectionStore((s) => s.activeSessions);
+
+  const syncNodeJson = useConnectionJsonStore((s) => s.syncNodeJson);
+  const activeNodeJson = useConnectionJsonStore((s) => s.activeNodeJson);
+
+  const existingProfile = node ? findMatchingProfile(profiles, node) : null;
+
+  React.useEffect(() => {
+    if (node) {
+      const activeSession = existingProfile ? activeSessions[existingProfile.id] : null;
+      syncNodeJson(node, existingProfile, activeSession);
+    }
+  }, [node, existingProfile, activeSessions, syncNodeJson]);
 
   if (!node) return null;
-
-  const existingProfile = findMatchingProfile(profiles, node);
 
   const handleCopyZid = () => {
     navigator.clipboard.writeText(node.zid);
@@ -491,28 +502,9 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
         {/* Node Configuration & Synchronized JSON5 */}
         {(() => {
-          const nodeJson5 = generateZenohJson5({
-            id: node.zid,
-            zid: node.zid,
-            mode: node.type,
-            connect_locators:
-              (node.connectLocators && node.connectLocators.length > 0
-                ? node.connectLocators
-                : existingProfile?.connect_locators) || [],
-            listen_locators:
-              (node.locators && node.locators.length > 0
-                ? node.locators
-                : existingProfile?.listen_locators) || [],
-            scout_multicast: existingProfile?.scout_multicast ?? true,
-            scout_gossip: existingProfile?.scout_gossip ?? true,
-            reconnect_retry: existingProfile?.reconnect_retry,
-            user_auth: existingProfile?.user_auth,
-            tls_config: existingProfile?.tls_config,
-            custom_config: existingProfile?.custom_config,
-          });
-
           const handleCopyJson5 = () => {
-            navigator.clipboard.writeText(nodeJson5);
+            if (!activeNodeJson) return;
+            navigator.clipboard.writeText(activeNodeJson);
             setCopiedJson5(true);
             setTimeout(() => setCopiedJson5(false), 2000);
           };
@@ -550,7 +542,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
               {showJson5 && (
                 <div className="relative rounded-md bg-muted/70 border p-2 font-mono text-[10px] text-foreground overflow-x-auto max-h-48 whitespace-pre animate-in fade-in duration-150">
-                  {nodeJson5}
+                  {activeNodeJson || '{\n  // Loading node configuration...\n}'}
                 </div>
               )}
             </div>

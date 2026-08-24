@@ -3,6 +3,7 @@ import { FileCode, Copy, Check, SlidersHorizontal } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Button } from '../../ui/button';
 import { Badge } from '../../ui/badge';
+import { useConnectionJsonStore } from '../../../stores/connectionJsonStore';
 
 export interface RawJsonConfigSectionProps {
   customConfigText: string;
@@ -18,8 +19,11 @@ export const RawJsonConfigSection: React.FC<RawJsonConfigSectionProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'preview' | 'overrides'>('preview');
 
+  const activeEditFormJson = useConnectionJsonStore((s) => s.activeEditFormJson);
+  const effectiveJson = generatedConfigJson || activeEditFormJson;
+
   const handleCopy = async () => {
-    const textToCopy = generatedConfigJson || customConfigText;
+    const textToCopy = effectiveJson || customConfigText;
     if (!textToCopy) return;
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
@@ -71,7 +75,7 @@ export const RawJsonConfigSection: React.FC<RawJsonConfigSectionProps> = ({
           </button>
         </div>
 
-        {activeTab === 'preview' && (generatedConfigJson || customConfigText) && (
+        {activeTab === 'preview' && (effectiveJson || customConfigText) && (
           <Button
             type="button"
             variant="ghost"
@@ -99,7 +103,7 @@ export const RawJsonConfigSection: React.FC<RawJsonConfigSectionProps> = ({
         <div className="space-y-1.5">
           <div className="relative rounded-md border bg-muted/30 p-2.5 font-mono text-[11px] leading-relaxed max-h-56 overflow-y-auto select-text text-foreground">
             <pre className="whitespace-pre font-mono">
-              {generatedConfigJson || '{\n  // Configure options above to view live configuration\n}'}
+              {effectiveJson || '{\n  // Configure options above to view live configuration\n}'}
             </pre>
           </div>
           <p className="text-[10px] text-muted-foreground">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useConnectionStore } from '../../../stores/connectionStore';
+import { useConnectionJsonStore } from '../../../stores/connectionJsonStore';
 import type { ConnectionMode, ConnectionProfile, SessionConfig, ReconnectRetryConfig } from '../../../types/zenoh';
 import {
   hasCustomTlsConfig,
@@ -9,7 +10,6 @@ import {
   buildLocator,
   detectProfilePreset,
   getSuggestedRouterPort,
-  generateZenohJson5,
   DEFAULT_TRANSPORT_PROTOCOL,
   type TransportProtocol,
   type ConnectionPreset,
@@ -431,7 +431,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     return true;
   };
 
-  const buildCurrentSessionConfig = (): SessionConfig => {
+  const buildCurrentSessionConfig = (): SessionConfig & { id?: string; zid?: string } => {
     const userAuth =
       username.trim() || password.trim() || token.trim()
         ? {
@@ -708,7 +708,54 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     }
   };
 
-  const generatedConfigJson = generateZenohJson5(buildCurrentSessionConfig());
+  const syncEditFormJson = useConnectionJsonStore((s) => s.syncEditFormJson);
+  const parseJsonToProfile = useConnectionJsonStore((s) => s.parseJsonToProfile);
+
+  const currentSessionConfig = buildCurrentSessionConfig();
+  const generatedConfigJson = syncEditFormJson(currentSessionConfig);
+
+  const applyJsonToForm = (jsonString: string): boolean => {
+    const parsed = parseJsonToProfile(jsonString);
+    if (!parsed) return false;
+
+    if (parsed.mode === 'router' || parsed.mode === 'peer' || parsed.mode === 'client') {
+      setPreset(parsed.mode);
+    }
+    if (parsed.connect_locators && parsed.connect_locators.length > 0) {
+      setConnectLocators(parsed.connect_locators);
+      setRouterConnectLocators(parsed.connect_locators);
+      const parsedFirst = parseLocator(parsed.connect_locators[0]);
+      if (parsedFirst) {
+        setClientHost(parsedFirst.host);
+        setClientPort(parsedFirst.port);
+        setClientProtocol((parsedFirst.protocol as TransportProtocol) || DEFAULT_TRANSPORT_PROTOCOL);
+      }
+    }
+    if (parsed.listen_locators) {
+      setListenLocators(parsed.listen_locators);
+      const eps: RouterListenEndpoint[] = parsed.listen_locators.map((loc, idx) => {
+        const p = parseLocator(loc);
+        return {
+          id: `ep-${idx + 1}-${Date.now()}`,
+          protocol: (p?.protocol as TransportProtocol) || 'tcp',
+          host: p?.host || '0.0.0.0',
+          port: p?.port !== undefined && p.port !== '' ? p.port : (p?.protocol === 'unix' ? '' : '7447'),
+        };
+      });
+      if (eps.length > 0) {
+        setRouterListenEndpoints(eps);
+      }
+    }
+    if (typeof parsed.scout_multicast === 'boolean') {
+      setScoutMulticast(parsed.scout_multicast);
+      setRouterScoutMulticast(parsed.scout_multicast);
+    }
+    if (typeof parsed.scout_gossip === 'boolean') {
+      setScoutGossip(parsed.scout_gossip);
+      setRouterScoutGossip(parsed.scout_gossip);
+    }
+    return true;
+  };
 
   return {
     isEditing,
@@ -726,6 +773,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setClientProtocol,
     enableReconnectRetry,
     setEnableReconnectRetry,
+    applyJsonToForm,
     peerName,
     setPeerName,
     connectLocators,

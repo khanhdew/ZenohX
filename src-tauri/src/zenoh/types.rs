@@ -23,6 +23,24 @@ pub struct TlsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReconnectRetryConfig {
+    #[serde(default = "default_retry_init_ms")]
+    pub period_init_ms: u64,
+    #[serde(default = "default_retry_max_ms")]
+    pub period_max_ms: u64,
+    #[serde(default = "default_retry_factor")]
+    pub factor: u8,
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_retry_init_ms() -> u64 { 1000 }
+fn default_retry_max_ms() -> u64 { 4000 }
+fn default_retry_factor() -> u8 { 2 }
+fn default_timeout_ms() -> u64 { 0 }
+fn default_scout_gossip() -> bool { true }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionConfig {
     #[serde(default)]
     pub profile_id: Option<String>,
@@ -34,6 +52,10 @@ pub struct SessionConfig {
     pub listen_locators: Vec<String>,
     #[serde(default = "default_scout_multicast")]
     pub scout_multicast: bool,
+    #[serde(default = "default_scout_gossip")]
+    pub scout_gossip: bool,
+    #[serde(default)]
+    pub reconnect_retry: Option<ReconnectRetryConfig>,
     #[serde(default)]
     pub user_auth: Option<UserAuth>,
     #[serde(default)]
@@ -64,6 +86,8 @@ impl SessionConfig {
             connect_locators: vec![],
             listen_locators: vec![],
             scout_multicast: true,
+            scout_gossip: true,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -77,6 +101,8 @@ impl SessionConfig {
             connect_locators: vec![],
             listen_locators: vec![],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -122,16 +148,31 @@ impl SessionConfig {
                 .insert_json5("connect/endpoints", &json)
                 .map_err(|e| format!("failed to set connect endpoints: {e}"))?;
 
-            // For routers & peers connecting to upstreams:
-            // Ensure background reconnect retries are active and don't abort listener startup
-            let _ = config.insert_json5("connect/timeout_ms", "0");
+            let (timeout_ms, period_init, period_max, factor) = if let Some(r) = &self.reconnect_retry {
+                (r.timeout_ms, r.period_init_ms, r.period_max_ms, r.factor)
+            } else {
+                (0, 1000, 4000, 2)
+            };
+
+            let _ = config.insert_json5("connect/timeout_ms", &timeout_ms.to_string());
             let _ = config.insert_json5("connect/exit_on_failure", "false");
-            let _ = config.insert_json5("connect/retry/period_init_ms", "1000");
-            let _ = config.insert_json5("connect/retry/period_max_ms", "4000");
-            let _ = config.insert_json5("connect/retry/period_increase_factor", "2");
+            let _ = config.insert_json5("connect/retry/period_init_ms", &period_init.to_string());
+            let _ = config.insert_json5("connect/retry/period_max_ms", &period_max.to_string());
+            let _ = config.insert_json5("connect/retry/period_increase_factor", &factor.to_string());
         }
 
         // 3. Listen locators
+        // For Unix domain socket endpoints (e.g. "unixpipe//tmp/zenoh.sock"), clean up stale socket files
+        for loc in &self.listen_locators {
+            if let Some(path) = loc.strip_prefix("unixpipe/") {
+                let clean_path = path.trim_start_matches('/');
+                let full_path = format!("/{clean_path}");
+                if std::path::Path::new(&full_path).exists() {
+                    let _ = std::fs::remove_file(&full_path);
+                }
+            }
+        }
+
         if !self.listen_locators.is_empty() {
             let json = serde_json::to_string(&self.listen_locators)
                 .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
@@ -148,13 +189,18 @@ impl SessionConfig {
                 .map_err(|e| format!("failed to set tls listen endpoints: {e}"))?;
         }
 
-        // 4. Multicast scouting
+        // 4. Multicast & Gossip scouting
         config
             .insert_json5(
                 "scouting/multicast/enabled",
                 if self.scout_multicast { "true" } else { "false" },
             )
             .map_err(|e| format!("failed to configure multicast scout: {e}"))?;
+
+        let _ = config.insert_json5(
+            "scouting/gossip/enabled",
+            if self.scout_gossip { "true" } else { "false" },
+        );
 
         // 5. User Authentication
         if let Some(auth) = &self.user_auth {
@@ -277,8 +323,12 @@ pub struct SessionInfo {
     pub zid: String,
     pub mode: String,
     pub scout_multicast: bool,
+    #[serde(default = "default_scout_gossip")]
+    pub scout_gossip: bool,
     pub connect_locators: Vec<String>,
     pub listen_locators: Vec<String>,
+    #[serde(default)]
+    pub bound_locators: Vec<String>,
     pub created_at: i64,
     #[serde(default)]
     pub connected_routers: Vec<String>,

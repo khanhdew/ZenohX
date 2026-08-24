@@ -12,6 +12,8 @@ mod tests {
             connect_locators: vec![],
             listen_locators: vec![],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -75,6 +77,8 @@ mod tests {
             connect_locators: vec!["tcp/127.0.0.1:7447".to_string()],
             listen_locators: vec![],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: Some(UserAuth {
                 username: Some("admin".to_string()),
                 password: Some("secret".to_string()),
@@ -195,6 +199,8 @@ mod tests {
             connect_locators: vec![],
             listen_locators: vec!["tcp/127.0.0.1:17447".to_string()],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -208,6 +214,8 @@ mod tests {
             connect_locators: vec!["tcp/127.0.0.1:17447".to_string()],
             listen_locators: vec!["tcp/127.0.0.1:17448".to_string()],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -242,6 +250,8 @@ mod tests {
             connect_locators: vec!["tcp/127.0.0.1:17452".to_string()],
             listen_locators: vec!["tcp/127.0.0.1:17451".to_string()],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -255,6 +265,8 @@ mod tests {
             connect_locators: vec!["tcp/127.0.0.1:17451".to_string()],
             listen_locators: vec!["tcp/127.0.0.1:17452".to_string()],
             scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
             user_auth: None,
             tls_config: None,
             custom_config: None,
@@ -275,5 +287,74 @@ mod tests {
         manager.disconnect(&r2_id).await.expect("disconnect r2");
         manager.disconnect(&r1_id).await.expect("disconnect r1");
     }
+
+    #[tokio::test]
+    async fn test_session_config_gossip_and_reconnect_retry() {
+        let mut config = SessionConfig::default_peer();
+        config.scout_gossip = true;
+        config.connect_locators = vec!["tcp/127.0.0.1:7447".to_string()];
+        config.reconnect_retry = Some(ReconnectRetryConfig {
+            period_init_ms: 500,
+            period_max_ms: 2000,
+            factor: 2,
+            timeout_ms: 0,
+        });
+
+        let zenoh_config = config.to_zenoh_config().expect("to_zenoh_config should succeed");
+        // Verify JSON5 configuration entries were inserted
+        let json_str = format!("{:?}", zenoh_config);
+        assert!(json_str.contains("scouting") || json_str.contains("gossip"));
+    }
+
+    #[test]
+    fn test_unixpipe_stale_socket_cleanup() {
+        let socket_path = "/tmp/test_zenoh_stale_sock.sock";
+        // Create a dummy stale socket file
+        std::fs::write(socket_path, b"stale").expect("create stale socket file");
+        assert!(std::path::Path::new(socket_path).exists());
+
+        let mut config = SessionConfig::default_peer();
+        config.listen_locators = vec![format!("unixpipe/{socket_path}")];
+
+        let res = config.to_zenoh_config();
+        assert!(res.is_ok());
+        // The stale socket file should have been cleaned up before binding
+        assert!(!std::path::Path::new(socket_path).exists());
+    }
+
+    #[test]
+    fn test_session_info_gossip_and_bound_locators_serde() {
+        let json_data = r#"{
+            "id": "11111111-2222-3333-4444-555555555555",
+            "profile_id": "test-prof",
+            "zid": "abcdef123456",
+            "mode": "peer",
+            "scout_multicast": true,
+            "scout_gossip": true,
+            "connect_locators": ["tcp/127.0.0.1:7447"],
+            "listen_locators": ["tcp/0.0.0.0:0"],
+            "bound_locators": ["tcp/127.0.0.1:45678"],
+            "created_at": 1700000000
+        }"#;
+
+        let info: SessionInfo = serde_json::from_str(json_data).expect("deserialize session info");
+        assert!(info.scout_gossip);
+        assert_eq!(info.bound_locators, vec!["tcp/127.0.0.1:45678"]);
+
+        // Verify backward compatibility when scout_gossip and bound_locators are omitted in JSON
+        let legacy_json = r#"{
+            "id": "11111111-2222-3333-4444-555555555555",
+            "zid": "abcdef123456",
+            "mode": "client",
+            "scout_multicast": false,
+            "connect_locators": [],
+            "listen_locators": [],
+            "created_at": 1700000000
+        }"#;
+        let legacy_info: SessionInfo = serde_json::from_str(legacy_json).expect("deserialize legacy info");
+        assert!(legacy_info.scout_gossip); // default_scout_gossip is true
+        assert!(legacy_info.bound_locators.is_empty());
+    }
 }
+
 

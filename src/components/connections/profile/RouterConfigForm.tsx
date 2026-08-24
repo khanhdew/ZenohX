@@ -238,7 +238,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                           onChange={(e) =>
                             updateListenEndpoint(ep.id, { host: e.target.value })
                           }
-                          placeholder="0.0.0.0"
+                          placeholder="0.0.0.0 or [::]"
                           className="h-8 text-xs font-mono bg-background"
                         />
                       </div>
@@ -264,42 +264,92 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                       </div>
                     </div>
 
-                    {/* Quick Port helper pills */}
-                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                      <span className="text-[9px] text-muted-foreground">Quick Ports:</span>
-                      <button
-                        type="button"
-                        onClick={() => updateListenEndpoint(ep.id, { port: '7447' })}
-                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                          ep.port === '7447'
-                            ? 'border-primary text-primary bg-primary/5 font-semibold'
-                            : 'border-border text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        7447
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateListenEndpoint(ep.id, { port: '8080' })}
-                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                          ep.port === '8080'
-                            ? 'border-primary text-primary bg-primary/5 font-semibold'
-                            : 'border-border text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        8080
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => updateListenEndpoint(ep.id, { port: '0' })}
-                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                          ep.port === '0'
-                            ? 'border-primary text-primary bg-primary/5 font-semibold'
-                            : 'border-border text-muted-foreground hover:text-foreground'
-                        }`}
-                      >
-                        0 Auto
-                      </button>
+                    {/* Quick Host & Port helper pills */}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        <span className="text-[9px] text-muted-foreground">Quick Hosts:</span>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { host: '0.0.0.0' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.host === '0.0.0.0'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          0.0.0.0 (IPv4 All)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { host: '::' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.host === '::' || ep.host === '[::]'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          :: (IPv6 All)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { host: '127.0.0.1' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.host === '127.0.0.1'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          127.0.0.1 (IPv4 Local)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { host: '::1' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.host === '::1' || ep.host === '[::1]'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          ::1 (IPv6 Local)
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        <span className="text-[9px] text-muted-foreground">Quick Ports:</span>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { port: '7447' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.port === '7447'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          7447
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { port: '8080' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.port === '8080'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          8080
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { port: '0' })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.port === '0'
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          0 Auto
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}

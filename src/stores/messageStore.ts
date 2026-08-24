@@ -33,7 +33,9 @@ import { normalizeEncoding, encodePayload } from '../lib/formatters';
 import { formatFriendlyError } from '../lib/errorUtils';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
+import { useTopologyStore } from './topologyStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+
 
 
 // Palette of colors for subscription badges
@@ -307,7 +309,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
               keyExpr: sample.key_expr,
               bytes: sample.payload?.length || 0,
             });
+
+            useTopologyStore.getState().triggerLinkTraffic(
+              sample.session_id,
+              sample.source_id,
+              {
+                keyExpr: sample.key_expr,
+                bytes: sample.payload?.length || 0,
+                direction: 'inbound',
+              }
+            );
           }
+
 
           if (newItems.length === 0) return;
 
@@ -744,6 +757,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         keyExpr,
         bytes: normalizedPayload.length,
       });
+
+      useTopologyStore.getState().triggerLinkTraffic(sessionId, undefined, {
+        keyExpr,
+        bytes: normalizedPayload.length,
+        direction: 'outbound',
+      });
+
 
       const activeSession = useConnectionStore.getState().getActiveSession(sessionId);
       const pubTimestamp = Date.now();

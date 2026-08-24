@@ -1,8 +1,10 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type {
   TopologyNode,
   TopologyEdge,
   BuildTopologyOptions,
+  LinkTrafficFlash,
 } from '../types/topology';
 import { buildTopologyGraph } from '../lib/topology/topologyBuilder';
 import { applyRadialLayout, type ViewTransform } from '../lib/topology/forceEngine';
@@ -21,9 +23,15 @@ export interface TopologyState {
   isSimulating: boolean;
   autoScoutInterval: number; // 0 = Off, >0 milliseconds
   transform: ViewTransform;
+  activeLinkTraffic: Record<string, LinkTrafficFlash>;
+  customNodeLabels: Record<string, string>;
 
   // Actions
   syncFromContext: (opts: BuildTopologyOptions) => void;
+  setNodeLabel: (zidOrId: string, label: string) => void;
+  removeNodeLabel: (zidOrId: string) => void;
+  setNodeName: (zidOrId: string, name: string) => void;
+  removeNodeName: (zidOrId: string) => void;
   setSelectedNodeId: (id: string | null) => void;
   setHoveredNodeId: (id: string | null) => void;
   setSearchQuery: (query: string) => void;
@@ -37,33 +45,107 @@ export interface TopologyState {
   resetTransform: () => void;
   fitToNodes: (canvasWidth: number, canvasHeight: number) => void;
   getFilteredNodes: () => TopologyNode[];
+  triggerLinkTraffic: (
+    sessionId: string,
+    sourceZid: string | null | undefined,
+    sample: { keyExpr: string; bytes: number; direction?: 'inbound' | 'outbound' }
+  ) => void;
+  clearLinkTraffic: () => void;
 }
 
-export const useTopologyStore = create<TopologyState>((set, get) => ({
-  nodes: [],
-  edges: [],
-  selectedNodeId: null,
-  hoveredNodeId: null,
-  searchQuery: '',
-  filterType: 'all',
-  layoutMode: 'force',
-  isSimulating: true,
-  autoScoutInterval: 0,
-  transform: { x: 0, y: 0, k: 1 },
 
-  syncFromContext: (opts) => {
-    const existing = get().nodes;
-    const { nodes, edges } = buildTopologyGraph({
-      ...opts,
-      existingNodes: existing,
+export const useTopologyStore = create<TopologyState>()(
+  persist(
+    (set, get) => {
+
+  const setNodeLabelFn = (zidOrId: string, label: string) => {
+    const trimmed = label.trim();
+    set((state) => {
+      const updatedLabels = { ...state.customNodeLabels };
+      const baseZid = zidOrId.startsWith('scouted-') ? zidOrId.replace('scouted-', '') : zidOrId;
+      if (trimmed) {
+        updatedLabels[zidOrId] = trimmed;
+        updatedLabels[zidOrId.toLowerCase()] = trimmed;
+        updatedLabels[baseZid] = trimmed;
+        updatedLabels[baseZid.toLowerCase()] = trimmed;
+        updatedLabels[`scouted-${baseZid}`] = trimmed;
+      } else {
+        delete updatedLabels[zidOrId];
+        delete updatedLabels[zidOrId.toLowerCase()];
+        delete updatedLabels[baseZid];
+        delete updatedLabels[baseZid.toLowerCase()];
+        delete updatedLabels[`scouted-${baseZid}`];
+      }
+
+      const updatedNodes = state.nodes.map((n) => {
+        if (
+          n.zid === zidOrId ||
+          n.id === zidOrId ||
+          n.zid.toLowerCase() === zidOrId.toLowerCase() ||
+          n.zid === baseZid ||
+          n.zid.toLowerCase() === baseZid.toLowerCase() ||
+          n.id === `scouted-${baseZid}`
+        ) {
+          return { ...n, label: trimmed || n.label };
+        }
+        return n;
+      });
+
+      return {
+        customNodeLabels: updatedLabels,
+        nodes: updatedNodes,
+      };
     });
+  };
 
-    if (get().layoutMode === 'radial') {
-      applyRadialLayout(nodes);
-    }
+  const removeNodeLabelFn = (zidOrId: string) => {
+    set((state) => {
+      const updatedLabels = { ...state.customNodeLabels };
+      const baseZid = zidOrId.startsWith('scouted-') ? zidOrId.replace('scouted-', '') : zidOrId;
+      delete updatedLabels[zidOrId];
+      delete updatedLabels[zidOrId.toLowerCase()];
+      delete updatedLabels[baseZid];
+      delete updatedLabels[baseZid.toLowerCase()];
+      delete updatedLabels[`scouted-${baseZid}`];
+      return { customNodeLabels: updatedLabels };
+    });
+  };
 
-    set({ nodes, edges });
-  },
+  return {
+    nodes: [],
+    edges: [],
+    selectedNodeId: null,
+    hoveredNodeId: null,
+    searchQuery: '',
+    filterType: 'all',
+    layoutMode: 'force',
+    isSimulating: true,
+    autoScoutInterval: 0,
+    transform: { x: 0, y: 0, k: 1 },
+    activeLinkTraffic: {},
+    customNodeLabels: {},
+
+    syncFromContext: (opts) => {
+      const existing = get().nodes;
+      const customLabels = get().customNodeLabels;
+      const { nodes, edges } = buildTopologyGraph({
+        ...opts,
+        customNodeLabels: customLabels,
+        existingNodes: existing,
+      });
+
+      if (get().layoutMode === 'radial') {
+        applyRadialLayout(nodes);
+      }
+
+      set({ nodes, edges });
+    },
+
+    setNodeLabel: setNodeLabelFn,
+    removeNodeLabel: removeNodeLabelFn,
+    setNodeName: setNodeLabelFn,
+    removeNodeName: removeNodeLabelFn,
+
 
   setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
   setHoveredNodeId: (hoveredNodeId) => set({ hoveredNodeId }),
@@ -158,4 +240,80 @@ export const useTopologyStore = create<TopologyState>((set, get) => ({
     if (filterType === 'connected') return nodes.filter((n) => n.status === 'connected');
     return nodes;
   },
-}));
+
+  triggerLinkTraffic: (sessionId, sourceZid, sample) => {
+    const { edges, nodes, activeLinkTraffic } = get();
+    if (edges.length === 0 || nodes.length === 0) return;
+
+    const now = Date.now();
+    const cleanSourceZid = sourceZid ? sourceZid.trim().toLowerCase() : null;
+
+    // 1. Identify local session node
+    const localNode = nodes.find(
+      (n) => n.id === sessionId || n.zid === sessionId || n.profileId === sessionId || n.status === 'connected'
+    );
+
+    // 2. Identify remote node if sourceZid is available
+    const remoteNode = cleanSourceZid
+      ? nodes.find((n) => n.zid.toLowerCase() === cleanSourceZid || n.id.toLowerCase() === cleanSourceZid)
+      : null;
+
+    // 3. Find target edge
+    let matchingEdge = edges.find((e) => {
+      if (localNode && remoteNode) {
+        return (
+          (e.source === localNode.id && e.target === remoteNode.id) ||
+          (e.source === remoteNode.id && e.target === localNode.id)
+        );
+      }
+      if (remoteNode) {
+        return e.source === remoteNode.id || e.target === remoteNode.id;
+      }
+      if (localNode) {
+        return (e.source === localNode.id || e.target === localNode.id) && e.status === 'active';
+      }
+      return false;
+    });
+
+    // Fallback to first active edge if no specific edge matched
+    if (!matchingEdge) {
+      matchingEdge = edges.find((e) => e.status === 'active') || edges[0];
+    }
+
+    if (!matchingEdge) return;
+
+    // Prune stale traffic entries (> 5000ms)
+    const updatedTraffic: Record<string, LinkTrafficFlash> = {};
+    for (const [k, v] of Object.entries(activeLinkTraffic)) {
+      if (now - v.timestamp < 5000) {
+        updatedTraffic[k] = v;
+      }
+    }
+
+    updatedTraffic[matchingEdge.id] = {
+      keyExpr: sample.keyExpr || 'unknown',
+      bytes: typeof sample.bytes === 'number' ? sample.bytes : 0,
+      direction: sample.direction || 'inbound',
+      timestamp: now,
+      sourceZid: sourceZid || undefined,
+    };
+
+    set({ activeLinkTraffic: updatedTraffic });
+  },
+
+    clearLinkTraffic: () => {
+      set({ activeLinkTraffic: {} });
+    },
+  };
+},
+    {
+      name: 'zenohx-topology-names',
+      partialize: (state) => ({
+        customNodeLabels: state.customNodeLabels,
+      }),
+    }
+  )
+);
+
+
+

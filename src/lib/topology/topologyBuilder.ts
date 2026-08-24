@@ -273,191 +273,21 @@ export function buildTopologyGraph({
   activeSessions,
   profiles,
   existingNodes = [],
+  customNodeLabels = {},
 }: BuildTopologyOptions): TopologyGraphData {
   const existingMap = new Map<string, TopologyNode>(existingNodes.map((n) => [n.id, n]));
   const zidNodeMap = new Map<string, TopologyNode>();
-  const zenohxZids = new Set<string>();
   const edges: TopologyEdge[] = [];
 
-  // 1. Process ZenohX Sessions & Profiles (Node info comes directly from Rust backend)
-  profiles.forEach((profile, index) => {
-    const isConnected = Boolean(activeSessions[profile.id]);
-    const sessionInfo = activeSessions[profile.id];
-    const sessionZid = sessionInfo?.zid;
-    const persistentZid = sessionZid || derivePersistentZid(profile.id);
-
-    // Track all internal ZenohX ZIDs to ensure scout never duplicates or alters them
-    if (sessionZid) zenohxZids.add(sessionZid.toLowerCase());
-    zenohxZids.add(persistentZid.toLowerCase());
-
-    // If not connected, do not display offline saved profile on the graph
-    if (!isConnected) {
-      return;
-    }
-
-    const nodeZid = sessionZid || persistentZid;
-    const nodeId = `profile-${profile.id}`;
-    const existing = existingMap.get(nodeId) || existingMap.get(`scouted-${nodeZid}`);
-
-    // Authoritative Type and Mode from Rust Session / Profile
-    const rawMode = (sessionInfo?.mode || profile.mode || 'peer').toLowerCase();
-    const type: TopologyNode['type'] =
-      rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
-
-    // Authoritative Listen Locators (Advertised Endpoints)
-    const rawListen =
-      sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0
-        ? sessionInfo.bound_locators
-        : sessionInfo?.listen_locators && sessionInfo.listen_locators.length > 0
-        ? sessionInfo.listen_locators
-        : profile.listen_locators || [];
-
-    const locators = filterRealLocators(
-      Array.from(new Set(rawListen))
-        .filter(Boolean)
-        .filter((loc) => !loc.endsWith(':0') || !(sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0))
-        .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc))
-    );
-
-    // Outbound Target Endpoints (Upstreams / Connect Locators)
-    const connectLocs = [
-      ...(sessionInfo?.connect_locators || []),
-      ...profile.connect_locators,
-    ];
-    const connectLocators = filterRealLocators(
-      Array.from(new Set(connectLocs))
-        .filter(Boolean)
-        .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc))
-    );
-
-    const isTls = isTlsEnabled(profile.tls_config, locators.concat(connectLocators));
-
-    const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
-    const defaultX = 180 + index * 60;
-    const defaultY = -120 + index * 60;
-
-    // Direct metrics from Rust SessionInfo
-    const connectedRouters = sessionInfo?.connected_routers || [];
-    const connectedPeers = sessionInfo?.connected_peers || [];
-    const activeSubscribers = sessionInfo?.active_subscribers ?? 0;
-    const activeQueryables = sessionInfo?.active_queryables ?? 0;
-    const uptimeSeconds = sessionInfo?.uptime_seconds ?? 0;
-
-    const topologyNode: TopologyNode = {
-      id: nodeId,
-      zid: nodeZid,
-      label: profile.name,
-      type,
-      status: 'connected',
-      locators,
-      connectLocators,
-      links: sessionInfo?.links || [],
-      isTls,
-      profileId: profile.id,
-      mode: rawMode,
-      connectedRouters,
-      connectedPeers,
-      activeSubscribers,
-      activeQueryables,
-      uptimeSeconds,
-      x: existing ? existing.x : defaultX,
-      y: existing ? existing.y : defaultY,
-      vx: existing ? existing.vx : 0,
-      vy: existing ? existing.vy : 0,
-      fx: existing?.fx ?? null,
-      fy: existing?.fy ?? null,
-      radius,
-    };
-    zidNodeMap.set(nodeZid, topologyNode);
-  });
-
-  // Include any active sessions that might not have a matching profile in profiles array
-  Object.entries(activeSessions).forEach(([profileId, sessionInfo], index) => {
-    const sessionZid = sessionInfo.zid;
-    if (!sessionZid) return;
-    zenohxZids.add(sessionZid.toLowerCase());
-
-    if (!zidNodeMap.has(sessionZid)) {
-      const nodeId = `profile-${profileId}`;
-      const existing = existingMap.get(nodeId) || existingMap.get(`scouted-${sessionZid}`);
-      const rawMode = (sessionInfo.mode || 'peer').toLowerCase();
-      const type: TopologyNode['type'] =
-        rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
-      const rawListen =
-        sessionInfo.bound_locators && sessionInfo.bound_locators.length > 0
-          ? sessionInfo.bound_locators
-          : sessionInfo.listen_locators || [];
-
-      const locators = filterRealLocators(
-        Array.from(new Set(rawListen))
-          .filter(Boolean)
-          .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc))
-      );
-
-      const connectLocators = filterRealLocators(
-        Array.from(new Set(sessionInfo.connect_locators || []))
-          .filter(Boolean)
-          .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc))
-      );
-      const isTls = isTlsEnabled(null, locators.concat(connectLocators));
-      const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
-
-      const topologyNode: TopologyNode = {
-        id: nodeId,
-        zid: sessionZid,
-        label: `Active Session (${sessionZid.substring(0, 6)})`,
-        type,
-        status: 'connected',
-        locators,
-        connectLocators,
-        links: sessionInfo.links || [],
-        isTls,
-        profileId,
-        mode: rawMode,
-        connectedRouters: sessionInfo.connected_routers || [],
-        connectedPeers: sessionInfo.connected_peers || [],
-        activeSubscribers: sessionInfo.active_subscribers ?? 0,
-        activeQueryables: sessionInfo.active_queryables ?? 0,
-        uptimeSeconds: sessionInfo.uptime_seconds ?? 0,
-        x: existing ? existing.x : 180 + index * 60,
-        y: existing ? existing.y : -120 + index * 60,
-        vx: existing ? existing.vx : 0,
-        vy: existing ? existing.vy : 0,
-        fx: existing?.fx ?? null,
-        fy: existing?.fy ?? null,
-        radius,
-      };
-      zidNodeMap.set(sessionZid, topologyNode);
-    }
-  });
-
-  // 2. Process ONLY External Nodes (Nodes NOT created with ZenohX) from Scout
+  // 1. Populate all Scouted Network Nodes
   scoutedNodes.forEach((node, index) => {
     const scoutZid = (node.zid || '').toLowerCase();
-    const existingNode =
-      zidNodeMap.get(node.zid) ||
-      Array.from(zidNodeMap.values()).find((n) => n.zid.toLowerCase() === scoutZid);
-
-    // If node already exists, merge the scouted advertised locators into it
-    if (existingNode) {
-      if (node.locators && node.locators.length > 0) {
-        const merged = Array.from(
-          new Set([...existingNode.locators, ...filterRealLocators(node.locators)])
-        );
-        existingNode.locators = merged;
-      }
-      return;
-    }
-
-    if (zenohxZids.has(scoutZid)) {
-      return;
-    }
+    if (!scoutZid) return;
 
     const nodeId = `scouted-${node.zid}`;
-    const existing = existingMap.get(nodeId);
+    const existing = existingMap.get(nodeId) || existingMap.get(node.zid);
 
     const isTls = (node.locators || []).some((loc) => extractLocatorProtocol(loc) === 'tls');
-
     const whatLower = (node.what || '').toLowerCase();
     const type: TopologyNode['type'] = whatLower.includes('router')
       ? 'router'
@@ -465,9 +295,18 @@ export function buildTopologyGraph({
       ? 'peer'
       : 'client';
 
+    const matchingProf = findMatchingProfile(profiles, node);
+    const customLabel =
+      (node.zid && customNodeLabels[node.zid]) ||
+      (node.zid && customNodeLabels[node.zid.toLowerCase()]) ||
+      (scoutZid && customNodeLabels[scoutZid]) ||
+      (scoutZid && customNodeLabels[scoutZid.toLowerCase()]) ||
+      customNodeLabels[nodeId];
+
     const shortZid =
       node.zid.length > 8 ? `${node.zid.substring(0, 4)}...${node.zid.slice(-4)}` : node.zid;
-    const label = `${node.what || 'External Node'} (${shortZid})`;
+    const label =
+      customLabel || matchingProf?.name || `${node.what || 'External Node'} (${shortZid})`;
 
     const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
     const angle = (index / Math.max(1, scoutedNodes.length)) * 2 * Math.PI;
@@ -483,6 +322,7 @@ export function buildTopologyGraph({
       status: 'scouted',
       locators: filterRealLocators(node.locators || []),
       isTls,
+      profileId: matchingProf?.id,
       x: existing ? existing.x : defaultX,
       y: existing ? existing.y : defaultY,
       vx: existing ? existing.vx : 0,
@@ -492,9 +332,249 @@ export function buildTopologyGraph({
       radius,
     };
     zidNodeMap.set(node.zid, topologyNode);
+    zidNodeMap.set(scoutZid, topologyNode);
   });
 
-  // 3. Process authoritative links from Rust SessionInfo (session.info().links() & transports())
+  // 2. Process Active Sessions & Profiles (Direct Node Tracking)
+  const connectedProfiles = profiles.filter((p) => Boolean(activeSessions[p.id]));
+
+  connectedProfiles.forEach((profile, index) => {
+    const sessionInfo = activeSessions[profile.id];
+    const rawMode = (sessionInfo?.mode || profile.mode || 'peer').toLowerCase();
+
+    if (rawMode === 'client') {
+      // Client mode: ZenohX connects TO an upstream router or peer to track it
+      const upstreamZid = sessionInfo?.connected_routers?.[0] || sessionInfo?.links?.[0]?.zid;
+      const upstreamLocators = [
+        ...(sessionInfo?.connect_locators || []),
+        ...profile.connect_locators,
+      ];
+
+      let targetNode: TopologyNode | undefined;
+
+      // Match by upstream ZID
+      if (upstreamZid) {
+        targetNode =
+          zidNodeMap.get(upstreamZid) ||
+          Array.from(zidNodeMap.values()).find(
+            (n) => n.zid.toLowerCase() === upstreamZid.toLowerCase()
+          );
+      }
+
+      // Match by connect locators
+      if (!targetNode && upstreamLocators.length > 0) {
+        targetNode = Array.from(zidNodeMap.values()).find((n) =>
+          n.locators.some((nLoc) => upstreamLocators.some((uLoc) => isLocatorMatch(nLoc, uLoc)))
+        );
+      }
+
+      // Match by profile ID or persistent ZID
+      if (!targetNode) {
+        targetNode = Array.from(zidNodeMap.values()).find(
+          (n) =>
+            n.profileId === profile.id ||
+            n.id === `scouted-${profile.id}` ||
+            n.zid === profile.id
+        );
+      }
+
+      if (targetNode) {
+        // Upgrade existing node into tracking system
+        targetNode.status = 'connected';
+        targetNode.profileId = profile.id;
+        targetNode.connectLocators = filterRealLocators(upstreamLocators);
+        const customName =
+          (targetNode.zid && customNodeLabels[targetNode.zid]) ||
+          (targetNode.zid && customNodeLabels[targetNode.zid.toLowerCase()]) ||
+          (upstreamZid && customNodeLabels[upstreamZid]) ||
+          (upstreamZid && customNodeLabels[upstreamZid.toLowerCase()]) ||
+          customNodeLabels[targetNode.id];
+        if (customName) {
+          targetNode.label = customName;
+        }
+        if (sessionInfo?.connected_routers) targetNode.connectedRouters = sessionInfo.connected_routers;
+        if (sessionInfo?.connected_peers) targetNode.connectedPeers = sessionInfo.connected_peers;
+        if (sessionInfo?.links) targetNode.links = sessionInfo.links;
+        if (sessionInfo?.active_subscribers !== undefined) targetNode.activeSubscribers = sessionInfo.active_subscribers;
+        if (sessionInfo?.active_queryables !== undefined) targetNode.activeQueryables = sessionInfo.active_queryables;
+        if (sessionInfo?.uptime_seconds !== undefined) targetNode.uptimeSeconds = sessionInfo.uptime_seconds;
+        targetNode.locators = filterRealLocators(
+          Array.from(new Set([...targetNode.locators, ...upstreamLocators]))
+        );
+      } else {
+        // Direct non-scouted target node (e.g. Remote/Cloud Router)
+        const targetZid = upstreamZid || derivePersistentZid(profile.id);
+        const nodeId = `profile-${profile.id}`;
+        const existing = existingMap.get(nodeId);
+        const isTls = isTlsEnabled(profile.tls_config, upstreamLocators);
+        const customName =
+          (targetZid && customNodeLabels[targetZid]) ||
+          (targetZid && customNodeLabels[targetZid.toLowerCase()]) ||
+          customNodeLabels[nodeId];
+
+        const createdTargetNode: TopologyNode = {
+          id: nodeId,
+          zid: targetZid,
+          label: customName || profile.name || `Remote Router (${targetZid.slice(0, 6)})`,
+          type: 'router',
+          status: 'connected',
+          locators: filterRealLocators(upstreamLocators),
+          connectLocators: filterRealLocators(upstreamLocators),
+          links: sessionInfo?.links || [],
+          isTls,
+          profileId: profile.id,
+          mode: 'router',
+          connectedRouters: sessionInfo?.connected_routers || [],
+          connectedPeers: sessionInfo?.connected_peers || [],
+          activeSubscribers: sessionInfo?.active_subscribers ?? 0,
+          activeQueryables: sessionInfo?.active_queryables ?? 0,
+          uptimeSeconds: sessionInfo?.uptime_seconds ?? 0,
+          x: existing ? existing.x : 180 + index * 60,
+          y: existing ? existing.y : -120 + index * 60,
+          vx: existing ? existing.vx : 0,
+          vy: existing ? existing.vy : 0,
+          fx: existing?.fx ?? null,
+          fy: existing?.fy ?? null,
+          radius: 34,
+        };
+        zidNodeMap.set(targetZid, createdTargetNode);
+      }
+    } else {
+      // Router or Peer mode: ZenohX is hosting this node directly
+      const sessionZid = sessionInfo?.zid || derivePersistentZid(profile.id);
+      let hostNode =
+        zidNodeMap.get(sessionZid) ||
+        Array.from(zidNodeMap.values()).find(
+          (n) => n.zid.toLowerCase() === sessionZid.toLowerCase()
+        );
+
+      const rawListen =
+        sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0
+          ? sessionInfo.bound_locators
+          : sessionInfo?.listen_locators || profile.listen_locators || [];
+
+      const locators = filterRealLocators(
+        Array.from(new Set(rawListen)).map((loc) =>
+          loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc
+        )
+      );
+
+      if (hostNode) {
+        const customName =
+          (sessionZid && customNodeLabels[sessionZid]) ||
+          (sessionZid && customNodeLabels[sessionZid.toLowerCase()]) ||
+          (hostNode.zid && customNodeLabels[hostNode.zid]) ||
+          (hostNode.zid && customNodeLabels[hostNode.zid.toLowerCase()]) ||
+          customNodeLabels[hostNode.id];
+        hostNode.status = 'connected';
+        hostNode.profileId = profile.id;
+        hostNode.type = rawMode === 'router' ? 'router' : 'peer';
+        hostNode.label = customName || profile.name || hostNode.label;
+        hostNode.connectLocators = filterRealLocators(profile.connect_locators || []);
+        hostNode.locators = filterRealLocators(
+          Array.from(new Set([...hostNode.locators, ...locators]))
+        );
+        hostNode.links = sessionInfo?.links || hostNode.links;
+        hostNode.connectedRouters = sessionInfo?.connected_routers || hostNode.connectedRouters;
+        hostNode.connectedPeers = sessionInfo?.connected_peers || hostNode.connectedPeers;
+        hostNode.activeSubscribers = sessionInfo?.active_subscribers ?? hostNode.activeSubscribers;
+        hostNode.activeQueryables = sessionInfo?.active_queryables ?? hostNode.activeQueryables;
+        hostNode.uptimeSeconds = sessionInfo?.uptime_seconds ?? hostNode.uptimeSeconds;
+      } else {
+
+        const nodeId = `profile-${profile.id}`;
+        const existing = existingMap.get(nodeId);
+        const isTls = isTlsEnabled(profile.tls_config, locators);
+        const customName =
+          (sessionZid && customNodeLabels[sessionZid]) ||
+          (sessionZid && customNodeLabels[sessionZid.toLowerCase()]) ||
+          customNodeLabels[nodeId];
+        hostNode = {
+          id: nodeId,
+          zid: sessionZid,
+          label: customName || profile.name,
+          type: rawMode === 'router' ? 'router' : 'peer',
+          status: 'connected',
+          locators,
+          connectLocators: filterRealLocators(profile.connect_locators || []),
+          links: sessionInfo?.links || [],
+          isTls,
+          profileId: profile.id,
+          mode: rawMode,
+          connectedRouters: sessionInfo?.connected_routers || [],
+          connectedPeers: sessionInfo?.connected_peers || [],
+          activeSubscribers: sessionInfo?.active_subscribers ?? 0,
+          activeQueryables: sessionInfo?.active_queryables ?? 0,
+          uptimeSeconds: sessionInfo?.uptime_seconds ?? 0,
+          x: existing ? existing.x : 180 + index * 60,
+          y: existing ? existing.y : -120 + index * 60,
+          vx: existing ? existing.vx : 0,
+          vy: existing ? existing.vy : 0,
+          fx: existing?.fx ?? null,
+          fy: existing?.fy ?? null,
+          radius: rawMode === 'router' ? 34 : 28,
+        };
+        zidNodeMap.set(sessionZid, hostNode);
+      }
+    }
+  });
+
+  // Handle any activeSessions not in profiles array
+  Object.entries(activeSessions).forEach(([profileId, sessionInfo], index) => {
+    if (connectedProfiles.some((p) => p.id === profileId)) return;
+    const sessionZid = sessionInfo.zid || profileId;
+    if (!sessionZid) return;
+
+    let targetNode =
+      zidNodeMap.get(sessionZid) ||
+      Array.from(zidNodeMap.values()).find(
+        (n) => n.zid.toLowerCase() === sessionZid.toLowerCase()
+      );
+
+    if (targetNode) {
+      targetNode.status = 'connected';
+      targetNode.profileId = profileId;
+    } else {
+      const nodeId = `profile-${profileId}`;
+      const existing = existingMap.get(nodeId);
+      const rawMode = (sessionInfo.mode || 'router').toLowerCase();
+      const nodeType: TopologyNode['type'] = rawMode === 'peer' ? 'peer' : 'router';
+      const locs = filterRealLocators([
+        ...(sessionInfo.bound_locators || []),
+        ...(sessionInfo.listen_locators || []),
+        ...(sessionInfo.connect_locators || []),
+      ]);
+
+      const node: TopologyNode = {
+        id: nodeId,
+        zid: sessionZid,
+        label: `Active Node (${sessionZid.slice(0, 6)})`,
+        type: nodeType,
+        status: 'connected',
+        locators: locs,
+        connectLocators: sessionInfo.connect_locators || [],
+        links: sessionInfo.links || [],
+        isTls: isTlsEnabled(null, locs),
+        profileId,
+        mode: rawMode,
+        connectedRouters: sessionInfo.connected_routers || [],
+        connectedPeers: sessionInfo.connected_peers || [],
+        activeSubscribers: sessionInfo.active_subscribers ?? 0,
+        activeQueryables: sessionInfo.active_queryables ?? 0,
+        uptimeSeconds: sessionInfo.uptime_seconds ?? 0,
+        x: existing ? existing.x : 180 + index * 60,
+        y: existing ? existing.y : -120 + index * 60,
+        vx: existing ? existing.vx : 0,
+        vy: existing ? existing.vy : 0,
+        fx: existing?.fx ?? null,
+        fy: existing?.fy ?? null,
+        radius: nodeType === 'router' ? 34 : 28,
+      };
+      zidNodeMap.set(sessionZid, node);
+    }
+  });
+
+  // 3. Process Authoritative Links from SessionInfo (session.info().links() & transports())
   Object.values(activeSessions).forEach((sessionInfo) => {
     if (sessionInfo.links && sessionInfo.links.length > 0) {
       sessionInfo.links.forEach((link) => {
@@ -551,7 +631,6 @@ export function buildTopologyGraph({
           };
           zidNodeMap.set(linkZid, targetNode);
         } else {
-          // If node already exists, merge link.dst and scout locators if not client
           if (targetNode.type !== 'client' && combinedLocators.length > 0) {
             targetNode.locators = filterRealLocators(
               Array.from(new Set([...targetNode.locators, ...combinedLocators]))
@@ -561,7 +640,6 @@ export function buildTopologyGraph({
       });
     }
 
-    // Also ensure any connected_routers / connected_peers from routers_zid() / peers_zid() are mapped
     if (sessionInfo.connected_routers && sessionInfo.connected_routers.length > 0) {
       sessionInfo.connected_routers.forEach((rZid) => {
         const lowerZid = rZid.toLowerCase();
@@ -576,7 +654,6 @@ export function buildTopologyGraph({
           locators: sessionInfo.connect_locators,
         });
 
-        // Upstream router locators from Client's perspective: connect_locators + scout + profile
         const routerLocators = Array.from(
           new Set([
             ...(sessionInfo.connect_locators || []),
@@ -680,7 +757,8 @@ export function buildTopologyGraph({
     }
   });
 
-  const nodes = Array.from(zidNodeMap.values());
+  const nodes = Array.from(new Set(zidNodeMap.values()));
+
 
   // 4. Generate Inter-Node Topology Edges (Strict Mode: Real verified connections only)
   const edgeSet = new Set<string>();
@@ -760,6 +838,19 @@ export function buildTopologyGraph({
           addEdge(node, targetPeer, true, 'active');
         }
       });
+    }
+  });
+
+  // Final Pass: Ensure customNodeLabels is applied to EVERY node in the graph by ZID, lowercase ZID, and ID
+  nodes.forEach((n) => {
+    const custom =
+      (n.zid && customNodeLabels[n.zid]) ||
+      (n.zid && customNodeLabels[n.zid.toLowerCase()]) ||
+      (n.id && customNodeLabels[n.id]) ||
+      (n.zid && customNodeLabels[`scouted-${n.zid}`]) ||
+      (n.zid && customNodeLabels[`scouted-${n.zid.toLowerCase()}`]);
+    if (custom) {
+      n.label = custom;
     }
   });
 

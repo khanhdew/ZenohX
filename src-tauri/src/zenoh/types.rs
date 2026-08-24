@@ -108,7 +108,34 @@ impl SessionConfig {
             custom_config: None,
         }
     }
+}
 
+fn normalize_locator(loc: &str) -> String {
+    let loc = loc.trim();
+    if loc.is_empty() {
+        return String::new();
+    }
+    if let Some((proto, addr)) = loc.split_once('/') {
+        let proto_lower = proto.to_lowercase();
+        if proto_lower == "unixpipe" || proto_lower == "unix" {
+            return loc.to_string();
+        }
+        if !addr.starts_with('[') && addr.matches(':').count() > 1 {
+            // Unbracketed IPv6: e.g. "tcp/::1:7447", "tcp/2001:db8::1:7447", "tcp/::"
+            if let Some(last_colon) = addr.rfind(':') {
+                let last_seg = &addr[last_colon + 1..];
+                if last_seg.chars().all(|c| c.is_ascii_digit()) && !last_seg.is_empty() {
+                    let ip = &addr[..last_colon];
+                    return format!("{proto}/[{ip}]:{last_seg}");
+                }
+            }
+            return format!("{proto}/[{addr}]:7447");
+        }
+    }
+    loc.to_string()
+}
+
+impl SessionConfig {
     /// Converts the `SessionConfig` into a native `zenoh::Config`.
     pub fn to_zenoh_config(&self) -> Result<zenoh::Config, String> {
         let mut config = zenoh::Config::default();
@@ -142,7 +169,13 @@ impl SessionConfig {
 
         // 2. Connect locators & background retry policy
         if !self.connect_locators.is_empty() {
-            let json = serde_json::to_string(&self.connect_locators)
+            let normalized_connect: Vec<String> = self
+                .connect_locators
+                .iter()
+                .map(|l| normalize_locator(l))
+                .filter(|l| !l.is_empty())
+                .collect();
+            let json = serde_json::to_string(&normalized_connect)
                 .map_err(|e| format!("failed to serialize connect_locators: {e}"))?;
             config
                 .insert_json5("connect/endpoints", &json)
@@ -180,7 +213,13 @@ impl SessionConfig {
         }
 
         if !self.listen_locators.is_empty() {
-            let json = serde_json::to_string(&self.listen_locators)
+            let normalized_listen: Vec<String> = self
+                .listen_locators
+                .iter()
+                .map(|l| normalize_locator(l))
+                .filter(|l| !l.is_empty())
+                .collect();
+            let json = serde_json::to_string(&normalized_listen)
                 .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
             config
                 .insert_json5("listen/endpoints", &json)

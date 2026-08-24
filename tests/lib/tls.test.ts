@@ -24,13 +24,16 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.equal(portMap.unix, '');
   });
 
-  it('correctly parses network locators', () => {
+  it('correctly parses network locators including IPv6', () => {
     assert.deepEqual(parseLocator('tcp/127.0.0.1:7447'), { protocol: 'tcp', host: '127.0.0.1', port: '7447' });
     assert.deepEqual(parseLocator('ws/0.0.0.0:8080'), { protocol: 'ws', host: '0.0.0.0', port: '8080' });
     assert.deepEqual(parseLocator('quic/192.168.1.10:7448'), { protocol: 'quic', host: '192.168.1.10', port: '7448' });
     assert.deepEqual(parseLocator('udp/localhost:7449'), { protocol: 'udp', host: 'localhost', port: '7449' });
     assert.deepEqual(parseLocator('wss/cloud.zenoh.io:8443'), { protocol: 'wss', host: 'cloud.zenoh.io', port: '8443' });
     assert.deepEqual(parseLocator('tls/secure.host:7446'), { protocol: 'tls', host: 'secure.host', port: '7446' });
+    assert.deepEqual(parseLocator('tcp/[::]:7447'), { protocol: 'tcp', host: '[::]', port: '7447' });
+    assert.deepEqual(parseLocator('tcp/[::1]:7447'), { protocol: 'tcp', host: '[::1]', port: '7447' });
+    assert.deepEqual(parseLocator('tcp/[2001:db8::1]:41505'), { protocol: 'tcp', host: '[2001:db8::1]', port: '41505' });
   });
 
   it('correctly parses unix domain socket locators', () => {
@@ -42,11 +45,12 @@ describe('Transport Protocol & Locator Utilities', () => {
   it('correctly parses locators without protocol prefix or missing port', () => {
     assert.deepEqual(parseLocator('127.0.0.1:7447'), { protocol: 'tcp', host: '127.0.0.1', port: '7447' });
     assert.deepEqual(parseLocator('tcp/127.0.0.1'), { protocol: 'tcp', host: '127.0.0.1', port: '7447' });
+    assert.deepEqual(parseLocator('tcp/[::]'), { protocol: 'tcp', host: '[::]', port: '7447' });
     assert.deepEqual(parseLocator(''), null);
     assert.deepEqual(parseLocator('   '), null);
   });
 
-  it('correctly builds network locators', () => {
+  it('correctly builds network locators including IPv6', () => {
     assert.equal(buildLocator('tcp', '127.0.0.1', '7447'), 'tcp/127.0.0.1:7447');
     assert.equal(buildLocator('ws', '0.0.0.0', '8080'), 'ws/0.0.0.0:8080');
     assert.equal(buildLocator('tcp', '0.0.0.0', '0'), 'tcp/0.0.0.0:0');
@@ -54,6 +58,11 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.equal(buildLocator('wss', 'cloud.zenoh.io', '8443'), 'wss/cloud.zenoh.io:8443');
     assert.equal(buildLocator('tls', 'secure.host', '7446'), 'tls/secure.host:7446');
     assert.equal(buildLocator('udp', '127.0.0.1', '7449'), 'udp/127.0.0.1:7449');
+    assert.equal(buildLocator('tcp', '::', '7447'), 'tcp/[::]:7447');
+    assert.equal(buildLocator('tcp', '[::]', '7447'), 'tcp/[::]:7447');
+    assert.equal(buildLocator('tcp', '::1', '7447'), 'tcp/[::1]:7447');
+    assert.equal(buildLocator('tcp', '2001:db8::1', '7447'), 'tcp/[2001:db8::1]:7447');
+    assert.equal(buildLocator('tcp', '[2001:db8::1]', '7447'), 'tcp/[2001:db8::1]:7447');
   });
 
   it('correctly builds network locators when host already includes protocol or port', () => {

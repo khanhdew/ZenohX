@@ -3,14 +3,11 @@ import {
   X,
   Copy,
   Check,
-  Power,
-  Plus,
   Radio,
   ShieldCheck,
   Server,
   Users,
   Laptop,
-  Settings,
   Network,
   Clock,
   Activity,
@@ -20,36 +17,38 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
+  Edit2,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useConnectionJsonStore } from '../../stores/connectionJsonStore';
+import { useTopologyStore } from '../../stores/topologyStore';
 import { extractLocatorProtocol, extractLocatorHostPort, findMatchingProfile } from '../../lib/topology/topologyBuilder';
 import type { TopologyNode } from '../../types/topology';
-import type { ConnectionProfile } from '../../types/zenoh';
 
 export interface TopologyInspectorProps {
   node: TopologyNode | null;
   onClose: () => void;
-  onOpenProfileEditor: (node: TopologyNode) => void;
+  onOpenProfileEditor?: (node: TopologyNode) => void;
   onNavigateToPubSub?: () => void;
 }
 
 export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
   node,
   onClose,
-  onOpenProfileEditor,
   onNavigateToPubSub,
 }) => {
   const [copiedLocator, setCopiedLocator] = useState<string | null>(null);
   const [copiedZid, setCopiedZid] = useState(false);
   const [copiedJson5, setCopiedJson5] = useState(false);
   const [showJson5, setShowJson5] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [customNameInput, setCustomNameInput] = useState('');
 
-  const connect = useConnectionStore((s) => s.connect);
-  const saveProfile = useConnectionStore((s) => s.saveProfile);
+  const setNodeName = useTopologyStore((s) => s.setNodeName);
+  const customNodeLabels = useTopologyStore((s) => s.customNodeLabels);
+  const storeNodes = useTopologyStore((s) => s.nodes);
   const profiles = useConnectionStore((s) => s.profiles);
   const activeSessions = useConnectionStore((s) => s.activeSessions);
 
@@ -58,14 +57,43 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
   const existingProfile = node ? findMatchingProfile(profiles, node) : null;
 
-  React.useEffect(() => {
-    if (node) {
-      const activeSession = existingProfile ? activeSessions[existingProfile.id] : null;
-      syncNodeJson(node, existingProfile, activeSession);
-    }
-  }, [node, existingProfile, activeSessions, syncNodeJson]);
+  // Derive the up-to-date node & resolved name directly from store state
+  const liveNode = (node && storeNodes.find((n) => n.id === node.id || n.zid === node.zid)) || node;
+  const resolvedName =
+    (node?.zid && customNodeLabels[node.zid]) ||
+    (node?.zid && customNodeLabels[node.zid.toLowerCase()]) ||
+    (node?.id && customNodeLabels[node.id]) ||
+    (liveNode?.label) ||
+    (node?.label) ||
+    '';
 
-  if (!node) return null;
+  // Sync Node JSON5 config when node changes
+  React.useEffect(() => {
+    if (liveNode) {
+      const activeSession = existingProfile ? activeSessions[existingProfile.id] : null;
+      syncNodeJson(liveNode, existingProfile, activeSession);
+    }
+  }, [liveNode, existingProfile, activeSessions, syncNodeJson]);
+
+  // Reset editing mode when switching to a different node
+  React.useEffect(() => {
+    setIsEditingName(false);
+  }, [node?.id, node?.zid]);
+
+  if (!node || !liveNode) return null;
+
+  const handleStartEditing = () => {
+    setCustomNameInput(resolvedName);
+    setIsEditingName(true);
+  };
+
+  const handleSaveName = () => {
+    const trimmed = customNameInput.trim();
+    if (trimmed) {
+      setNodeName(node.zid || node.id, trimmed);
+    }
+    setIsEditingName(false);
+  };
 
   const handleCopyZid = () => {
     navigator.clipboard.writeText(node.zid);
@@ -79,58 +107,80 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
     setTimeout(() => setCopiedLocator(null), 2000);
   };
 
-  const handleConnectDirectly = async () => {
-    setActionLoading(true);
-    try {
-      if (existingProfile) {
-        await connect(existingProfile.id);
-        return;
-      }
-
-      const primaryLocator = node.locators[0] || '';
-      const now = Date.now();
-      const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
-      const newProfile: ConnectionProfile = {
-        id: newProfId,
-        name: node.label,
-        mode: 'client',
-        connect_locators: primaryLocator ? [primaryLocator] : [],
-        listen_locators: [],
-        scout_multicast: true,
-        user_auth: null,
-        tls_config: node.isTls ? {} : null,
-        custom_config: null,
-        created_at: now,
-        updated_at: now,
-      };
-      await saveProfile(newProfile);
-      await connect(newProfile.id);
-    } catch (err) {
-      console.error('Failed to connect from topology graph:', err);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   return (
     <aside className="w-80 border-l bg-card flex flex-col h-full shrink-0 shadow-lg z-20 animate-in slide-in-from-right-4 duration-200">
+
       {/* Inspector Header */}
-      <div className="p-3 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="p-1.5 rounded-md bg-muted text-muted-foreground">
-            {node.type === 'router' ? (
+      <div className="p-3 border-b flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="p-1.5 rounded-md bg-muted text-muted-foreground shrink-0">
+            {liveNode.type === 'router' ? (
               <Server className="w-4 h-4 text-indigo-500" />
-            ) : node.type === 'peer' ? (
+            ) : liveNode.type === 'peer' ? (
               <Users className="w-4 h-4 text-blue-500" />
             ) : (
               <Laptop className="w-4 h-4 text-emerald-500" />
             )}
           </div>
-          <div className="min-w-0">
-            <h3 className="text-xs font-semibold truncate">{node.label}</h3>
+
+          <div className="min-w-0 flex-1">
+            {isEditingName ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={customNameInput}
+                  onChange={(e) => setCustomNameInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveName();
+                    if (e.key === 'Escape') setIsEditingName(false);
+                  }}
+                  autoFocus
+                  placeholder="Node name..."
+                  className="h-6 w-full px-1.5 text-xs bg-background border rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={handleSaveName}
+                  className="h-6 w-6 p-0 text-emerald-500 hover:text-emerald-600 hover:bg-emerald-500/10 shrink-0"
+                  title="Save Name"
+                >
+                  <Check className="w-3 h-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={() => setIsEditingName(false)}
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                  title="Cancel"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 group">
+                <h3
+                  className="text-xs font-semibold truncate cursor-pointer hover:underline"
+                  title="Click to rename"
+                  onClick={handleStartEditing}
+                >
+                  {resolvedName}
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={handleStartEditing}
+                  className="h-5 w-5 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground shrink-0"
+                  title="Rename node name"
+                >
+                  <Edit2 className="w-2.5 h-2.5" />
+                </Button>
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                {node.type} node
+                {liveNode.type} node
               </span>
               {existingProfile && (
                 <Badge variant="outline" className="text-[9px] h-3.5 bg-primary/10 text-primary border-primary/20 px-1 py-0 font-normal">
@@ -144,11 +194,13 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
           variant="ghost"
           size="iconSm"
           onClick={onClose}
-          className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0"
         >
           <X className="w-3.5 h-3.5" />
         </Button>
       </div>
+
+
 
       {/* Inspector Body */}
       <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
@@ -577,21 +629,24 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
       {/* Action Buttons Footer */}
       <div className="p-3 border-t bg-muted/20 space-y-2">
         {node.type === 'router' && (
-          <Button
-            size="sm"
-            onClick={handleConnectDirectly}
-            disabled={actionLoading || node.status === 'connected'}
-            className="w-full h-8 text-xs gap-1.5 font-medium"
-          >
-            <Power className="w-3.5 h-3.5" />
-            <span>{node.status === 'connected' ? 'Connected' : 'Connect to Router'}</span>
-          </Button>
+          <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
+            <Server className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <span>
+              {node.status === 'connected'
+                ? 'Active Router tracked on network.'
+                : 'Discovered Router on network (Tracked).'}
+            </span>
+          </div>
         )}
 
         {node.type === 'peer' && (
           <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
             <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-            <span>Discovered LAN Peer. Meshed in peer-to-peer mode.</span>
+            <span>
+              {node.status === 'connected'
+                ? 'Active Peer tracked in mesh.'
+                : 'Discovered LAN Peer (Tracked).'}
+            </span>
           </div>
         )}
 
@@ -600,7 +655,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             <Laptop className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span>
               {node.status === 'connected'
-                ? 'Active Client Session connected to Zenoh network.'
+                ? 'Active Client Session tracked on network.'
                 : 'Configured Client Profile.'}
             </span>
           </div>
@@ -610,21 +665,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onOpenProfileEditor(node)}
+            onClick={handleStartEditing}
             className="flex-1 h-7 text-xs gap-1"
-            title={existingProfile ? 'Edit existing connection profile' : 'Save discovered locator into connection profiles'}
+            title="Edit custom name for this node"
           >
-            {existingProfile ? (
-              <>
-                <Settings className="w-3 h-3 text-primary" />
-                <span>Edit Profile</span>
-              </>
-            ) : (
-              <>
-                <Plus className="w-3 h-3" />
-                <span>Save Profile</span>
-              </>
-            )}
+            <Edit2 className="w-3 h-3 text-primary" />
+            <span>Edit Name</span>
           </Button>
 
           <Button

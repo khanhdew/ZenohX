@@ -33,6 +33,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
   const isSimulating = useTopologyStore((s) => s.isSimulating);
   const layoutMode = useTopologyStore((s) => s.layoutMode);
 
+  const customNodeLabels = useTopologyStore((s) => s.customNodeLabels);
   const setSelectedNodeId = useTopologyStore((s) => s.setSelectedNodeId);
   const setHoveredNodeId = useTopologyStore((s) => s.setHoveredNodeId);
   const setTransform = useTopologyStore((s) => s.setTransform);
@@ -85,6 +86,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
           }
 
           const traffic = useTrafficStore.getState();
+          const activeLinkTraffic = useTopologyStore.getState().activeLinkTraffic;
           const hasTraffic =
             (traffic.currentInboundMps > 0 || traffic.currentOutboundMps > 0) ||
             (traffic.lastEventTimestamp ? Date.now() - traffic.lastEventTimestamp < 1500 : false);
@@ -96,7 +98,10 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
             searchQuery,
             animationTick: animationTickRef.current,
             hasTraffic,
+            activeLinkTraffic,
+            customNodeLabels,
           });
+
 
           ctx.restore();
         }
@@ -107,7 +112,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
 
     animationFrameId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [nodes, edges, transform, isSimulating, layoutMode, isDark, selectedNodeId, hoveredNodeId, searchQuery]);
+  }, [nodes, edges, transform, isSimulating, layoutMode, isDark, selectedNodeId, hoveredNodeId, searchQuery, customNodeLabels]);
 
   // Mouse & Pointer Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {

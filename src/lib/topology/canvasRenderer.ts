@@ -1,5 +1,6 @@
-import type { TopologyNode, TopologyEdge } from '../../types/topology';
+import type { TopologyNode, TopologyEdge, LinkTrafficFlash } from '../../types/topology';
 import type { ViewTransform } from './forceEngine';
+import { formatByteSize } from '../trafficFormatters';
 
 export interface RenderOptions {
   isDark: boolean;
@@ -8,6 +9,8 @@ export interface RenderOptions {
   searchQuery: string;
   animationTick: number;
   hasTraffic?: boolean;
+  activeLinkTraffic?: Record<string, LinkTrafficFlash>;
+  customNodeLabels?: Record<string, string>;
 }
 
 export function renderTopologyCanvas(
@@ -19,7 +22,16 @@ export function renderTopologyCanvas(
   edges: TopologyEdge[],
   options: RenderOptions
 ): void {
-  const { isDark, selectedNodeId, hoveredNodeId, searchQuery, animationTick, hasTraffic } = options;
+  const {
+    isDark,
+    selectedNodeId,
+    hoveredNodeId,
+    searchQuery,
+    animationTick,
+    hasTraffic,
+    activeLinkTraffic,
+    customNodeLabels = {},
+  } = options;
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
@@ -44,6 +56,7 @@ export function renderTopologyCanvas(
   ctx.scale(transform.k, transform.k);
 
   const nodeMap = new Map<string, TopologyNode>(nodes.map((n) => [n.id, n]));
+  const now = Date.now();
 
   // 1. Render Edges
   for (const edge of edges) {
@@ -55,11 +68,17 @@ export function renderTopologyCanvas(
     const isHovered = source.id === hoveredNodeId || target.id === hoveredNodeId;
     const isSelected = source.id === selectedNodeId || target.id === selectedNodeId;
 
+    const linkTraffic = activeLinkTraffic ? activeLinkTraffic[edge.id] : undefined;
+    const isLiveTransmitting = Boolean(linkTraffic && now - linkTraffic.timestamp < 1500);
+
     ctx.beginPath();
     ctx.moveTo(source.x, source.y);
     ctx.lineTo(target.x, target.y);
 
-    if (isConnected) {
+    if (isLiveTransmitting) {
+      ctx.strokeStyle = isDark ? '#34d399' : '#059669'; // Glowing Emerald
+      ctx.lineWidth = isSelected || isHovered ? 3.5 : 2.5;
+    } else if (isConnected) {
       ctx.strokeStyle = isDark ? '#10b981' : '#059669'; // Emerald-500
       ctx.lineWidth = isSelected || isHovered ? 3 : 2;
     } else {
@@ -68,11 +87,13 @@ export function renderTopologyCanvas(
     }
     ctx.stroke();
 
-    // Animated packet flow dots along active edges ONLY when data is transferring
-    if (edge.animated && hasTraffic) {
+    // Animated packet flow dots along active edges when data is transferring
+    if ((edge.animated && hasTraffic) || isLiveTransmitting) {
       const dotCount = 3;
+      const isReverse = linkTraffic?.direction === 'outbound';
       for (let i = 0; i < dotCount; i++) {
-        const progress = (animationTick * 0.02 + i / dotCount) % 1;
+        const rawProgress = (animationTick * 0.025 + i / dotCount) % 1;
+        const progress = isReverse ? 1 - rawProgress : rawProgress;
         const px = source.x + (target.x - source.x) * progress;
         const py = source.y + (target.y - source.y) * progress;
 
@@ -83,9 +104,40 @@ export function renderTopologyCanvas(
       }
     }
 
-    // Protocol label pill at midpoint
     const midX = (source.x + target.x) / 2;
     const midY = (source.y + target.y) / 2;
+
+    // Render Real-time Link Message Pill if transmitting
+    if (isLiveTransmitting && linkTraffic) {
+      const rawKey = linkTraffic.keyExpr || 'sample';
+      const truncatedKey = rawKey.length > 20 ? `${rawKey.slice(0, 9)}...${rawKey.slice(-8)}` : rawKey;
+      const infoText = `${truncatedKey} (${formatByteSize(linkTraffic.bytes)})`;
+
+      ctx.font = 'bold 9px monospace';
+      const textWidth = ctx.measureText(infoText).width;
+      const pillW = textWidth + 10;
+      const pillH = 15;
+      const pillY = midY - 14;
+
+      ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(midX - pillW / 2, pillY - pillH / 2, pillW, pillH, 4);
+      } else {
+        ctx.rect(midX - pillW / 2, pillY - pillH / 2, pillW, pillH);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isDark ? '#34d399' : '#047857';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(infoText, midX, pillY);
+    }
+
+    // Protocol label pill at midpoint
     const protocolText = edge.protocol.toUpperCase();
 
     ctx.font = '9px monospace';
@@ -111,6 +163,7 @@ export function renderTopologyCanvas(
     ctx.fillText(protocolText, midX, midY);
   }
 
+
   // 2. Render Nodes
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const hasQuery = normalizedQuery.length > 0;
@@ -118,10 +171,19 @@ export function renderTopologyCanvas(
   for (const node of nodes) {
     const isSelected = node.id === selectedNodeId;
     const isHovered = node.id === hoveredNodeId;
+
+    const displayLabel =
+      (node.zid && customNodeLabels[node.zid]) ||
+      (node.zid && customNodeLabels[node.zid.toLowerCase()]) ||
+      (node.id && customNodeLabels[node.id]) ||
+      (node.zid && customNodeLabels[`scouted-${node.zid}`]) ||
+      (node.zid && customNodeLabels[`scouted-${node.zid.toLowerCase()}`]) ||
+      node.label;
+
     const matchesSearch =
       hasQuery &&
       (node.zid.toLowerCase().includes(normalizedQuery) ||
-        node.label.toLowerCase().includes(normalizedQuery) ||
+        displayLabel.toLowerCase().includes(normalizedQuery) ||
         node.locators.some((l) => l.toLowerCase().includes(normalizedQuery)));
 
     // Node Outer Glow / Selection Ring
@@ -185,7 +247,7 @@ export function renderTopologyCanvas(
     ctx.fillStyle = isDark ? '#e2e8f0' : '#1e293b';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(node.label, node.x, node.y + node.radius + 6);
+    ctx.fillText(displayLabel, node.x, node.y + node.radius + 6);
   }
 
   ctx.restore();

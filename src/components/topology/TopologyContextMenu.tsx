@@ -1,21 +1,20 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  Power,
-  Plus,
   Copy,
   Settings,
   Trash2,
 } from 'lucide-react';
 import type { TopologyNode } from '../../types/topology';
 import { useConnectionStore } from '../../stores/connectionStore';
+import { useTopologyStore } from '../../stores/topologyStore';
 import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 
 export interface TopologyContextMenuProps {
   node: TopologyNode;
   position: { x: number; y: number };
   onClose: () => void;
-  onConnect: (node: TopologyNode) => void;
-  onSaveProfile: (node: TopologyNode) => void;
+  onConnect?: (node: TopologyNode) => void;
+  onSaveProfile?: (node: TopologyNode) => void;
   onCopyZid: (node: TopologyNode) => void;
 }
 
@@ -23,12 +22,11 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
   node,
   position,
   onClose,
-  onConnect,
-  onSaveProfile,
   onCopyZid,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
   const profiles = useConnectionStore((s) => s.profiles);
+  const setSelectedNodeId = useTopologyStore((s) => s.setSelectedNodeId);
   const existingProfile = findMatchingProfile(profiles, node);
 
   useEffect(() => {
@@ -53,46 +51,17 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
 
       <div className="h-px bg-border my-1" />
 
-      {node.type === 'router' && (
-        <button
-          type="button"
-          onClick={() => {
-            onConnect(node);
-            onClose();
-          }}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-        >
-          <Power className="w-3.5 h-3.5 text-emerald-500" />
-          <span>Connect to Router</span>
-        </button>
-      )}
-
-      {existingProfile ? (
-        <button
-          type="button"
-          onClick={() => {
-            onSaveProfile(node);
-            onClose();
-          }}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-          title="Node is already saved as a profile"
-        >
-          <Settings className="w-3.5 h-3.5 text-primary" />
-          <span>Edit Saved Profile</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            onSaveProfile(node);
-            onClose();
-          }}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5 text-primary" />
-          <span>Save as Profile...</span>
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedNodeId(node.id);
+          onClose();
+        }}
+        className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+      >
+        <Settings className="w-3.5 h-3.5 text-primary" />
+        <span>Inspect & Rename...</span>
+      </button>
 
       <button
         type="button"
@@ -129,3 +98,4 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
     </div>
   );
 };
+

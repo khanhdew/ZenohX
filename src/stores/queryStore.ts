@@ -34,7 +34,9 @@ import { encodePayload } from '../lib/formatters';
 import { executeInboundScript } from '../lib/scriptRunner';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
+import { useTopologyStore } from './topologyStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+
 
 
 function generateId(): string {
@@ -167,6 +169,16 @@ export const useQueryStore = create<QueryState>((set, get) => ({
           bytes: inbound.parameters?.length || 0,
         });
 
+        useTopologyStore.getState().triggerLinkTraffic(
+          inbound.session_id,
+          undefined,
+          {
+            keyExpr: inbound.key_expr,
+            bytes: inbound.parameters?.length || 0,
+            direction: 'inbound',
+          }
+        );
+
         // Check if there is an active queryable matching queryable_id or keyExpr with autoReply enabled
         const matchingQueryable = get().activeQueryables.find(
           (q) => (q.id === inbound.queryable_id || q.keyExpr === inbound.key_expr) && q.autoReply
@@ -211,12 +223,23 @@ export const useQueryStore = create<QueryState>((set, get) => ({
               keyExpr: replyKey,
               bytes: bytes.length,
             });
+
+            useTopologyStore.getState().triggerLinkTraffic(
+              inbound.session_id,
+              undefined,
+              {
+                keyExpr: replyKey,
+                bytes: bytes.length,
+                direction: 'outbound',
+              }
+            );
           } catch (autoErr) {
             console.error('Auto-reply failed:', autoErr);
           }
           // When autoReply is enabled on the matching queryable, do NOT add to pending manual queue
           return;
         }
+
 
 
         // Add to pending inbound queries list for manual response (deduplicate by token)
@@ -304,6 +327,12 @@ export const useQueryStore = create<QueryState>((set, get) => ({
       bytes: selector.length + (payloadBytes?.length || 0),
     });
 
+    useTopologyStore.getState().triggerLinkTraffic(sessionId, undefined, {
+      keyExpr: selector,
+      bytes: selector.length + (payloadBytes?.length || 0),
+      direction: 'outbound',
+    });
+
     set((state) => ({
       executions: [execution, ...state.executions],
       activeExecutionId: execId,
@@ -332,7 +361,18 @@ export const useQueryStore = create<QueryState>((set, get) => ({
           keyExpr: r.key_expr,
           bytes: r.payload?.length || 0,
         });
+
+        useTopologyStore.getState().triggerLinkTraffic(
+          r.session_id || sessionId,
+          r.replier_id || undefined,
+          {
+            keyExpr: r.key_expr,
+            bytes: r.payload?.length || 0,
+            direction: 'inbound',
+          }
+        );
       }
+
 
       // Save execution history in SQLite
 
@@ -599,7 +639,13 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         keyExpr,
         bytes: payloadLength,
       });
+      useTopologyStore.getState().triggerLinkTraffic('', undefined, {
+        keyExpr,
+        bytes: payloadLength,
+        direction: 'outbound',
+      });
       // Remove query with this token from pending list
+
       set((state) => ({
         inboundQueries: state.inboundQueries.filter((q) => q.token !== token),
       }));

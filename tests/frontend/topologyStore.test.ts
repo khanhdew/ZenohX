@@ -115,10 +115,11 @@ describe('Topology Store', () => {
       profiles,
     });
 
-    // filterType: all -> all nodes
+    // filterType: all -> all nodes (r1 and p1)
     useTopologyStore.getState().setFilterType('all');
     let filtered = useTopologyStore.getState().getFilteredNodes();
-    assert.equal(filtered.length, 3); // r1 (router), p1 (peer), local-zid (client)
+    assert.equal(filtered.length, 2); // r1 (router, connected), p1 (peer, scouted)
+
 
     // filterType: router -> router nodes only
     useTopologyStore.getState().setFilterType('router');
@@ -221,4 +222,106 @@ describe('Topology Store', () => {
     useTopologyStore.getState().setAutoScoutInterval(0);
     assert.equal(useTopologyStore.getState().autoScoutInterval, 0);
   });
+
+  it('triggers link traffic when incoming sample arrives and updates activeLinkTraffic', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      { zid: 'router-zid-1', what: 'Router', locators: ['tcp/10.0.0.1:7447'] },
+      { zid: 'peer-zid-2', what: 'Peer', locators: ['tcp/10.0.0.2:7447'] },
+    ];
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'session-1',
+        name: 'Local Profile',
+        mode: 'client',
+        connect_locators: ['tcp/10.0.0.1:7447'],
+        listen_locators: [],
+        config: {},
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      },
+    ];
+    const activeSessions = {
+      'session-1': {
+        id: 'session-1',
+        profile_id: 'session-1',
+        zid: 'client-zid-1',
+        mode: 'client',
+        locators: [],
+        connected_routers: ['router-zid-1'],
+        links: [
+          {
+            zid: 'peer-zid-2',
+            dst: 'tcp/10.0.0.2:7447',
+            src: 'tcp/10.0.0.1:7447',
+            whatami: 'peer',
+            is_streamed: true,
+          },
+        ],
+        connected_at: Date.now(),
+      },
+    };
+
+    useTopologyStore.getState().syncFromContext({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+    });
+
+    const store = useTopologyStore.getState();
+    assert.equal(store.edges.length, 1);
+    const edgeId = store.edges[0].id;
+
+
+    // Trigger traffic on this session
+    store.triggerLinkTraffic('session-1', 'router-zid-1', {
+      keyExpr: 'sensor/temperature',
+      bytes: 128,
+      direction: 'inbound',
+    });
+
+    const updatedState = useTopologyStore.getState();
+    const traffic = updatedState.activeLinkTraffic[edgeId];
+    assert.ok(traffic, 'Traffic flash should be recorded for active edge');
+    assert.equal(traffic.keyExpr, 'sensor/temperature');
+    assert.equal(traffic.bytes, 128);
+    assert.equal(traffic.direction, 'inbound');
+    assert.ok(Date.now() - traffic.timestamp < 1000);
+
+    // Clear link traffic
+    updatedState.clearLinkTraffic();
+    assert.deepEqual(useTopologyStore.getState().activeLinkTraffic, {});
+  });
+
+  it('persists custom node names by ZID across syncs', () => {
+    const zid = '2001ee2e2260038cd5f4a53d96dcf415';
+    useTopologyStore.getState().setNodeName(zid, 'Main Edge Gateway');
+
+    const scoutedNodes: ScoutedNode[] = [
+      { zid, what: 'Router', locators: ['tcp/[2001:ee2::1]:7447'] },
+    ];
+
+    useTopologyStore.getState().syncFromContext({
+      scoutedNodes,
+      activeSessions: {},
+      profiles: [],
+    });
+
+    const node = useTopologyStore.getState().nodes.find((n) => n.zid === zid);
+    assert.ok(node, 'Node should exist in graph');
+    assert.equal(node.label, 'Main Edge Gateway');
+
+    // Remove custom name
+    useTopologyStore.getState().removeNodeName(zid);
+    useTopologyStore.getState().syncFromContext({
+      scoutedNodes,
+      activeSessions: {},
+      profiles: [],
+    });
+
+    const resetNode = useTopologyStore.getState().nodes.find((n) => n.zid === zid);
+    assert.ok(resetNode);
+    assert.notEqual(resetNode.label, 'Main Edge Gateway');
+  });
 });
+
+

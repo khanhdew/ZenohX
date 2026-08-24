@@ -36,6 +36,14 @@ export interface TopologyNode {
   radius: number;
 }
 
+export interface LinkTrafficFlash {
+  keyExpr: string;
+  bytes: number;
+  direction: 'inbound' | 'outbound';
+  timestamp: number;
+  sourceZid?: string;
+}
+
 export interface TopologyEdge {
   id: string;
   source: string;
@@ -58,4 +66,7 @@ export interface BuildTopologyOptions {
   activeSessions: Record<string, ActiveSession>;
   profiles: ConnectionProfile[];
   existingNodes?: TopologyNode[];
+  customNodeLabels?: Record<string, string>;
 }
+
+

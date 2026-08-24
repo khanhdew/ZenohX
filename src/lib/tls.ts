@@ -154,7 +154,7 @@ export function resolveTlsConfig(params: ResolveTlsConfigParams): TlsConfig | nu
 }
 
 /**
- * Parses a single Zenoh locator (e.g. "tls/router.example.com:7447" or "unixpipe//tmp/zenoh.sock") into protocol, host, and port.
+ * Parses a single Zenoh locator (e.g. "tls/router.example.com:7447", "tcp/[::]:7447", or "unixpipe//tmp/zenoh.sock") into protocol, host, and port.
  */
 export function parseLocator(locator: string): ParsedLocator | null {
   if (!locator || typeof locator !== 'string') return null;
@@ -168,8 +168,28 @@ export function parseLocator(locator: string): ParsedLocator | null {
 
   const slashIdx = trimmed.indexOf('/');
   if (slashIdx === -1) {
+    if (trimmed.startsWith('[')) {
+      const closeBracketIdx = trimmed.indexOf(']');
+      if (closeBracketIdx !== -1) {
+        const host = trimmed.slice(0, closeBracketIdx + 1);
+        const after = trimmed.slice(closeBracketIdx + 1).trim();
+        const port = after.startsWith(':') ? after.slice(1).trim() : '7447';
+        return { protocol: 'tcp', host, port };
+      }
+      return null;
+    }
+
     const colonIdx = trimmed.lastIndexOf(':');
     if (colonIdx !== -1) {
+      const colons = trimmed.split(':');
+      if (colons.length > 2) {
+        const lastSeg = trimmed.slice(colonIdx + 1).trim();
+        if (/^\d+$/.test(lastSeg) && colons.length > 3) {
+          const ip = trimmed.slice(0, colonIdx).trim();
+          return { protocol: 'tcp', host: `[${ip}]`, port: lastSeg || '7447' };
+        }
+        return { protocol: 'tcp', host: `[${trimmed}]`, port: '7447' };
+      }
       const host = trimmed.slice(0, colonIdx).trim();
       const port = trimmed.slice(colonIdx + 1).trim();
       if (host && port) {
@@ -181,17 +201,48 @@ export function parseLocator(locator: string): ParsedLocator | null {
 
   const rawProtocol = trimmed.slice(0, slashIdx).toLowerCase();
   const protocol = rawProtocol === 'unixpipe' ? 'unix' : rawProtocol;
-  const hostAndPort = trimmed.slice(slashIdx + 1);
+  const hostAndPort = trimmed.slice(slashIdx + 1).trim();
 
   if (protocol === 'unix') {
     return { protocol: 'unix', host: hostAndPort.startsWith('/') ? hostAndPort : `/${hostAndPort}`, port: '' };
   }
 
+  if (!hostAndPort) return null;
+
+  // Handle bracketed IPv6 locator: [::]:7447 or [2001:...]:41505 or [::]
+  if (hostAndPort.startsWith('[')) {
+    const closeBracketIdx = hostAndPort.indexOf(']');
+    if (closeBracketIdx !== -1) {
+      const host = hostAndPort.slice(0, closeBracketIdx + 1);
+      const after = hostAndPort.slice(closeBracketIdx + 1).trim();
+      const port = after.startsWith(':') ? after.slice(1).trim() : '7447';
+      return { protocol, host, port };
+    }
+    return null;
+  }
+
   const colonIdx = hostAndPort.lastIndexOf(':');
   if (colonIdx === -1) {
     const host = hostAndPort.trim();
-    if (host) return { protocol, host, port: '7447' };
+    if (host) {
+      if (host.includes(':') && !host.startsWith('[')) {
+        return { protocol, host: `[${host}]`, port: '7447' };
+      }
+      return { protocol, host, port: '7447' };
+    }
     return null;
+  }
+
+  // If hostAndPort has multiple colons without brackets (unbracketed IPv6 like 2001:db8::1:7447 or :::7447)
+  const colons = hostAndPort.split(':');
+  if (colons.length > 2) {
+    const lastSeg = hostAndPort.slice(colonIdx + 1).trim();
+    if (/^\d+$/.test(lastSeg) && colons.length > 3) {
+      const ip = hostAndPort.slice(0, colonIdx).trim().replace(/^\[|\]$/g, '');
+      return { protocol, host: `[${ip}]`, port: lastSeg || '7447' };
+    }
+    const ip = hostAndPort.trim().replace(/^\[|\]$/g, '');
+    return { protocol, host: `[${ip}]`, port: '7447' };
   }
 
   const host = hostAndPort.slice(0, colonIdx).trim();
@@ -234,9 +285,8 @@ export function isEphemeralLocator(
   });
 }
 
-
 /**
- * Constructs a clean Zenoh locator string from protocol, host, and port.
+ * Constructs a clean Zenoh locator string from protocol, host, and port, with robust IPv6 support.
  */
 export function buildLocator(protocol: string, host: string, port: string): string {
   const h = host.trim();
@@ -248,15 +298,54 @@ export function buildLocator(protocol: string, host: string, port: string): stri
     return `unixpipe/${cleanPath}`;
   }
 
-  const parsed = parseLocator(h);
-  if (parsed && parsed.protocol !== 'unix') {
-    const p = port.trim() !== '' ? port.trim() : parsed.port || '7447';
-    return `${proto}/${parsed.host}:${p}`;
+  const slashIdx = h.indexOf('/');
+  const rawHost = slashIdx !== -1 ? h.slice(slashIdx + 1) : h;
+
+  let cleanHost = rawHost.trim();
+  let cleanPort = port.trim();
+
+  // Extract from bracketed IPv6: [2001:...]:7447 or [::]
+  if (cleanHost.startsWith('[')) {
+    const closeIdx = cleanHost.indexOf(']');
+    if (closeIdx !== -1) {
+      const after = cleanHost.slice(closeIdx + 1).trim();
+      cleanHost = cleanHost.slice(0, closeIdx + 1);
+      if (after.startsWith(':') && !cleanPort) {
+        cleanPort = after.slice(1).trim();
+      }
+    }
+  } else if (cleanHost.includes(':')) {
+    // Unbracketed IPv6 (e.g. ::, ::1, 2001:db8::1, or 2001:db8::1:7447)
+    const colons = cleanHost.split(':');
+    if (colons.length > 2) {
+      const lastColon = cleanHost.lastIndexOf(':');
+      const lastSeg = cleanHost.slice(lastColon + 1).trim();
+      if (/^\d+$/.test(lastSeg) && colons.length > 3 && !cleanPort) {
+        const ip = cleanHost.slice(0, lastColon).trim();
+        cleanHost = `[${ip}]`;
+        cleanPort = lastSeg;
+      } else {
+        cleanHost = `[${cleanHost}]`;
+      }
+    } else {
+      // Single colon (IPv4 with port like 127.0.0.1:7447)
+      const colonIdx = cleanHost.lastIndexOf(':');
+      const ip = cleanHost.slice(0, colonIdx).trim();
+      const p = cleanHost.slice(colonIdx + 1).trim();
+      cleanHost = ip;
+      if (p && !cleanPort) cleanPort = p;
+    }
   }
 
-  const p = port.trim() !== '' ? port.trim() : '7447';
-  return `${proto}/${h}:${p}`;
+  // Ensure any IPv6 address is enclosed in brackets
+  if (cleanHost.includes(':') && !cleanHost.startsWith('[')) {
+    cleanHost = `[${cleanHost}]`;
+  }
+
+  const p = cleanPort !== '' ? cleanPort : '7447';
+  return `${proto}/${cleanHost}:${p}`;
 }
+
 
 /**
  * Scans existing connection profiles to find the next available router listen port (starting at 7447).

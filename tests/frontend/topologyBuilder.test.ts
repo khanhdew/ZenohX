@@ -184,7 +184,7 @@ describe('Topology Data Builder', () => {
     
     const cloudNode = nodes.find((n) => n.id === 'profile-prof-cloud');
     assert.ok(cloudNode);
-    assert.equal(cloudNode?.type, 'client');
+    assert.equal(cloudNode?.type, 'router');
     assert.equal(cloudNode?.isTls, true);
     assert.equal(cloudNode?.status, 'connected');
     assert.equal(cloudNode?.label, 'Cloud Router');
@@ -219,11 +219,6 @@ describe('Topology Data Builder', () => {
   it('filters out ZenohX own session from scout results and accurately models single local router', () => {
     const scoutedNodes: ScoutedNode[] = [
       {
-        zid: 'own-zenohx-client-zid',
-        what: 'Client',
-        locators: ['tcp/192.168.1.15:52341'],
-      },
-      {
         zid: 'router-local-zenohd-zid',
         what: 'Router',
         locators: ['tcp/192.168.1.15:7447'],
@@ -248,6 +243,7 @@ describe('Topology Data Builder', () => {
         id: 'sess-1',
         profile_id: 'prof-local-router',
         zid: 'own-zenohx-client-zid',
+        connected_routers: ['router-local-zenohd-zid'],
         connected_at: '2026-01-01T00:00:00Z',
       },
     };
@@ -259,16 +255,14 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // 2 nodes: ZenohX Client session (from Rust) + External Zenohd Router (from Scout)
-    assert.equal(nodes.length, 2);
-    const clientNode = nodes.find((n) => n.zid === 'own-zenohx-client-zid');
+    // Directly tracks the single local router without creating an extra client node
+    assert.equal(nodes.length, 1);
     const routerNode = nodes.find((n) => n.zid === 'router-local-zenohd-zid');
-    assert.ok(clientNode);
     assert.ok(routerNode);
-    assert.equal(clientNode?.status, 'connected');
-    assert.equal(routerNode?.status, 'scouted');
+    assert.equal(routerNode?.status, 'connected');
     assert.equal(routerNode?.type, 'router');
   });
+
 
   it('returns empty graph when disconnected with no scouted nodes', () => {
     const { nodes, edges } = buildTopologyGraph({
@@ -585,26 +579,62 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // 1 client node and 1 upstream router node
-    assert.equal(nodes.length, 2);
-
-    const clientNode = nodes.find((n) => n.zid === 'client-zid-12345678');
-    assert.ok(clientNode);
-    assert.equal(clientNode?.type, 'client');
-    assert.deepEqual(clientNode?.connectLocators, ['tcp/192.168.1.50:7447']);
+    // 1 directly tracked upstream router node
+    assert.equal(nodes.length, 1);
 
     const routerNode = nodes.find((n) => n.zid === 'router-zid-87654321');
     assert.ok(routerNode);
     assert.equal(routerNode?.type, 'router');
-    assert.equal(routerNode?.status, 'scouted');
+    assert.equal(routerNode?.status, 'connected');
     // Advertised locators must include the upstream router locators (from link/connect/scout)
     assert.ok(routerNode?.locators.includes('tcp/192.168.1.50:7447'));
     assert.ok(routerNode?.locators.includes('ws/192.168.1.50:8080'));
+  });
 
-    // Should create an active edge between client and router
-    assert.equal(edges.length, 1);
-    assert.equal(edges[0].status, 'active');
+  it('prioritizes custom node name over profile.name for connected and scouted nodes', () => {
+    const zid = '2001ee2e2260038cd5f4a53d96dcf415';
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-edge',
+        name: 'Generic Profile Name',
+        mode: 'router',
+        connect_locators: [],
+        listen_locators: ['tcp/[2001:ee2::1]:7447'],
+        config: {},
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      },
+    ];
+
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid,
+        what: 'Router',
+        locators: ['tcp/[2001:ee2::1]:7447'],
+      },
+    ];
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions: {
+        'prof-edge': {
+          zid,
+          mode: 'router',
+          locators: ['tcp/[2001:ee2::1]:7447'],
+          connected_at: Date.now(),
+        },
+      },
+      profiles,
+      customNodeLabels: {
+        [zid]: 'My Custom Edge Router',
+      },
+    });
+
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].label, 'My Custom Edge Router');
   });
 });
+
+
 
 

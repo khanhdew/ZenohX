@@ -6,7 +6,7 @@ import { TopologyCanvas } from './TopologyCanvas';
 import { TopologyInspector } from './TopologyInspector';
 import { TopologyContextMenu } from './TopologyContextMenu';
 import type { TopologyNode } from '../../types/topology';
-import type { ConnectionProfile } from '../../types/zenoh';
+import type { ConnectionMode, ConnectionProfile } from '../../types/zenoh';
 
 import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 
@@ -102,12 +102,21 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     const now = Date.now();
     const primaryLoc = (node.locators && node.locators[0]) || (node.connectLocators && node.connectLocators[0]) || '';
     const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
+    const nodeRole: ConnectionMode =
+      node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
+
     const newProf: ConnectionProfile = {
       id: newProfId,
       name: node.label,
-      mode: 'client',
-      connect_locators: primaryLoc ? [primaryLoc] : (node.locators || []),
-      listen_locators: [],
+      mode: nodeRole,
+      connect_locators:
+        nodeRole === 'client'
+          ? (primaryLoc ? [primaryLoc] : (node.locators || []))
+          : (node.connectLocators || []),
+      listen_locators:
+        nodeRole !== 'client'
+          ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLoc ? [primaryLoc] : []))
+          : [],
       scout_multicast: true,
       scout_gossip: true,
       user_auth: null,
@@ -132,12 +141,21 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
       const now = Date.now();
       const primaryLocator = (node.locators && node.locators[0]) || (node.connectLocators && node.connectLocators[0]) || '';
       const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
+      const nodeRole: ConnectionMode =
+        node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
+
       const newProf: ConnectionProfile = {
         id: newProfId,
         name: node.label,
-        mode: 'client',
-        connect_locators: primaryLocator ? [primaryLocator] : (node.locators || []),
-        listen_locators: [],
+        mode: nodeRole,
+        connect_locators:
+          nodeRole === 'client'
+            ? (primaryLocator ? [primaryLocator] : (node.locators || []))
+            : (node.connectLocators || []),
+        listen_locators:
+          nodeRole !== 'client'
+            ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLocator ? [primaryLocator] : []))
+            : [],
         scout_multicast: true,
         scout_gossip: true,
         user_auth: null,
@@ -174,11 +192,7 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
             });
           }}
           onNodeDoubleClick={(node) => {
-            if (node.type === 'router') {
-              handleConnectNode(node);
-            } else if (node.type === 'peer') {
-              setSelectedNodeId(node.id);
-            }
+            setSelectedNodeId(node.id);
           }}
         />
 

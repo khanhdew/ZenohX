@@ -645,11 +645,12 @@ impl SessionManager {
             connected_peers.push(peer_zid.to_string());
         }
 
-        // Retrieve real bound listening locators (not default 0.0.0.0:0)
-        let mut real_listen_locators: Vec<String> = Vec::new();
+        // Retrieve real bound listening locators and resolve 0.0.0.0 to real IPs
+        let mut raw_listen_locators: Vec<String> = Vec::new();
         for loc in session.info().locators().await {
-            real_listen_locators.push(loc.to_string());
+            raw_listen_locators.push(loc.to_string());
         }
+        let real_listen_locators = resolve_bound_locators(raw_listen_locators);
 
         // Retrieve authoritative live transports & links with full telemetry
         let mut transport_map = std::collections::HashMap::new();
@@ -812,4 +813,55 @@ async fn handle_unexpected_disconnect(
         }
     }
 }
+
+/// Attempts to detect the primary local non-loopback IP address of this machine.
+fn get_primary_local_ip() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    if !ip.is_unspecified() && !ip.is_loopback() {
+        Some(ip)
+    } else {
+        None
+    }
+}
+
+/// Resolves wildcard `0.0.0.0` or `[::]` in bound listening locators to real reachable host IPs.
+pub fn resolve_bound_locators(raw_locators: Vec<String>) -> Vec<String> {
+    let primary_ip = get_primary_local_ip().map(|ip| ip.to_string());
+    let mut resolved = Vec::new();
+
+    for loc in raw_locators {
+        if loc.contains("0.0.0.0") {
+            if let Some(ip) = &primary_ip {
+                let lan_loc = loc.replace("0.0.0.0", ip);
+                if !resolved.contains(&lan_loc) {
+                    resolved.push(lan_loc);
+                }
+            }
+            let loopback_loc = loc.replace("0.0.0.0", "127.0.0.1");
+            if !resolved.contains(&loopback_loc) {
+                resolved.push(loopback_loc);
+            }
+        } else if loc.contains("[::]") {
+            if let Some(ip) = &primary_ip {
+                let lan_loc = loc.replace("[::]", ip);
+                if !resolved.contains(&lan_loc) {
+                    resolved.push(lan_loc);
+                }
+            }
+            let loopback_loc = loc.replace("[::]", "127.0.0.1");
+            if !resolved.contains(&loopback_loc) {
+                resolved.push(loopback_loc);
+            }
+        } else {
+            if !resolved.contains(&loc) {
+                resolved.push(loc);
+            }
+        }
+    }
+
+    resolved
+}
+
 

@@ -362,7 +362,7 @@ mod tests {
         let mut config = SessionConfig::default();
         config.mode = "router".to_string();
         config.listen_locators = vec![
-            "tcp/127.0.0.1:0".to_string(),
+            "tcp/0.0.0.0:0".to_string(),
             "udp/127.0.0.1:0".to_string(),
         ];
 
@@ -371,12 +371,25 @@ mod tests {
 
         assert_eq!(info.mode, "router");
         assert!(!info.bound_locators.is_empty(), "bound_locators must not be empty");
-        // Ensure the bound locators resolved to non-zero ports
+        // Ensure the bound locators resolved to non-zero ports and non-0.0.0.0 IPs
         for loc in &info.bound_locators {
             assert!(!loc.ends_with(":0"), "resolved locator must have an allocated port: {loc}");
+            assert!(!loc.contains("0.0.0.0"), "resolved locator must not contain 0.0.0.0 wildcard: {loc}");
         }
 
         manager.disconnect(&session_id).await.expect("disconnect");
+    }
+
+    #[test]
+    fn test_resolve_bound_locators_wildcard_ip() {
+        let raw = vec![
+            "tcp/0.0.0.0:7447".to_string(),
+            "unixpipe//tmp/zenoh.sock".to_string(),
+        ];
+        let resolved = crate::zenoh::manager::resolve_bound_locators(raw);
+        assert!(resolved.iter().any(|l| l.contains("127.0.0.1:7447")));
+        assert!(resolved.iter().any(|l| l == "unixpipe//tmp/zenoh.sock"));
+        assert!(!resolved.iter().any(|l| l.contains("0.0.0.0")));
     }
 }
 

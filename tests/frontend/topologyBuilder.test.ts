@@ -407,4 +407,49 @@ describe('Topology Data Builder', () => {
     assert.equal(exactPeerEdge?.isExact, true);
     assert.equal(exactPeerEdge?.status, 'active');
   });
+
+  it('resolves bound locators and eliminates 0.0.0.0:0 in advertised node details', () => {
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-router-auto',
+        name: 'Ephemeral Router',
+        mode: 'router',
+        connect_locators: [],
+        listen_locators: ['tcp/0.0.0.0:0'],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-router-auto': {
+        zid: 'router-zid-real-ip',
+        mode: 'router',
+        connected_routers: [],
+        connected_peers: [],
+        bound_locators: ['tcp/192.168.1.100:43219', 'tcp/127.0.0.1:43219'],
+        listen_locators: ['tcp/0.0.0.0:0'],
+        connect_locators: [],
+        active_subscribers: 0,
+        active_queryables: 0,
+        uptime_seconds: 10,
+        links: [],
+      },
+    };
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    const routerNode = nodes.find((n) => n.zid === 'router-zid-real-ip');
+    assert.ok(routerNode);
+    // Advertised locators must use real bound locators and never show 0.0.0.0:0
+    assert.deepEqual(routerNode?.locators, ['tcp/192.168.1.100:43219', 'tcp/127.0.0.1:43219']);
+    assert.equal(routerNode?.locators.some((l) => l.includes('0.0.0.0:0')), false);
+  });
 });
+

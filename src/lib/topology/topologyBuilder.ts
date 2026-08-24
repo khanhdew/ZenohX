@@ -31,8 +31,13 @@ export function extractLocatorProtocol(locator: string, isTls?: boolean): Topolo
 
 export function extractLocatorHostPort(locator: string): string {
   if (!locator || typeof locator !== 'string') return '';
-  const parts = locator.split('/');
-  return parts.length > 1 ? parts.slice(1).join('/') : locator;
+  const clean = locator.trim();
+  if (clean.startsWith('unixpipe/')) {
+    return clean.replace(/^unixpipe\/?/, '');
+  }
+  const parts = clean.split('/');
+  const hostPort = parts.length > 1 ? parts.slice(1).join('/') : clean;
+  return hostPort.replace('0.0.0.0', '127.0.0.1');
 }
 
 export function isLocatorMatch(loc1: string, loc2: string): boolean {
@@ -134,18 +139,26 @@ export function buildTopologyGraph({
       rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
 
     // Authoritative Listen Locators (Advertised Endpoints)
-    const listenLocs = [
-      ...(sessionInfo?.listen_locators || []),
-      ...profile.listen_locators,
-    ];
-    const locators = Array.from(new Set(listenLocs)).filter(Boolean);
+    const rawListen =
+      sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0
+        ? sessionInfo.bound_locators
+        : sessionInfo?.listen_locators && sessionInfo.listen_locators.length > 0
+        ? sessionInfo.listen_locators
+        : profile.listen_locators || [];
+
+    const locators = Array.from(new Set(rawListen))
+      .filter(Boolean)
+      .filter((loc) => !loc.endsWith(':0') || !(sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0))
+      .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc));
 
     // Outbound Target Endpoints (Upstreams / Connect Locators)
     const connectLocs = [
       ...(sessionInfo?.connect_locators || []),
       ...profile.connect_locators,
     ];
-    const connectLocators = Array.from(new Set(connectLocs)).filter(Boolean);
+    const connectLocators = Array.from(new Set(connectLocs))
+      .filter(Boolean)
+      .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc));
 
     const isTls = isTlsEnabled(profile.tls_config, locators.concat(connectLocators));
 
@@ -200,8 +213,18 @@ export function buildTopologyGraph({
       const rawMode = (sessionInfo.mode || 'peer').toLowerCase();
       const type: TopologyNode['type'] =
         rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
-      const locators = Array.from(new Set(sessionInfo.listen_locators || [])).filter(Boolean);
-      const connectLocators = Array.from(new Set(sessionInfo.connect_locators || [])).filter(Boolean);
+      const rawListen =
+        sessionInfo.bound_locators && sessionInfo.bound_locators.length > 0
+          ? sessionInfo.bound_locators
+          : sessionInfo.listen_locators || [];
+
+      const locators = Array.from(new Set(rawListen))
+        .filter(Boolean)
+        .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc));
+
+      const connectLocators = Array.from(new Set(sessionInfo.connect_locators || []))
+        .filter(Boolean)
+        .map((loc) => (loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc));
       const isTls = isTlsEnabled(null, locators.concat(connectLocators));
       const radius = type === 'router' ? 34 : type === 'peer' ? 28 : 24;
 

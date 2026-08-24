@@ -163,4 +163,42 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.equal(parsed.transport?.link?.tls?.connect_private_key, '/etc/ssl/client.key');
     assert.equal(parsed.transport?.unicast?.max_sessions, 50);
   });
+
+  it('correctly identifies ephemeral auto ports vs static configured ports', async () => {
+    const { isEphemeralLocator } = await import('../../src/lib/tls');
+
+    // 1. Single TCP ephemeral port 0
+    assert.equal(
+      isEphemeralLocator('tcp/192.168.1.50:43219', ['tcp/0.0.0.0:0']),
+      true
+    );
+    assert.equal(
+      isEphemeralLocator('tcp/127.0.0.1:51234', ['tcp/127.0.0.1:0']),
+      true
+    );
+
+    // 2. Static TCP port
+    assert.equal(
+      isEphemeralLocator('tcp/192.168.1.50:7447', ['tcp/0.0.0.0:7447']),
+      false
+    );
+
+    // 3. Multi-transport mixed configuration
+    const multiListen = ['tcp/0.0.0.0:7447', 'ws/0.0.0.0:0'];
+    assert.equal(
+      isEphemeralLocator('tcp/192.168.1.50:7447', multiListen),
+      false
+    );
+    assert.equal(
+      isEphemeralLocator('ws/192.168.1.50:58123', multiListen),
+      true
+    );
+
+    // 4. Edge cases
+    assert.equal(isEphemeralLocator('', ['tcp/0.0.0.0:0']), false);
+    assert.equal(isEphemeralLocator('tcp/127.0.0.1:7447', []), false);
+    assert.equal(isEphemeralLocator('tcp/127.0.0.1:7447', undefined), false);
+    assert.equal(isEphemeralLocator('unixpipe//tmp/zenoh.sock', ['unixpipe//tmp/zenoh.sock']), false);
+  });
 });
+

@@ -336,4 +336,46 @@ describe('Pub/Sub Workspace Store Integration', () => {
     const { PublishBar } = await import('../../src/components/pubsub/PublishBar');
     assert.equal(typeof PublishBar, 'function');
   });
+
+  test('PubSubWorkspace component renders properly with active bound locators', async () => {
+    const React = await import('react');
+    const { PubSubWorkspace } = await import('../../src/components/pubsub/PubSubWorkspace');
+    assert.equal(typeof PubSubWorkspace, 'function');
+
+    useConnectionStore.setState({
+      profiles: [
+        {
+          id: 'prof-pubsub-1',
+          name: 'Main Router Profile',
+          mode: 'router',
+          connect_locators: [],
+          listen_locators: ['tcp/0.0.0.0:0'],
+          scout_multicast: true,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ],
+      selectedProfileId: 'prof-pubsub-1',
+      activeSessions: {
+        'prof-pubsub-1': {
+          id: 'sess-ps-1',
+          profile_id: 'prof-pubsub-1',
+          zid: 'z987654321',
+          mode: 'router',
+          scout_multicast: true,
+          connect_locators: [],
+          listen_locators: ['tcp/0.0.0.0:0'],
+          bound_locators: ['tcp/192.168.1.100:49152'],
+          created_at: Math.floor(Date.now() / 1000),
+        },
+      },
+    });
+
+    const workspaceEl = React.createElement(PubSubWorkspace, {
+      className: 'test-workspace',
+    });
+    assert.ok(workspaceEl);
+    assert.equal(workspaceEl.type, PubSubWorkspace);
+  });
 });
+

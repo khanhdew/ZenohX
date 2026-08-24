@@ -25,11 +25,12 @@ import {
 import { useConnectionStore } from '../../stores/connectionStore';
 import { useProtoStore } from '../../stores/protoStore';
 import { ConnectionProfile } from '../../types/zenoh';
-import { isTlsEnabled } from '../../lib/tls';
+import { isTlsEnabled, isEphemeralLocator } from '../../lib/tls';
 import { openProfileInNewWindow } from '../../lib/tauri';
 import { formatFriendlyError } from '../../lib/errorUtils';
 import { ProfileModal } from './ProfileModal';
 import { ScoutModal } from './ScoutModal';
+import { BoundLocatorBadge } from './BoundLocatorBadge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
@@ -118,8 +119,11 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
 
   const handleCopyLocator = (p: ConnectionProfile, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const sess = activeSessions[p.id];
     const locators =
-      p.connect_locators && p.connect_locators.length > 0
+      sess?.bound_locators && sess.bound_locators.length > 0
+        ? sess.bound_locators.join(', ')
+        : p.connect_locators && p.connect_locators.length > 0
         ? p.connect_locators.join(', ')
         : p.scout_multicast
         ? 'Multicast'
@@ -505,6 +509,23 @@ export function Sidebar({ className = '', style, onSelectProfile }: SidebarProps
                         )
                       )}
                     </div>
+
+                    {/* Bound Locators Row (When connected with active bound listening endpoints) */}
+                    {isConnected && session?.bound_locators && session.bound_locators.length > 0 && (
+                      <div className="mt-1.5 pt-1.5 border-t border-border/40 flex flex-wrap items-center gap-1">
+                        {session.bound_locators.map((loc) => {
+                          const isAuto = isEphemeralLocator(loc, p.listen_locators);
+                          return (
+                            <BoundLocatorBadge
+                              key={loc}
+                              locator={loc}
+                              isAutoPort={isAuto}
+                              size="xs"
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </ContextMenuTrigger>
 

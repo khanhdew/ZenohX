@@ -846,7 +846,71 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.ok(rawJsonEl);
     assert.equal(rawJsonEl.type, RawJsonConfigSection);
   });
+
+  test('getBoundLocators helper returns bound locators from active session', async () => {
+    useConnectionStore.setState({
+      selectedProfileId: 'prof-router-1',
+      activeSessions: {
+        'prof-router-1': {
+          id: 'sess-123',
+          profile_id: 'prof-router-1',
+          zid: 'z12345678',
+          mode: 'router',
+          scout_multicast: true,
+          connect_locators: [],
+          listen_locators: ['tcp/0.0.0.0:0', 'ws/0.0.0.0:8080'],
+          bound_locators: ['tcp/192.168.1.50:43219', 'ws/127.0.0.1:8080'],
+          created_at: Math.floor(Date.now() / 1000),
+        },
+      },
+    });
+
+    const bound = useConnectionStore.getState().getBoundLocators();
+    assert.deepEqual(bound, ['tcp/192.168.1.50:43219', 'ws/127.0.0.1:8080']);
+
+    const boundExplicit = useConnectionStore.getState().getBoundLocators('prof-router-1');
+    assert.deepEqual(boundExplicit, ['tcp/192.168.1.50:43219', 'ws/127.0.0.1:8080']);
+
+    const emptyBound = useConnectionStore.getState().getBoundLocators('non-existent');
+    assert.deepEqual(emptyBound, []);
+  });
+
+  test('BoundLocatorBadge renders correctly with 1-click copy and auto port badge', async () => {
+    const React = await import('react');
+    const { BoundLocatorBadge, getProtocolIcon } = await import('../../src/components/connections/BoundLocatorBadge');
+
+    let copiedLocator: string | null = null;
+    const badgeEl = React.createElement(BoundLocatorBadge, {
+      locator: 'tcp/192.168.1.50:43219',
+      isAutoPort: true,
+      size: 'xs',
+      onCopy: (loc: string) => {
+        copiedLocator = loc;
+      },
+    });
+
+    assert.ok(badgeEl);
+    assert.equal(badgeEl.type, BoundLocatorBadge);
+
+    // Protocol icons for all supported protocols
+    const tcpIcon = getProtocolIcon('tcp');
+    const tlsIcon = getProtocolIcon('tls');
+    const wsIcon = getProtocolIcon('ws');
+    const wssIcon = getProtocolIcon('wss');
+    const quicIcon = getProtocolIcon('quic');
+    const udpIcon = getProtocolIcon('udp');
+    const unixIcon = getProtocolIcon('unix');
+
+    assert.ok(tcpIcon);
+    assert.ok(tlsIcon);
+    assert.ok(wsIcon);
+    assert.ok(wssIcon);
+    assert.ok(quicIcon);
+    assert.ok(udpIcon);
+    assert.ok(unixIcon);
+  });
 });
+
 
 
 

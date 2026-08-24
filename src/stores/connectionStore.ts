@@ -62,6 +62,7 @@ export interface ConnectionState {
   getActiveSession: (profileId?: string) => SessionInfo | undefined;
   getActiveSessionId: (profileId?: string) => string | undefined;
   getSelectedProfile: () => ConnectionProfile | undefined;
+  getBoundLocators: (profileId?: string) => string[];
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
@@ -443,5 +444,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   getSelectedProfile: () => {
     const selectedId = get().selectedProfileId;
     return get().profiles.find((p) => p.id === selectedId);
+  },
+
+  getBoundLocators: (profileId?: string) => {
+    const targetId = profileId ?? get().selectedProfileId;
+    const session = targetId ? get().activeSessions[targetId] : undefined;
+    return session?.bound_locators || [];
   },
 }));

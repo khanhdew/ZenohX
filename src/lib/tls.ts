@@ -202,6 +202,40 @@ export function parseLocator(locator: string): ParsedLocator | null {
 }
 
 /**
+ * Checks whether a bound locator was dynamically assigned from an ephemeral port (e.g. port 0).
+ */
+export function isEphemeralLocator(
+  boundLocator: string,
+  configuredListenLocators?: string[]
+): boolean {
+  if (!boundLocator || typeof boundLocator !== 'string') return false;
+  if (!configuredListenLocators || configuredListenLocators.length === 0) return false;
+
+  const parsedBound = parseLocator(boundLocator);
+  if (!parsedBound) return false;
+
+  return configuredListenLocators.some((listenLoc) => {
+    if (!listenLoc || typeof listenLoc !== 'string') return false;
+    const parsedListen = parseLocator(listenLoc);
+    if (!parsedListen) return false;
+
+    // Check if configured port was explicitly '0'
+    const isPortZero =
+      parsedListen.port === '0' ||
+      listenLoc.trim().endsWith(':0') ||
+      listenLoc.includes(':0/');
+    if (!isPortZero) return false;
+
+    // Check protocol match (e.g. 'tcp' matches 'tcp', 'ws' matches 'ws')
+    const boundProto = parsedBound.protocol.toLowerCase();
+    const listenProto = parsedListen.protocol.toLowerCase();
+
+    return boundProto === listenProto || (listenProto === 'tcp' && boundProto === 'tcp');
+  });
+}
+
+
+/**
  * Constructs a clean Zenoh locator string from protocol, host, and port.
  */
 export function buildLocator(protocol: string, host: string, port: string): string {

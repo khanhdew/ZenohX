@@ -24,6 +24,9 @@ import type {
   StoredQueryExecution,
   SubscriptionPreset,
   ZenohSample,
+  PublishOptions,
+  SubscribeOptions,
+  StreamGeneratorConfig,
 } from '../types/zenoh';
 
 // ============================================================================

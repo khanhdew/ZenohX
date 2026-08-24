@@ -5,22 +5,24 @@ import {
   Lock,
   Zap,
   Radio,
+  Wifi,
+  ShieldCheck,
+  HardDrive,
   Plus,
   Trash2,
   Shuffle,
   RadioTower,
-  HelpCircle,
+  Network,
 } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
 import { Button } from '../../ui/button';
-import { Badge } from '../../ui/badge';
-import { type CloudProtocol, SUPPORTED_CLOUD_PROTOCOLS, getRandomRouterPort } from '../../../lib/tls';
+import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS, getRandomRouterPort } from '../../../lib/tls';
 
 export interface RouterListenEndpoint {
   id: string;
-  protocol: CloudProtocol;
+  protocol: TransportProtocol;
   host: string;
   port: string;
 }
@@ -34,10 +36,33 @@ export interface RouterConfigFormProps {
   removeListenEndpoint: (id: string) => void;
   routerScoutMulticast: boolean;
   setRouterScoutMulticast: (val: boolean) => void;
+  routerScoutGossip?: boolean;
+  setRouterScoutGossip?: (val: boolean) => void;
   routerConnectLocators: string[];
   addRouterConnectLocator: () => void;
   updateRouterConnectLocator: (index: number, val: string) => void;
   removeRouterConnectLocator: (index: number) => void;
+}
+
+function getProtocolIcon(protocol: TransportProtocol) {
+  switch (protocol) {
+    case 'tcp':
+      return Globe;
+    case 'tls':
+      return Lock;
+    case 'quic':
+      return Zap;
+    case 'udp':
+      return Radio;
+    case 'ws':
+      return Wifi;
+    case 'wss':
+      return ShieldCheck;
+    case 'unix':
+      return HardDrive;
+    default:
+      return Globe;
+  }
 }
 
 export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
@@ -49,6 +74,8 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
   removeListenEndpoint,
   routerScoutMulticast,
   setRouterScoutMulticast,
+  routerScoutGossip = true,
+  setRouterScoutGossip,
   routerConnectLocators,
   addRouterConnectLocator,
   updateRouterConnectLocator,
@@ -79,7 +106,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
               Listen Endpoints ({listenEndpoints.length})
             </Label>
             <p className="text-[10px] text-muted-foreground">
-              Bind ports for incoming connections (e.g. TCP + TLS, or custom ports).
+              Bind multi-transport interfaces for incoming node connections.
             </p>
           </div>
           <Button
@@ -94,138 +121,205 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
           </Button>
         </div>
 
-        <div className="space-y-2">
-          {listenEndpoints.map((ep, idx) => (
-            <div
-              key={ep.id}
-              className="p-3 rounded-lg border bg-card/60 space-y-2.5 relative group"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  Endpoint #{idx + 1}
-                </span>
-                {listenEndpoints.length > 1 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="iconSm"
-                    onClick={() => removeListenEndpoint(ep.id)}
-                    className="h-6 w-6 text-destructive hover:bg-destructive/10"
-                    title="Remove endpoint"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+        <div className="space-y-2.5">
+          {listenEndpoints.map((ep, idx) => {
+            const isUnix = ep.protocol === 'unix';
+
+            return (
+              <div
+                key={ep.id}
+                className="p-3 rounded-lg border bg-card/60 space-y-2.5 relative group"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    Endpoint #{idx + 1}
+                  </span>
+                  {listenEndpoints.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="iconSm"
+                      onClick={() => removeListenEndpoint(ep.id)}
+                      className="h-6 w-6 text-destructive hover:bg-destructive/10"
+                      title="Remove endpoint"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  )}
+                </div>
+
+                {/* Protocol selector pills for all 7 protocols */}
+                <div className="grid grid-cols-4 sm:grid-cols-7 gap-1">
+                  {SUPPORTED_TRANSPORT_PROTOCOLS.map((p) => {
+                    const Icon = getProtocolIcon(p.id);
+                    const isSelected = ep.protocol === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          const updates: Partial<RouterListenEndpoint> = {
+                            protocol: p.id,
+                          };
+                          if (p.id === 'unix' && (!ep.host || ep.host === '0.0.0.0' || ep.host === '127.0.0.1')) {
+                            updates.host = '/tmp/zenoh.sock';
+                            updates.port = '';
+                          } else if (p.id !== 'unix' && (ep.host.startsWith('/') || !ep.host)) {
+                            updates.host = '0.0.0.0';
+                            updates.port = p.defaultPort || '7447';
+                          }
+                          updateListenEndpoint(ep.id, updates);
+                        }}
+                        className={`h-7 px-1 rounded-md border text-[10px] font-medium flex items-center justify-center gap-1 transition-colors ${
+                          isSelected
+                            ? 'border-indigo-500 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold'
+                            : 'border-border bg-background hover:bg-muted/40 text-muted-foreground'
+                        }`}
+                      >
+                        <Icon className="w-3 h-3 shrink-0" />
+                        <span>{p.id.toUpperCase()}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Dynamic input row: Unix path vs Network Host+Port */}
+                {isUnix ? (
+                  <div className="space-y-1.5">
+                    <div className="space-y-1">
+                      <Label className="text-[10px] font-medium text-muted-foreground">
+                        Unix Domain Socket Path
+                      </Label>
+                      <Input
+                        value={ep.host}
+                        onChange={(e) =>
+                          updateListenEndpoint(ep.id, { host: e.target.value, port: '' })
+                        }
+                        placeholder="/tmp/zenoh.sock"
+                        className="h-8 text-xs font-mono bg-background"
+                      />
+                    </div>
+                    {/* Quick Path helper chips */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      <span className="text-[9px] text-muted-foreground">Quick Paths:</span>
+                      <button
+                        type="button"
+                        onClick={() => updateListenEndpoint(ep.id, { host: '/tmp/zenoh.sock', port: '' })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                          ep.host === '/tmp/zenoh.sock'
+                            ? 'border-primary text-primary bg-primary/5 font-semibold'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        /tmp/zenoh.sock
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateListenEndpoint(ep.id, { host: '/tmp/zenoh-router.sock', port: '' })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                          ep.host === '/tmp/zenoh-router.sock'
+                            ? 'border-primary text-primary bg-primary/5 font-semibold'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        /tmp/zenoh-router.sock
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateListenEndpoint(ep.id, { host: '/var/run/zenoh.sock', port: '' })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                          ep.host === '/var/run/zenoh.sock'
+                            ? 'border-primary text-primary bg-primary/5 font-semibold'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        /var/run/zenoh.sock
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {/* Host & Port inputs */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <Input
+                          value={ep.host}
+                          onChange={(e) =>
+                            updateListenEndpoint(ep.id, { host: e.target.value })
+                          }
+                          placeholder="0.0.0.0"
+                          className="h-8 text-xs font-mono bg-background"
+                        />
+                      </div>
+                      <div className="w-28 relative flex items-center">
+                        <Input
+                          value={ep.port}
+                          onChange={(e) =>
+                            updateListenEndpoint(ep.id, { port: e.target.value })
+                          }
+                          placeholder="7447"
+                          className="h-8 text-xs font-mono bg-background text-center pr-7"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateListenEndpoint(ep.id, { port: getRandomRouterPort() })
+                          }
+                          className="absolute right-1 text-muted-foreground hover:text-foreground p-1"
+                          title="Generate random free port"
+                        >
+                          <Shuffle className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Quick Port helper pills */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                      <span className="text-[9px] text-muted-foreground">Quick Ports:</span>
+                      <button
+                        type="button"
+                        onClick={() => updateListenEndpoint(ep.id, { port: '7447' })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                          ep.port === '7447'
+                            ? 'border-primary text-primary bg-primary/5 font-semibold'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        7447
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateListenEndpoint(ep.id, { port: '8080' })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                          ep.port === '8080'
+                            ? 'border-primary text-primary bg-primary/5 font-semibold'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        8080
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateListenEndpoint(ep.id, { port: '0' })}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                          ep.port === '0'
+                            ? 'border-primary text-primary bg-primary/5 font-semibold'
+                            : 'border-border text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        0 Auto
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
-
-              {/* Protocol selector pills */}
-              <div className="grid grid-cols-4 gap-1.5">
-                {SUPPORTED_CLOUD_PROTOCOLS.map((p) => {
-                  const Icon =
-                    p.id === 'tcp'
-                      ? Globe
-                      : p.id === 'tls'
-                        ? Lock
-                        : p.id === 'quic'
-                          ? Zap
-                          : Radio;
-                  const isSelected = ep.protocol === p.id;
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => updateListenEndpoint(ep.id, { protocol: p.id })}
-                      className={`h-7 px-1.5 rounded-md border text-[11px] font-medium flex items-center justify-center gap-1 transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary font-semibold'
-                          : 'border-border bg-background hover:bg-muted/40 text-muted-foreground'
-                      }`}
-                    >
-                      <Icon className="w-3 h-3" />
-                      <span>{p.id.toUpperCase()}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Host & Port inputs */}
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <Input
-                    value={ep.host}
-                    onChange={(e) =>
-                      updateListenEndpoint(ep.id, { host: e.target.value })
-                    }
-                    placeholder="0.0.0.0"
-                    className="h-8 text-xs font-mono bg-background"
-                  />
-                </div>
-                <div className="w-28 relative flex items-center">
-                  <Input
-                    value={ep.port}
-                    onChange={(e) =>
-                      updateListenEndpoint(ep.id, { port: e.target.value })
-                    }
-                    placeholder="7447"
-                    className="h-8 text-xs font-mono bg-background text-center pr-7"
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateListenEndpoint(ep.id, { port: getRandomRouterPort() })
-                    }
-                    className="absolute right-1 text-muted-foreground hover:text-foreground p-1"
-                    title="Generate random free port"
-                  >
-                    <Shuffle className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick Port helper pills */}
-              <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                <span className="text-[9px] text-muted-foreground">Quick Ports:</span>
-                <button
-                  type="button"
-                  onClick={() => updateListenEndpoint(ep.id, { port: '7447' })}
-                  className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                    ep.port === '7447'
-                      ? 'border-primary text-primary bg-primary/5 font-semibold'
-                      : 'border-border text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  7447 (Default)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateListenEndpoint(ep.id, { port: '7446' })}
-                  className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                    ep.port === '7446'
-                      ? 'border-primary text-primary bg-primary/5 font-semibold'
-                      : 'border-border text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  7446 (TLS)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateListenEndpoint(ep.id, { port: '0' })}
-                  className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                    ep.port === '0'
-                      ? 'border-primary text-primary bg-primary/5 font-semibold'
-                      : 'border-border text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  0 (Auto Dynamic)
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* Multicast Discovery Responder Card */}
-      <div className="rounded-lg border p-3 bg-muted/10 space-y-2">
+      {/* Multicast & Gossip Discovery Responder Card */}
+      <div className="rounded-lg border p-3 bg-muted/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-xs font-semibold flex items-center gap-1.5">
@@ -233,7 +327,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
               Multicast Discovery Responder
             </Label>
             <p className="text-[10px] text-muted-foreground">
-              Answer LAN scout probes (<code className="font-mono text-[10px]">224.0.0.224:7446</code>) so clients and peers can auto-discover this router.
+              Answer LAN scout probes (<code className="font-mono text-[10px]">224.0.0.224:7446</code>) so clients & peers can auto-discover this router.
             </p>
           </div>
           <Switch
@@ -241,14 +335,32 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
             onCheckedChange={setRouterScoutMulticast}
           />
         </div>
+
+        {setRouterScoutGossip && (
+          <div className="flex items-center justify-between pt-2 border-t">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium flex items-center gap-1.5">
+                <Network className="w-3.5 h-3.5 text-indigo-400" />
+                Gossip Scouting Protocol
+              </Label>
+              <p className="text-[10px] text-muted-foreground">
+                Propagate routing topology information across interconnected routers and peers.
+              </p>
+            </div>
+            <Switch
+              checked={routerScoutGossip}
+              onCheckedChange={setRouterScoutGossip}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Optional Upstream Router Connect Locators */}
+      {/* Upstream Router Connect Locators */}
       <div className="space-y-2 pt-2 border-t">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-xs font-semibold">
-              Upstream Routers (Optional)
+              Upstream Routers (Hierarchical Mesh)
             </Label>
             <p className="text-[10px] text-muted-foreground">
               Connect this router to upstream cloud/edge routers for multi-router routing.

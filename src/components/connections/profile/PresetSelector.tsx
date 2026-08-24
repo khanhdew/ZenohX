@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Home, Server } from 'lucide-react';
+import { Cloud, Server, Share2, Check } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Badge } from '../../ui/badge';
 import type { ConnectionPreset } from '../../../lib/tls';
@@ -9,91 +9,104 @@ export interface PresetSelectorProps {
   onSelectPreset: (preset: ConnectionPreset) => void;
 }
 
+interface RoleCard {
+  id: ConnectionPreset;
+  title: string;
+  subtitle: string;
+  badge: string;
+  summary: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconColor: string;
+  selectedBorder: string;
+  selectedBg: string;
+}
+
+const ROLES: RoleCard[] = [
+  {
+    id: 'router',
+    title: 'Router',
+    subtitle: 'Broker / Forwarder',
+    badge: 'Hub / Broker',
+    summary: 'Multi-transport routing hub for clients & peers.',
+    icon: Server,
+    iconColor: 'text-indigo-500',
+    selectedBorder: 'border-indigo-500 ring-1 ring-indigo-500/30',
+    selectedBg: 'bg-indigo-500/10',
+  },
+  {
+    id: 'peer',
+    title: 'Peer',
+    subtitle: 'Distributed Mesh',
+    badge: 'P2P Mesh',
+    summary: 'P2P LAN participant with multicast & gossip discovery.',
+    icon: Share2,
+    iconColor: 'text-emerald-500',
+    selectedBorder: 'border-emerald-500 ring-1 ring-emerald-500/30',
+    selectedBg: 'bg-emerald-500/10',
+  },
+  {
+    id: 'client',
+    title: 'Client',
+    subtitle: 'Lightweight Edge',
+    badge: 'Edge Client',
+    summary: 'Unidirectional client connecting upstream to a cloud or edge router.',
+    icon: Cloud,
+    iconColor: 'text-sky-500',
+    selectedBorder: 'border-sky-500 ring-1 ring-sky-500/30',
+    selectedBg: 'bg-sky-500/10',
+  },
+];
+
 export const PresetSelector: React.FC<PresetSelectorProps> = ({
   preset,
   onSelectPreset,
 }) => {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold">Connection Type</Label>
-      <div className="grid grid-cols-3 gap-2">
-        {/* Client Mode Preset */}
-        <button
-          type="button"
-          onClick={() => onSelectPreset('client')}
-          className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-            preset === 'client'
-              ? 'border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30'
-              : 'border-border bg-card hover:bg-muted/40'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold flex items-center gap-1.5">
-              <Cloud className="w-3.5 h-3.5 text-primary" />
-              Client Mode
-            </span>
-            {preset === 'client' && (
-              <Badge variant="default" className="text-[9px] h-3.5 px-1">
-                Selected
-              </Badge>
-            )}
-          </div>
-          <span className="text-[10px] text-muted-foreground leading-tight">
-            Connect upstream to cloud or remote Zenoh router.
-          </span>
-        </button>
+      <Label className="text-xs font-semibold">Zenoh Topology Role</Label>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        {ROLES.map((role) => {
+          const Icon = role.icon;
+          const isSelected = preset === role.id;
 
-        {/* Peer Mode Preset */}
-        <button
-          type="button"
-          onClick={() => onSelectPreset('peer')}
-          className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-            preset === 'peer'
-              ? 'border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30'
-              : 'border-border bg-card hover:bg-muted/40'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold flex items-center gap-1.5">
-              <Home className="w-3.5 h-3.5 text-emerald-500" />
-              Peer Mode
-            </span>
-            {preset === 'peer' && (
-              <Badge variant="default" className="text-[9px] h-3.5 px-1">
-                Selected
-              </Badge>
-            )}
-          </div>
-          <span className="text-[10px] text-muted-foreground leading-tight">
-            P2P mesh & auto-discover peers on LAN.
-          </span>
-        </button>
-
-        {/* Router Mode Preset */}
-        <button
-          type="button"
-          onClick={() => onSelectPreset('router')}
-          className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-            preset === 'router'
-              ? 'border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30'
-              : 'border-border bg-card hover:bg-muted/40'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold flex items-center gap-1.5">
-              <Server className="w-3.5 h-3.5 text-indigo-500" />
-              Router Mode
-            </span>
-            {preset === 'router' && (
-              <Badge variant="default" className="text-[9px] h-3.5 px-1">
-                Selected
-              </Badge>
-            )}
-          </div>
-          <span className="text-[10px] text-muted-foreground leading-tight">
-            Operate as local Zenoh router & listen for nodes.
-          </span>
-        </button>
+          return (
+            <button
+              key={role.id}
+              type="button"
+              onClick={() => onSelectPreset(role.id)}
+              className={`p-3 rounded-lg border text-left flex flex-col justify-between gap-2 transition-all cursor-pointer ${
+                isSelected
+                  ? `${role.selectedBorder} ${role.selectedBg} shadow-xs`
+                  : 'border-border bg-card hover:bg-muted/40'
+              }`}
+            >
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+                    <Icon className={`w-4 h-4 shrink-0 ${role.iconColor}`} />
+                    {role.title}
+                  </span>
+                  {isSelected ? (
+                    <Badge variant="default" className="text-[9px] h-4 px-1.5 gap-0.5 font-medium">
+                      <Check className="w-2.5 h-2.5" />
+                      Selected
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[9px] h-4 px-1.5 font-normal text-muted-foreground">
+                      {role.badge}
+                    </Badge>
+                  )}
+                </div>
+                <div className="text-[10px] font-medium text-muted-foreground">
+                  {role.subtitle}
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-tight">
+                {role.summary}
+              </p>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -20,7 +20,6 @@ import {
   deleteMessage as deleteMessageIpc,
   deleteSubscriptionPreset,
   loadSubscriptionPresets,
-  onZenohSample,
   onZenohSamplesBatched,
   publishSample,
   queryMessages,

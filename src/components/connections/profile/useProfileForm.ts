@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useConnectionStore } from '../../../stores/connectionStore';
-import type { ConnectionMode, ConnectionProfile, SessionConfig } from '../../../types/zenoh';
+import type { ConnectionMode, ConnectionProfile, SessionConfig, ReconnectRetryConfig } from '../../../types/zenoh';
 import {
   hasCustomTlsConfig,
   resolveTlsConfig,
@@ -23,6 +23,27 @@ export interface UseProfileFormProps {
   onSaved?: (profile: ConnectionProfile) => void;
 }
 
+export function isValidPort(port: string): boolean {
+  if (!port || typeof port !== 'string') return false;
+  const trimmed = port.trim();
+  if (!/^\d+$/.test(trimmed)) return false;
+  const num = parseInt(trimmed, 10);
+  return !isNaN(num) && num >= 0 && num <= 65535;
+}
+
+export function isValidUnixPath(path: string): boolean {
+  if (!path || typeof path !== 'string') return false;
+  const trimmed = path.trim();
+  return trimmed.length > 0 && trimmed.startsWith('/');
+}
+
+const DEFAULT_RECONNECT_RETRY_CONFIG: ReconnectRetryConfig = {
+  period_init_ms: 1000,
+  period_max_ms: 10000,
+  factor: 2,
+  timeout_ms: 30000,
+};
+
 export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfileFormProps) {
   const saveProfileToStore = useConnectionStore((state) => state.saveProfile);
   const saveAndConnectToStore = useConnectionStore((state) => state.saveAndConnect);
@@ -39,12 +60,14 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const [clientHost, setClientHost] = useState<string>('127.0.0.1');
   const [clientPort, setClientPort] = useState<string>('7447');
   const [clientProtocol, setClientProtocol] = useState<TransportProtocol>(DEFAULT_TRANSPORT_PROTOCOL);
+  const [enableReconnectRetry, setEnableReconnectRetry] = useState<boolean>(true);
 
   // Peer Mode Form State
   const [peerName, setPeerName] = useState<string>('Local Peer');
   const [connectLocators, setConnectLocators] = useState<string[]>([]);
   const [listenLocators, setListenLocators] = useState<string[]>([]);
   const [scoutMulticast, setScoutMulticast] = useState<boolean>(true);
+  const [scoutGossip, setScoutGossip] = useState<boolean>(true);
 
   // Router Mode Form State
   const [routerName, setRouterName] = useState<string>('Local Router');
@@ -52,6 +75,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     { id: 'ep-1', protocol: 'tcp', host: '0.0.0.0', port: '7447' },
   ]);
   const [routerScoutMulticast, setRouterScoutMulticast] = useState<boolean>(true);
+  const [routerScoutGossip, setRouterScoutGossip] = useState<boolean>(true);
   const [routerConnectLocators, setRouterConnectLocators] = useState<string[]>([]);
 
   // Auth State
@@ -87,6 +111,9 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setConnectLocators(profile.connect_locators ? [...profile.connect_locators] : []);
         setListenLocators(profile.listen_locators ? [...profile.listen_locators] : []);
         setScoutMulticast(profile.scout_multicast ?? true);
+        setScoutGossip(profile.scout_gossip ?? true);
+        setRouterScoutGossip(profile.scout_gossip ?? true);
+        setEnableReconnectRetry(profile.reconnect_retry !== null && profile.reconnect_retry !== undefined);
 
         setUsername(profile.user_auth?.username || '');
         setPassword(profile.user_auth?.password || '');
@@ -131,7 +158,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
               id: `ep-${idx + 1}-${Date.now()}`,
               protocol: (parsed?.protocol as TransportProtocol) || 'tcp',
               host: parsed?.host || '0.0.0.0',
-              port: parsed?.port || '7447',
+              port: parsed?.port || (parsed?.protocol === 'unix' ? '' : '7447'),
             };
           });
           setRouterListenEndpoints(eps);
@@ -158,11 +185,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setClientHost('127.0.0.1');
         setClientPort('7447');
         setClientProtocol(DEFAULT_TRANSPORT_PROTOCOL);
+        setEnableReconnectRetry(true);
 
         setPeerName('Local Peer');
         setConnectLocators([]);
         setListenLocators([]);
         setScoutMulticast(true);
+        setScoutGossip(true);
 
         const suggestedPort = getSuggestedRouterPort(useConnectionStore.getState().profiles);
         setRouterName('Local Router');
@@ -170,6 +199,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
           { id: `ep-1`, protocol: 'tcp', host: '0.0.0.0', port: suggestedPort },
         ]);
         setRouterScoutMulticast(true);
+        setRouterScoutGossip(true);
         setRouterConnectLocators([]);
 
         setUsername('');
@@ -204,6 +234,23 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
 
   const removeConnectLocator = (index: number) => {
     setConnectLocators((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Peer Listen Locators Helpers
+  const addListenLocator = () => {
+    setListenLocators((prev) => [...prev, '']);
+  };
+
+  const updateListenLocator = (index: number, val: string) => {
+    setListenLocators((prev) => {
+      const next = [...prev];
+      next[index] = val;
+      return next;
+    });
+  };
+
+  const removeListenLocator = (index: number) => {
+    setListenLocators((prev) => prev.filter((_, i) => i !== index));
   };
 
   // Router Listen Endpoints Helpers
@@ -256,14 +303,65 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setValidationError('Profile Name is required.');
         return false;
       }
-      if (!clientHost.trim()) {
-        setValidationError('Router Address is required (e.g. 127.0.0.1 or router.zenoh.io).');
-        return false;
+      if (clientProtocol === 'unix') {
+        if (!clientHost.trim()) {
+          setValidationError('Unix socket path is required (e.g. /tmp/zenoh.sock).');
+          return false;
+        }
+        if (!isValidUnixPath(clientHost)) {
+          setValidationError('Unix socket path must start with "/" (e.g. /tmp/zenoh.sock).');
+          return false;
+        }
+      } else {
+        if (!clientHost.trim()) {
+          setValidationError('Router Address is required (e.g. 127.0.0.1 or router.zenoh.io).');
+          return false;
+        }
+        if (!isValidPort(clientPort)) {
+          setValidationError('Port must be a valid integer between 0 and 65535.');
+          return false;
+        }
       }
     } else if (preset === 'peer') {
       if (!peerName.trim()) {
         setValidationError('Profile Name is required.');
         return false;
+      }
+      for (let i = 0; i < connectLocators.length; i++) {
+        const loc = connectLocators[i].trim();
+        if (loc) {
+          const parsed = parseLocator(loc);
+          if (!parsed) {
+            setValidationError(`Direct link #${i + 1} "${loc}" is not a valid Zenoh locator.`);
+            return false;
+          }
+          if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
+            setValidationError(`Direct link #${i + 1} Unix socket path must start with "/".`);
+            return false;
+          }
+          if (parsed.protocol !== 'unix' && parsed.port && !isValidPort(parsed.port)) {
+            setValidationError(`Direct link #${i + 1} port "${parsed.port}" must be between 0 and 65535.`);
+            return false;
+          }
+        }
+      }
+      for (let i = 0; i < listenLocators.length; i++) {
+        const loc = listenLocators[i].trim();
+        if (loc) {
+          const parsed = parseLocator(loc);
+          if (!parsed) {
+            setValidationError(`Listen endpoint #${i + 1} "${loc}" is not a valid Zenoh locator.`);
+            return false;
+          }
+          if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
+            setValidationError(`Listen endpoint #${i + 1} Unix socket path must start with "/".`);
+            return false;
+          }
+          if (parsed.protocol !== 'unix' && parsed.port && !isValidPort(parsed.port)) {
+            setValidationError(`Listen endpoint #${i + 1} port "${parsed.port}" must be between 0 and 65535.`);
+            return false;
+          }
+        }
       }
     } else if (preset === 'router') {
       if (!routerName.trim()) {
@@ -274,9 +372,41 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setValidationError('At least one listen endpoint is required.');
         return false;
       }
-      if (routerListenEndpoints.some((ep) => !ep.port.trim())) {
-        setValidationError('Listen Port is required for all endpoints (use 0 for auto).');
-        return false;
+      for (let i = 0; i < routerListenEndpoints.length; i++) {
+        const ep = routerListenEndpoints[i];
+        if (ep.protocol === 'unix') {
+          if (!ep.host.trim()) {
+            setValidationError(`Endpoint #${i + 1} Unix socket path is required (e.g. /tmp/zenoh.sock).`);
+            return false;
+          }
+          if (!isValidUnixPath(ep.host)) {
+            setValidationError(`Endpoint #${i + 1} Unix socket path must start with "/" (e.g. /tmp/zenoh.sock).`);
+            return false;
+          }
+        } else {
+          if (!isValidPort(ep.port)) {
+            setValidationError(`Endpoint #${i + 1} port "${ep.port}" must be a valid integer between 0 and 65535 (use 0 for auto).`);
+            return false;
+          }
+        }
+      }
+      for (let i = 0; i < routerConnectLocators.length; i++) {
+        const loc = routerConnectLocators[i].trim();
+        if (loc) {
+          const parsed = parseLocator(loc);
+          if (!parsed) {
+            setValidationError(`Upstream router #${i + 1} "${loc}" is not a valid Zenoh locator.`);
+            return false;
+          }
+          if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
+            setValidationError(`Upstream router #${i + 1} Unix socket path must start with "/".`);
+            return false;
+          }
+          if (parsed.protocol !== 'unix' && parsed.port && !isValidPort(parsed.port)) {
+            setValidationError(`Upstream router #${i + 1} port "${parsed.port}" must be between 0 and 65535.`);
+            return false;
+          }
+        }
       }
     }
 
@@ -316,10 +446,15 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       }
     }
 
+    const reconnectRetryConfig: ReconnectRetryConfig | null = enableReconnectRetry
+      ? (profile?.reconnect_retry || DEFAULT_RECONNECT_RETRY_CONFIG)
+      : null;
+
     if (preset === 'client') {
       const locator = buildLocator(clientProtocol, clientHost, clientPort);
+      const isEncrypted = clientProtocol === 'tls' || clientProtocol === 'wss';
       const tlsConfig = resolveTlsConfig({
-        enableTls: clientProtocol === 'tls',
+        enableTls: isEncrypted,
         useCustomTls,
         caCert,
         clientCert,
@@ -331,6 +466,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         connect_locators: locator ? [locator] : [],
         listen_locators: [],
         scout_multicast: false,
+        scout_gossip: false,
+        reconnect_retry: reconnectRetryConfig,
         user_auth: userAuth,
         tls_config: tlsConfig,
         custom_config: customConfigObj,
@@ -347,17 +484,19 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       return {
         mode: 'peer',
         connect_locators: connectLocators.map((l) => l.trim()).filter(Boolean),
-        listen_locators: [],
+        listen_locators: listenLocators.map((l) => l.trim()).filter(Boolean),
         scout_multicast: scoutMulticast,
+        scout_gossip: scoutGossip,
+        reconnect_retry: reconnectRetryConfig,
         user_auth: null,
         tls_config: tlsConfig,
         custom_config: customConfigObj,
       };
     } else if (preset === 'router') {
       const listenLocs = routerListenEndpoints
-        .map((ep) => buildLocator(ep.protocol, ep.host.trim() || '0.0.0.0', ep.port.trim() || '7447'))
+        .map((ep) => buildLocator(ep.protocol, ep.host.trim() || (ep.protocol === 'unix' ? '/tmp/zenoh.sock' : '0.0.0.0'), ep.port.trim()))
         .filter(Boolean);
-      const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls');
+      const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls' || ep.protocol === 'wss');
       const tlsConfig = resolveTlsConfig({
         enableTls: hasTlsEndpoint || enableTls || useCustomTls,
         useCustomTls,
@@ -371,6 +510,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         connect_locators: routerConnectLocators.map((l) => l.trim()).filter(Boolean),
         listen_locators: listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'],
         scout_multicast: routerScoutMulticast,
+        scout_gossip: routerScoutGossip,
+        reconnect_retry: reconnectRetryConfig,
         user_auth: userAuth,
         tls_config: tlsConfig,
         custom_config: customConfigObj,
@@ -382,6 +523,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       connect_locators: [],
       listen_locators: [],
       scout_multicast: false,
+      scout_gossip: false,
+      reconnect_retry: reconnectRetryConfig,
       user_auth: userAuth,
       tls_config: null,
       custom_config: customConfigObj,
@@ -434,11 +577,16 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
             }
           : null;
 
+      const reconnectRetryConfig: ReconnectRetryConfig | null = enableReconnectRetry
+        ? (profile?.reconnect_retry || DEFAULT_RECONNECT_RETRY_CONFIG)
+        : null;
+
       let finalName = '';
       let finalMode: ConnectionMode = 'client';
       let finalConnectLocators: string[] = [];
       let finalListenLocators: string[] = [];
       let finalScoutMulticast = false;
+      let finalScoutGossip = true;
       let finalTlsConfig = resolveTlsConfig({
         enableTls,
         useCustomTls,
@@ -452,11 +600,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         finalName = clientName.trim();
         finalMode = 'client';
         finalScoutMulticast = false;
+        finalScoutGossip = false;
         const locator = buildLocator(clientProtocol, clientHost, clientPort);
         finalConnectLocators = locator ? [locator] : [];
         finalListenLocators = [];
+        const isEncrypted = clientProtocol === 'tls' || clientProtocol === 'wss';
         finalTlsConfig = resolveTlsConfig({
-          enableTls: clientProtocol === 'tls',
+          enableTls: isEncrypted,
           useCustomTls,
           caCert,
           clientCert,
@@ -467,6 +617,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         finalName = peerName.trim();
         finalMode = 'peer';
         finalScoutMulticast = scoutMulticast;
+        finalScoutGossip = scoutGossip;
         finalConnectLocators = connectLocators.map((l) => l.trim()).filter(Boolean);
         finalListenLocators = listenLocators.map((l) => l.trim()).filter(Boolean);
         finalTlsConfig = resolveTlsConfig({
@@ -481,12 +632,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         finalName = routerName.trim();
         finalMode = 'router';
         finalScoutMulticast = routerScoutMulticast;
+        finalScoutGossip = routerScoutGossip;
         const listenLocs = routerListenEndpoints
-          .map((ep) => buildLocator(ep.protocol, ep.host.trim() || '0.0.0.0', ep.port.trim() || '7447'))
+          .map((ep) => buildLocator(ep.protocol, ep.host.trim() || (ep.protocol === 'unix' ? '/tmp/zenoh.sock' : '0.0.0.0'), ep.port.trim()))
           .filter(Boolean);
         finalListenLocators = listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'];
         finalConnectLocators = routerConnectLocators.map((l) => l.trim()).filter(Boolean);
-        const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls');
+        const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls' || ep.protocol === 'wss');
         finalTlsConfig = resolveTlsConfig({
           enableTls: hasTlsEndpoint || enableTls || useCustomTls,
           useCustomTls: useCustomTls || Boolean(caCert || clientCert || clientKey),
@@ -505,6 +657,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         connect_locators: finalConnectLocators,
         listen_locators: finalListenLocators,
         scout_multicast: finalScoutMulticast,
+        scout_gossip: finalScoutGossip,
+        reconnect_retry: reconnectRetryConfig,
         user_auth: userAuth,
         tls_config: finalTlsConfig,
         custom_config: customConfigObj,
@@ -545,12 +699,22 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setClientPort,
     clientProtocol,
     setClientProtocol,
+    enableReconnectRetry,
+    setEnableReconnectRetry,
     peerName,
     setPeerName,
     connectLocators,
     addConnectLocator,
     updateConnectLocator,
     removeConnectLocator,
+    listenLocators,
+    addListenLocator,
+    updateListenLocator,
+    removeListenLocator,
+    scoutMulticast,
+    setScoutMulticast,
+    scoutGossip,
+    setScoutGossip,
     routerName,
     setRouterName,
     routerListenEndpoints,
@@ -559,6 +723,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     removeRouterListenEndpoint,
     routerScoutMulticast,
     setRouterScoutMulticast,
+    routerScoutGossip,
+    setRouterScoutGossip,
     routerConnectLocators,
     addRouterConnectLocator,
     updateRouterConnectLocator,

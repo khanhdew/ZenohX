@@ -7,7 +7,6 @@ import {
   Plus,
   Radio,
   ShieldCheck,
-  ShieldAlert,
   Server,
   Users,
   Laptop,

@@ -191,6 +191,7 @@ export function buildTopologyGraph({
   // Include any active sessions that might not have a matching profile in profiles array
   Object.entries(activeSessions).forEach(([profileId, sessionInfo], index) => {
     const sessionZid = sessionInfo.zid;
+    if (!sessionZid) return;
     zenohxZids.add(sessionZid.toLowerCase());
 
     if (!zidNodeMap.has(sessionZid)) {

@@ -13,11 +13,9 @@ import {
   Zap,
   Play,
   Square,
-  Sparkles,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Badge } from '../ui/badge';
 import { ResizeHandle } from '../ui/resize-handle';
 import { useResizable } from '../../hooks/useResizable';
 import { PayloadEditor } from '../viewer/PayloadEditor';

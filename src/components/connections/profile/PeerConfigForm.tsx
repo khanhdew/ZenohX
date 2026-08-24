@@ -1,5 +1,15 @@
 import React from 'react';
-import { Zap, Lock, Shield, ShieldCheck, Plus, Trash2, Link } from 'lucide-react';
+import {
+  Zap,
+  Lock,
+  Shield,
+  ShieldCheck,
+  Plus,
+  Trash2,
+  Link,
+  Radio,
+  Network,
+} from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
@@ -12,6 +22,14 @@ export interface PeerConfigFormProps {
   addConnectLocator: () => void;
   updateConnectLocator: (index: number, val: string) => void;
   removeConnectLocator: (index: number) => void;
+  listenLocators?: string[];
+  addListenLocator?: () => void;
+  updateListenLocator?: (index: number, val: string) => void;
+  removeListenLocator?: (index: number) => void;
+  scoutMulticast?: boolean;
+  setScoutMulticast?: (val: boolean) => void;
+  scoutGossip?: boolean;
+  setScoutGossip?: (val: boolean) => void;
   enableTls: boolean;
   setEnableTls: (val: boolean) => void;
   useCustomTls: boolean;
@@ -33,6 +51,14 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
   addConnectLocator,
   updateConnectLocator,
   removeConnectLocator,
+  listenLocators = [],
+  addListenLocator,
+  updateListenLocator,
+  removeListenLocator,
+  scoutMulticast = true,
+  setScoutMulticast,
+  scoutGossip = true,
+  setScoutGossip,
   enableTls,
   setEnableTls,
   useCustomTls,
@@ -62,29 +88,59 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
         />
       </div>
 
-      {/* LAN Explanation Card */}
-      <div className="rounded-lg border p-3 bg-muted/20 space-y-1.5">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-amber-500 shrink-0" />
-          <span className="text-xs font-semibold text-foreground">
-            Automatic Local Discovery (P2P Mesh)
-          </span>
+      {/* LAN Multicast & Gossip Discovery Card */}
+      <div className="rounded-lg border p-3 bg-muted/10 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-emerald-500 shrink-0" />
+              <Label className="text-xs font-semibold text-foreground">
+                UDP Multicast Auto-Discovery
+              </Label>
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Auto-discover other Zenoh peers & routers on local subnet (<code className="font-mono text-[10px]">224.0.0.224:7446</code>).
+            </p>
+          </div>
+          {setScoutMulticast && (
+            <Switch
+              checked={scoutMulticast}
+              onCheckedChange={setScoutMulticast}
+            />
+          )}
         </div>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          ZenohX automatically discovers other Zenoh peers and routers on your local subnet using UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7446</code>).
-        </p>
+
+        {setScoutGossip && (
+          <div className="flex items-center justify-between pt-2 border-t">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
+                <Network className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                <Label className="text-xs font-medium text-foreground">
+                  Gossip Peer Scouting
+                </Label>
+              </div>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Exchange reachable peer topology descriptors across direct links.
+              </p>
+            </div>
+            <Switch
+              checked={scoutGossip}
+              onCheckedChange={setScoutGossip}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Optional Direct Connect Locators (e.g. to connect directly to a router or remote peer) */}
+      {/* Optional Direct Connect Locators (to remote peers or routers) */}
       <div className="space-y-2 pt-1 border-t">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label className="text-xs font-semibold flex items-center gap-1.5">
               <Link className="w-3.5 h-3.5 text-primary" />
-              Direct Connect Locators (Optional)
+              Direct Connect Links (Optional)
             </Label>
             <p className="text-[10px] text-muted-foreground">
-              Connect directly to a specific router or peer (e.g. <code className="font-mono text-[10px]">tcp/127.0.0.1:7447</code>).
+              Explicit unicast links to remote peers or upstream routers.
             </p>
           </div>
           <Button
@@ -95,23 +151,25 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
             className="h-7 text-xs gap-1"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add Locator</span>
+            <span>Add Link</span>
           </Button>
         </div>
 
         {connectLocators.length === 0 ? (
           <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
-            <span>Using pure multicast auto-discovery (no static links).</span>
-            <button
-              type="button"
-              onClick={() => {
-                addConnectLocator();
-                setTimeout(() => updateConnectLocator(0, 'tcp/127.0.0.1:7447'), 0);
-              }}
-              className="text-[10px] font-medium text-primary hover:underline"
-            >
-              + Link Localhost Router
-            </button>
+            <span>Pure multicast auto-discovery (no static outbound links).</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  addConnectLocator();
+                  setTimeout(() => updateConnectLocator(0, 'tcp/127.0.0.1:7447'), 0);
+                }}
+                className="text-[10px] font-medium text-primary hover:underline"
+              >
+                + Link Local Router
+              </button>
+            </div>
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -120,7 +178,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                 <Input
                   value={loc}
                   onChange={(e) => updateConnectLocator(idx, e.target.value)}
-                  placeholder="tcp/127.0.0.1:7447 or tcp/192.168.1.50:7447"
+                  placeholder="tcp/127.0.0.1:7447 or tls/peer.domain.com:7446"
                   className="h-8 text-xs font-mono bg-background flex-1"
                 />
                 <Button
@@ -129,7 +187,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                   size="iconSm"
                   onClick={() => removeConnectLocator(idx)}
                   className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
-                  title="Remove locator"
+                  title="Remove link locator"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </Button>
@@ -138,6 +196,74 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
           </div>
         )}
       </div>
+
+      {/* Optional Static Listen Endpoints */}
+      {addListenLocator && updateListenLocator && removeListenLocator && (
+        <div className="space-y-2 pt-1 border-t">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-semibold flex items-center gap-1.5">
+                <Radio className="w-3.5 h-3.5 text-emerald-500" />
+                Static Listen Endpoints (Optional)
+              </Label>
+              <p className="text-[10px] text-muted-foreground">
+                Allow inbound direct connections from non-multicast peers.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addListenLocator}
+              className="h-7 text-xs gap-1"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Listener</span>
+            </Button>
+          </div>
+
+          {listenLocators.length === 0 ? (
+            <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
+              <span>Ephemeral listener (default dynamic port).</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    addListenLocator();
+                    setTimeout(() => updateListenLocator(0, 'tcp/0.0.0.0:7447'), 0);
+                  }}
+                  className="text-[10px] font-medium text-primary hover:underline"
+                >
+                  + Bind TCP:7447
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {listenLocators.map((loc, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <Input
+                    value={loc}
+                    onChange={(e) => updateListenLocator(idx, e.target.value)}
+                    placeholder="tcp/0.0.0.0:7447 or ws/0.0.0.0:8080"
+                    className="h-8 text-xs font-mono bg-background flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="iconSm"
+                    onClick={() => removeListenLocator(idx)}
+                    className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
+                    title="Remove listen locator"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* TLS / mTLS Security Section */}
       <div className="rounded-lg border p-3 bg-muted/10 space-y-3">

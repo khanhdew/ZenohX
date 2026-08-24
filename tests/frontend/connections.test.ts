@@ -668,6 +668,28 @@ describe('Connection Manager Integration & Helpers', () => {
     globalThis.window.location = { search: '' };
   });
 
+  test('isValidPort and isValidUnixPath validate endpoints correctly', async () => {
+    const { isValidPort, isValidUnixPath } = await import('../../src/components/connections/profile/useProfileForm');
+
+    // Port validation
+    assert.equal(isValidPort('7447'), true);
+    assert.equal(isValidPort('0'), true);
+    assert.equal(isValidPort('65535'), true);
+    assert.equal(isValidPort('8080'), true);
+    assert.equal(isValidPort('65536'), false);
+    assert.equal(isValidPort('-1'), false);
+    assert.equal(isValidPort('abc'), false);
+    assert.equal(isValidPort(''), false);
+    assert.equal(isValidPort('  '), false);
+
+    // Unix path validation
+    assert.equal(isValidUnixPath('/tmp/zenoh.sock'), true);
+    assert.equal(isValidUnixPath('/var/run/zenoh.sock'), true);
+    assert.equal(isValidUnixPath('tmp/zenoh.sock'), false);
+    assert.equal(isValidUnixPath(''), false);
+    assert.equal(isValidUnixPath('   '), false);
+  });
+
   test('PresetSelector, ClientConfigForm, PeerConfigForm, and RouterConfigForm render correctly', async () => {
     const React = await import('react');
     const { PresetSelector } = await import('../../src/components/connections/profile/PresetSelector');
@@ -706,16 +728,18 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.ok(presetEl);
     assert.equal(presetEl.type, PresetSelector);
 
-    // Test ClientConfigForm element
+    // Test ClientConfigForm element with WebSocket and Reconnect Retry
     const clientFormEl = React.createElement(ClientConfigForm, {
       clientName: 'My Client',
       setClientName: () => {},
       clientHost: '127.0.0.1',
       setClientHost: () => {},
-      clientPort: '7447',
+      clientPort: '8080',
       setClientPort: () => {},
-      clientProtocol: 'tcp',
+      clientProtocol: 'ws',
       setClientProtocol: () => {},
+      enableReconnectRetry: true,
+      setEnableReconnectRetry: () => {},
       username: '',
       setUsername: () => {},
       password: '',
@@ -724,7 +748,7 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.ok(clientFormEl);
     assert.equal(clientFormEl.type, ClientConfigForm);
 
-    // Test PeerConfigForm element
+    // Test PeerConfigForm element with static listeners and gossip
     const peerFormEl = React.createElement(PeerConfigForm, {
       peerName: 'My Peer',
       setPeerName: () => {},
@@ -732,6 +756,14 @@ describe('Connection Manager Integration & Helpers', () => {
       addConnectLocator: () => {},
       updateConnectLocator: () => {},
       removeConnectLocator: () => {},
+      listenLocators: ['tcp/0.0.0.0:7447', 'ws/0.0.0.0:8080'],
+      addListenLocator: () => {},
+      updateListenLocator: () => {},
+      removeListenLocator: () => {},
+      scoutMulticast: true,
+      setScoutMulticast: () => {},
+      scoutGossip: true,
+      setScoutGossip: () => {},
       enableTls: true,
       setEnableTls: () => {},
       useCustomTls: false,
@@ -746,19 +778,23 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.ok(peerFormEl);
     assert.equal(peerFormEl.type, PeerConfigForm);
 
-    // Test RouterConfigForm element with multiple listen endpoints (e.g. TCP + TLS)
+    // Test RouterConfigForm element with multiple listen endpoints including UNIX and WS
     const routerFormEl = React.createElement(RouterConfigForm, {
       routerName: 'My Multi-Protocol Router',
       setRouterName: () => {},
       listenEndpoints: [
         { id: 'ep-1', protocol: 'tcp', host: '0.0.0.0', port: '7447' },
         { id: 'ep-2', protocol: 'tls', host: '0.0.0.0', port: '7446' },
+        { id: 'ep-3', protocol: 'unix', host: '/tmp/zenoh.sock', port: '' },
+        { id: 'ep-4', protocol: 'ws', host: '0.0.0.0', port: '8080' },
       ],
       addListenEndpoint: () => {},
       updateListenEndpoint: () => {},
       removeListenEndpoint: () => {},
       routerScoutMulticast: true,
       setRouterScoutMulticast: () => {},
+      routerScoutGossip: true,
+      setRouterScoutGossip: () => {},
       routerConnectLocators: ['tcp/10.0.0.1:7447'],
       addRouterConnectLocator: () => {},
       updateRouterConnectLocator: () => {},

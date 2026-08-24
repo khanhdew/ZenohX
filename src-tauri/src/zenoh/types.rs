@@ -88,13 +88,13 @@ impl SessionConfig {
         let mut config = zenoh::Config::default();
 
         // 0. Persistent Node ID (ZID)
-        // If profile_id is provided, derive a deterministic 128-bit hex Zenoh ID so this profile always uses the exact same node ID
+        // Derive a valid hexadecimal Zenoh ID (without syntax-breaking leading zero formatting)
         if let Some(pid) = &self.profile_id {
             let zid_hex = if let Ok(u) = uuid::Uuid::parse_str(pid) {
-                format!("{:032x}", u.as_u128())
+                format!("{:x}", u.as_u128())
             } else {
                 let u = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_OID, pid.as_bytes());
-                format!("{:032x}", u.as_u128())
+                format!("{:x}", u.as_u128())
             };
             let _ = config.insert_json5("id", &format!("\"{zid_hex}\""));
         }
@@ -114,13 +114,21 @@ impl SessionConfig {
             }
         }
 
-        // 2. Connect locators
+        // 2. Connect locators & background retry policy
         if !self.connect_locators.is_empty() {
             let json = serde_json::to_string(&self.connect_locators)
                 .map_err(|e| format!("failed to serialize connect_locators: {e}"))?;
             config
                 .insert_json5("connect/endpoints", &json)
                 .map_err(|e| format!("failed to set connect endpoints: {e}"))?;
+
+            // For routers & peers connecting to upstreams:
+            // Ensure background reconnect retries are active and don't abort listener startup
+            let _ = config.insert_json5("connect/timeout_ms", "0");
+            let _ = config.insert_json5("connect/exit_on_failure", "false");
+            let _ = config.insert_json5("connect/retry/period_init_ms", "1000");
+            let _ = config.insert_json5("connect/retry/period_max_ms", "4000");
+            let _ = config.insert_json5("connect/retry/period_increase_factor", "2");
         }
 
         // 3. Listen locators
@@ -244,6 +252,25 @@ pub struct ScoutedNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionLinkInfo {
+    pub zid: String,
+    pub whatami: String, // "router", "peer", "client"
+    pub src: String,
+    pub dst: String,
+    pub is_streamed: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub mtu: Option<u16>,
+    #[serde(default)]
+    pub interfaces: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub auth_identifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reliability: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub priorities: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SessionInfo {
     pub id: uuid::Uuid,
     pub profile_id: Option<String>,
@@ -253,6 +280,18 @@ pub struct SessionInfo {
     pub connect_locators: Vec<String>,
     pub listen_locators: Vec<String>,
     pub created_at: i64,
+    #[serde(default)]
+    pub connected_routers: Vec<String>,
+    #[serde(default)]
+    pub connected_peers: Vec<String>,
+    #[serde(default)]
+    pub links: Vec<SessionLinkInfo>,
+    #[serde(default)]
+    pub active_subscribers: usize,
+    #[serde(default)]
+    pub active_queryables: usize,
+    #[serde(default)]
+    pub uptime_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cloud, Home, SlidersHorizontal } from 'lucide-react';
+import { Cloud, Home, Server } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Badge } from '../../ui/badge';
 import type { ConnectionPreset } from '../../../lib/tls';
@@ -20,9 +20,9 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
         {/* Client Mode Preset */}
         <button
           type="button"
-          onClick={() => onSelectPreset('cloud')}
+          onClick={() => onSelectPreset('client')}
           className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-            preset === 'cloud'
+            preset === 'client'
               ? 'border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30'
               : 'border-border bg-card hover:bg-muted/40'
           }`}
@@ -32,23 +32,23 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
               <Cloud className="w-3.5 h-3.5 text-primary" />
               Client Mode
             </span>
-            {preset === 'cloud' && (
+            {preset === 'client' && (
               <Badge variant="default" className="text-[9px] h-3.5 px-1">
                 Selected
               </Badge>
             )}
           </div>
           <span className="text-[10px] text-muted-foreground leading-tight">
-            Connect to cloud or remote Zenoh router.
+            Connect upstream to cloud or remote Zenoh router.
           </span>
         </button>
 
         {/* Peer Mode Preset */}
         <button
           type="button"
-          onClick={() => onSelectPreset('local')}
+          onClick={() => onSelectPreset('peer')}
           className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-            preset === 'local'
+            preset === 'peer'
               ? 'border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30'
               : 'border-border bg-card hover:bg-muted/40'
           }`}
@@ -56,42 +56,42 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold flex items-center gap-1.5">
               <Home className="w-3.5 h-3.5 text-emerald-500" />
-              Peer
+              Peer Mode
             </span>
-            {preset === 'local' && (
+            {preset === 'peer' && (
               <Badge variant="default" className="text-[9px] h-3.5 px-1">
                 Selected
               </Badge>
             )}
           </div>
           <span className="text-[10px] text-muted-foreground leading-tight">
-            Auto-discover peers on local subnet.
+            P2P mesh & auto-discover peers on LAN.
           </span>
         </button>
 
-        {/* Custom / Advanced Preset */}
+        {/* Router Mode Preset */}
         <button
           type="button"
-          onClick={() => onSelectPreset('custom')}
+          onClick={() => onSelectPreset('router')}
           className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition-all ${
-            preset === 'custom'
+            preset === 'router'
               ? 'border-primary bg-primary/10 shadow-xs ring-1 ring-primary/30'
               : 'border-border bg-card hover:bg-muted/40'
           }`}
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold flex items-center gap-1.5">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-              Custom
+              <Server className="w-3.5 h-3.5 text-indigo-500" />
+              Router Mode
             </span>
-            {preset === 'custom' && (
+            {preset === 'router' && (
               <Badge variant="default" className="text-[9px] h-3.5 px-1">
                 Selected
               </Badge>
             )}
           </div>
           <span className="text-[10px] text-muted-foreground leading-tight">
-            Raw locators, router mode & mTLS.
+            Operate as local Zenoh router & listen for nodes.
           </span>
         </button>
       </div>

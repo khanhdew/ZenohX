@@ -17,7 +17,7 @@ describe('Topology Data Builder', () => {
     assert.equal(extractLocatorProtocol('quic/127.0.0.1:7447'), 'quic');
     assert.equal(extractLocatorProtocol('192.168.1.50:7447'), 'tcp');
     assert.equal(extractLocatorProtocol('192.168.1.50:7447', true), 'tls');
-    assert.equal(extractLocatorProtocol('192.168.1.50:7448'), 'tls');
+    assert.equal(extractLocatorProtocol('tls/192.168.1.50:7448'), 'tls');
     assert.equal(extractLocatorProtocol('invalid-format'), 'unknown');
   });
 
@@ -52,10 +52,10 @@ describe('Topology Data Builder', () => {
       {
         id: 'prof-1',
         name: 'My Router Profile',
-        mode: 'client',
-        connect_locators: ['tcp/192.168.1.100:7447'],
-        listen_locators: [],
-        scout_multicast: false,
+        mode: 'router',
+        connect_locators: [],
+        listen_locators: ['tcp/192.168.1.100:7447', 'tls/192.168.1.100:7446'],
+        scout_multicast: true,
         created_at: 1704067200000,
         updated_at: 1704067200000,
       },
@@ -65,7 +65,8 @@ describe('Topology Data Builder', () => {
       'prof-1': {
         id: 'sess-1',
         profile_id: 'prof-1',
-        zid: 'local-zid-001',
+        zid: '0123456789abcdef',
+        connected_peers: ['fedcba9876543210'],
         connected_at: '2026-01-01T00:00:00Z',
       },
     };
@@ -101,6 +102,7 @@ describe('Topology Data Builder', () => {
     assert.ok(routerPeerEdge);
     assert.equal(routerPeerEdge?.status, 'active');
     assert.equal(routerPeerEdge?.animated, true);
+    assert.equal(routerPeerEdge?.isExact, true);
   });
 
   it('preserves existing node positions across graph updates', () => {
@@ -184,7 +186,7 @@ describe('Topology Data Builder', () => {
     assert.equal(cloudNode?.label, 'Cloud Router');
   });
 
-  it('automatically creates peer mesh edges between discovered LAN peers', () => {
+  it('does not create speculative edges between unconnected scouted peers in strict mode', () => {
     const scoutedNodes: ScoutedNode[] = [
       {
         zid: 'peer-1',
@@ -206,11 +208,8 @@ describe('Topology Data Builder', () => {
     });
 
     assert.equal(nodes.length, 2);
-    assert.equal(edges.length, 1);
-
-    const meshEdge = edges[0];
-    assert.ok(meshEdge);
-    assert.equal(meshEdge.status, 'scouted');
+    // Strict mode: no edges unless an exact connection is confirmed
+    assert.equal(edges.length, 0);
   });
 
   it('filters out ZenohX own session from scout results and accurately models single local router', () => {
@@ -256,12 +255,15 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // Exactly 1 node: the local router (own-zenohx-client-zid is filtered out, prof-local-router is matched to router)
-    assert.equal(nodes.length, 1);
-    assert.equal(nodes[0].zid, 'router-local-zenohd-zid');
-    assert.equal(nodes[0].status, 'connected');
-    assert.equal(nodes[0].label, 'Local Router');
-    assert.equal(edges.length, 0);
+    // 2 nodes: ZenohX Client session (from Rust) + External Zenohd Router (from Scout)
+    assert.equal(nodes.length, 2);
+    const clientNode = nodes.find((n) => n.zid === 'own-zenohx-client-zid');
+    const routerNode = nodes.find((n) => n.zid === 'router-local-zenohd-zid');
+    assert.ok(clientNode);
+    assert.ok(routerNode);
+    assert.equal(clientNode?.status, 'connected');
+    assert.equal(routerNode?.status, 'scouted');
+    assert.equal(routerNode?.type, 'router');
   });
 
   it('returns empty graph when disconnected with no scouted nodes', () => {
@@ -319,14 +321,90 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // Must be exactly 1 node with this ZID
+    // Exactly 1 node: ZenohX session (deduplicated against duplicate scout entries)
     assert.equal(nodes.length, 1);
     assert.equal(nodes[0].zid, 'duplicate-zid-12345678');
     assert.equal(nodes[0].status, 'connected');
     assert.equal(nodes[0].label, 'My LAN Peer');
-    // Locators should be unioned
-    assert.ok(nodes[0].locators.includes('tcp/192.168.1.50:7447'));
-    assert.ok(nodes[0].locators.includes('udp/192.168.1.50:7447'));
-    assert.ok(nodes[0].locators.includes('tls/192.168.1.50:7446'));
+    assert.ok(nodes[0].connectLocators?.includes('tcp/192.168.1.50:7447'));
+  });
+
+  it('correctly maps exact verified router and peer connections and session metrics', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: 'router-zid-1111',
+        what: 'Router',
+        locators: ['tcp/192.168.1.100:7447'],
+      },
+      {
+        zid: 'peer-zid-2222',
+        what: 'Peer',
+        locators: ['tcp/192.168.1.102:7447'],
+      },
+      {
+        zid: 'unconnected-scout-3333',
+        what: 'Peer',
+        locators: ['tcp/192.168.1.103:7447'],
+      },
+    ];
+
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-peer',
+        name: 'Local Peer Node',
+        mode: 'peer',
+        connect_locators: [],
+        listen_locators: [],
+        scout_multicast: false,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-peer': {
+        id: 'sess-1',
+        profile_id: 'prof-peer',
+        zid: 'peer-zid-0000',
+        connected_routers: ['router-zid-1111'],
+        connected_peers: ['peer-zid-2222'],
+        active_subscribers: 3,
+        active_queryables: 2,
+        uptime_seconds: 125,
+        connected_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    const localNode = nodes.find((n) => n.zid === 'peer-zid-0000');
+    assert.ok(localNode);
+    assert.equal(localNode?.activeSubscribers, 3);
+    assert.equal(localNode?.activeQueryables, 2);
+    assert.equal(localNode?.uptimeSeconds, 125);
+    assert.deepEqual(localNode?.connectedRouters, ['router-zid-1111']);
+    assert.deepEqual(localNode?.connectedPeers, ['peer-zid-2222']);
+
+    // Check exact edges
+    const exactRouterEdge = edges.find(
+      (e) => (e.source === localNode?.id && e.target === 'scouted-router-zid-1111') ||
+             (e.target === localNode?.id && e.source === 'scouted-router-zid-1111')
+    );
+    assert.ok(exactRouterEdge);
+    assert.equal(exactRouterEdge?.isExact, true);
+    assert.equal(exactRouterEdge?.status, 'active');
+
+    const exactPeerEdge = edges.find(
+      (e) => (e.source === localNode?.id && e.target === 'scouted-peer-zid-2222') ||
+             (e.target === localNode?.id && e.source === 'scouted-peer-zid-2222')
+    );
+    assert.ok(exactPeerEdge);
+    assert.equal(exactPeerEdge?.isExact, true);
+    assert.equal(exactPeerEdge?.status, 'active');
   });
 });

@@ -69,6 +69,15 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     return () => clearInterval(intervalId);
   }, [autoScoutInterval, scout]);
 
+  // Periodically refresh active sessions to keep live router-to-router and peer links up to date
+  useEffect(() => {
+    useConnectionStore.getState().refreshSessions();
+    const intervalId = setInterval(() => {
+      useConnectionStore.getState().refreshSessions();
+    }, 2500);
+    return () => clearInterval(intervalId);
+  }, []);
+
   // Sync topology data is handled in App.tsx to ensure global state consistency
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;

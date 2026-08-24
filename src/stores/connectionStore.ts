@@ -271,6 +271,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         connectingProfileIds: { ...state.connectingProfileIds, [profileId]: false },
       }));
 
+      // Background TCP link & router handshakes take 50-300ms to establish.
+      // Refresh session info shortly after connect to capture newly linked upstream routers and peers.
+      setTimeout(() => {
+        get().refreshSessions();
+      }, 350);
+      setTimeout(() => {
+        get().refreshSessions();
+      }, 1000);
+
       return sessionId;
     } catch (err) {
       console.error('Connect failed:', err);

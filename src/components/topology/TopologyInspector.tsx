@@ -12,6 +12,11 @@ import {
   Users,
   Laptop,
   Settings,
+  Network,
+  Clock,
+  Activity,
+  ArrowRight,
+  Zap,
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -195,18 +200,13 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
               {node.status}
             </Badge>
 
-            {node.isTls ? (
+            {node.isTls && (
               <Badge
                 variant="secondary"
                 className="text-[10px] gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
               >
                 <ShieldCheck className="w-3 h-3" />
                 TLS Encrypted
-              </Badge>
-            ) : (
-              <Badge variant="outline" className="text-[10px] gap-1 text-muted-foreground">
-                <ShieldAlert className="w-3 h-3" />
-                Plaintext
               </Badge>
             )}
           </div>
@@ -261,6 +261,217 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             </div>
           )}
         </div>
+
+        {/* Configured Upstreams (Connect Endpoints) */}
+        {node.connectLocators && node.connectLocators.length > 0 && (
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-muted-foreground">
+              Configured Upstreams ({node.connectLocators.length})
+            </label>
+            <div className="space-y-1">
+              {node.connectLocators.map((loc, idx) => {
+                const proto = extractLocatorProtocol(loc, node.isTls);
+                const host = extractLocatorHostPort(loc);
+                const isCopied = copiedLocator === loc;
+
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-1.5 rounded-md bg-muted/40 border text-[11px]"
+                  >
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono">
+                        {proto}
+                      </Badge>
+                      <span className="font-mono truncate">{host}</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      onClick={() => handleCopyLocator(loc)}
+                      className="h-5 w-5 shrink-0"
+                      title="Copy Locator"
+                    >
+                      {isCopied ? (
+                        <Check className="w-3 h-3 text-emerald-500" />
+                      ) : (
+                        <Copy className="w-3 h-3 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Live Verified Neighbors (Exact Engine Connections) */}
+        {node.status === 'connected' && (
+          <div className="space-y-1.5 pt-1 border-t border-border/50">
+            <div className="flex items-center justify-between">
+              <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                <Network className="w-3 h-3 text-primary" />
+                Live Verified Neighbors
+              </label>
+              <Badge variant="outline" className="text-[9px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20">
+                Exact Links
+              </Badge>
+            </div>
+
+            <div className="space-y-2">
+              {/* Connected Routers */}
+              <div className="p-2 rounded-md bg-muted/40 border space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
+                  <span className="flex items-center gap-1">
+                    <Server className="w-3 h-3 text-indigo-500" />
+                    Connected Routers ({node.connectedRouters?.length || 0})
+                  </span>
+                </div>
+                {node.connectedRouters && node.connectedRouters.length > 0 ? (
+                  <div className="space-y-1">
+                    {node.connectedRouters.map((rZid, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
+                        <span className="truncate" title={rZid}>{rZid}</span>
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 bg-indigo-500/10 text-indigo-500 border-indigo-500/20">
+                          Direct
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground italic">No direct router sessions</p>
+                )}
+              </div>
+
+              {/* Connected Peers */}
+              <div className="p-2 rounded-md bg-muted/40 border space-y-1.5">
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
+                  <span className="flex items-center gap-1">
+                    <Users className="w-3 h-3 text-blue-500" />
+                    Connected Peers ({node.connectedPeers?.length || 0})
+                  </span>
+                </div>
+                {node.connectedPeers && node.connectedPeers.length > 0 ? (
+                  <div className="space-y-1">
+                    {node.connectedPeers.map((pZid, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
+                        <span className="truncate" title={pZid}>{pZid}</span>
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 bg-blue-500/10 text-blue-500 border-blue-500/20">
+                          Direct
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground italic">No direct peer sessions</p>
+                )}
+              </div>
+
+              {/* Live Physical Links & Deep Telemetry */}
+              {node.links && node.links.length > 0 && (
+                <div className="p-2 rounded-md bg-muted/40 border space-y-2">
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
+                    <span className="flex items-center gap-1">
+                      <Zap className="w-3 h-3 text-amber-500" />
+                      Physical Links & Telemetry ({node.links.length})
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {node.links.map((link, idx) => (
+                      <div key={idx} className="p-2 rounded bg-background/80 border space-y-1.5 text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono bg-primary/10 text-primary">
+                            {link.whatami}
+                          </Badge>
+                          <span className="text-[10px] font-mono text-muted-foreground truncate max-w-[140px]" title={link.zid}>
+                            {link.zid}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground bg-muted/30 p-1 rounded">
+                          <span className="truncate" title={link.src}>{extractLocatorHostPort(link.src) || link.src}</span>
+                          <ArrowRight className="w-3 h-3 shrink-0 text-muted-foreground/60" />
+                          <span className="truncate font-semibold text-foreground" title={link.dst}>{extractLocatorHostPort(link.dst) || link.dst}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          <Badge variant="secondary" className="text-[8px] px-1 py-0">
+                            {link.is_streamed ? 'Streamed' : 'Datagram'}
+                          </Badge>
+                          {link.mtu !== undefined && link.mtu !== null && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 font-mono">
+                              MTU {link.mtu}B
+                            </Badge>
+                          )}
+                          {link.interfaces && link.interfaces.length > 0 && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 font-mono text-blue-500 bg-blue-500/10">
+                              {link.interfaces.join(', ')}
+                            </Badge>
+                          )}
+                          {link.reliability && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 capitalize">
+                              {link.reliability}
+                            </Badge>
+                          )}
+                          {link.priorities && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 font-mono">
+                              Pri: {link.priorities}
+                            </Badge>
+                          )}
+                          {link.auth_identifier && (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 text-emerald-500 bg-emerald-500/10">
+                              Auth: {link.auth_identifier}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Live Session Metrics */}
+        {node.status === 'connected' && (node.uptimeSeconds !== undefined || node.activeSubscribers !== undefined) && (
+          <div className="space-y-1.5 pt-1 border-t border-border/50">
+            <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+              <Activity className="w-3 h-3 text-primary" />
+              Session Metrics
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="p-2 rounded-md bg-muted/40 border text-[11px]">
+                <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-muted-foreground" />
+                  Uptime
+                </div>
+                <div className="font-semibold text-foreground mt-0.5 font-mono">
+                  {node.uptimeSeconds !== undefined ? (
+                    node.uptimeSeconds < 60 ? `${node.uptimeSeconds}s` :
+                    node.uptimeSeconds < 3600 ? `${Math.floor(node.uptimeSeconds / 60)}m ${node.uptimeSeconds % 60}s` :
+                    `${Math.floor(node.uptimeSeconds / 3600)}h ${Math.floor((node.uptimeSeconds % 3600) / 60)}m`
+                  ) : '0s'}
+                </div>
+              </div>
+              <div className="p-2 rounded-md bg-muted/40 border text-[11px]">
+                <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <Radio className="w-3 h-3 text-muted-foreground" />
+                  Subscribers
+                </div>
+                <div className="font-semibold text-foreground mt-0.5 font-mono">
+                  {node.activeSubscribers ?? 0}
+                </div>
+              </div>
+              <div className="p-2 rounded-md bg-muted/40 border text-[11px] col-span-2">
+                <div className="text-[10px] text-muted-foreground">
+                  Active Queryables
+                </div>
+                <div className="font-semibold text-foreground mt-0.5 font-mono">
+                  {node.activeQueryables ?? 0} declared
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Action Buttons Footer */}

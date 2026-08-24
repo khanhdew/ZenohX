@@ -1,20 +1,23 @@
 import type { ConnectionProfile, ScoutedNode, TlsConfig } from '../types/zenoh';
 
-export type ConnectionPreset = 'cloud' | 'local' | 'custom';
+export type ConnectionPreset = 'client' | 'peer' | 'router';
 
-export type CloudProtocol = 'tcp' | 'tls' | 'quic' | 'udp';
+export type TransportProtocol = 'tcp' | 'tls' | 'quic' | 'udp';
+export type CloudProtocol = TransportProtocol; // Backward-compatibility alias
 
-export const DEFAULT_CLOUD_PROTOCOL: CloudProtocol = 'tcp';
+export const DEFAULT_TRANSPORT_PROTOCOL: TransportProtocol = 'tcp';
+export const DEFAULT_CLOUD_PROTOCOL = DEFAULT_TRANSPORT_PROTOCOL;
 
-export const SUPPORTED_CLOUD_PROTOCOLS = [
+export const SUPPORTED_TRANSPORT_PROTOCOLS = [
   { id: 'tcp', label: 'TCP (Plain)' },
   { id: 'tls', label: 'TLS (Secure)' },
   { id: 'quic', label: 'QUIC' },
   { id: 'udp', label: 'UDP' },
 ] as const;
+export const SUPPORTED_CLOUD_PROTOCOLS = SUPPORTED_TRANSPORT_PROTOCOLS;
 
 export interface ParsedLocator {
-  protocol: CloudProtocol | string;
+  protocol: TransportProtocol | string;
   host: string;
   port: string;
 }
@@ -45,9 +48,21 @@ export function hasCustomTlsConfig(tlsConfig?: TlsConfig | null): boolean {
  * Determines whether TLS is enabled based on profile configuration and locators.
  */
 export function isTlsEnabled(tlsConfig?: TlsConfig | null, locators?: string[]): boolean {
-  if (tlsConfig !== null && tlsConfig !== undefined) return true;
-  if (locators && locators.some((loc) => loc.trim().toLowerCase().startsWith('tls/'))) {
+  if (locators && locators.some((loc) => {
+    const l = loc.trim().toLowerCase();
+    return l.startsWith('tls/') || l.startsWith('wss/');
+  })) {
     return true;
+  }
+  if (tlsConfig && typeof tlsConfig === 'object') {
+    if (
+      Boolean(tlsConfig.ca_cert) ||
+      Boolean(tlsConfig.client_cert) ||
+      Boolean(tlsConfig.client_key) ||
+      tlsConfig.tls_only === true
+    ) {
+      return true;
+    }
   }
   return false;
 }
@@ -133,42 +148,69 @@ export function buildLocator(protocol: string, host: string, port: string): stri
   const parsed = parseLocator(h);
   if (parsed) {
     const proto = protocol.trim().toLowerCase() || parsed.protocol || 'tcp';
-    const p = port.trim() && port.trim() !== '7447' ? port.trim() : parsed.port || '7447';
+    const p = port.trim() !== '' ? port.trim() : parsed.port || '7447';
     return `${proto}/${parsed.host}:${p}`;
   }
 
-  const p = port.trim() || '7447';
+  const p = port.trim() !== '' ? port.trim() : '7447';
   const proto = protocol.trim().toLowerCase() || 'tcp';
   return `${proto}/${h}:${p}`;
 }
 
 /**
- * Detects whether an existing profile matches 'cloud', 'local', or 'custom' configuration.
+ * Scans existing connection profiles to find the next available router listen port (starting at 7447).
+ */
+export function getSuggestedRouterPort(profiles?: ConnectionProfile[]): string {
+  if (!profiles || profiles.length === 0) return '7447';
+
+  const usedPorts = new Set<number>();
+  profiles.forEach((p) => {
+    if (p.listen_locators) {
+      p.listen_locators.forEach((loc) => {
+        const parsed = parseLocator(loc);
+        if (parsed && parsed.port) {
+          const num = parseInt(parsed.port, 10);
+          if (!isNaN(num) && num > 0) {
+            usedPorts.add(num);
+          }
+        }
+      });
+    }
+  });
+
+  let port = 7447;
+  while (usedPorts.has(port)) {
+    port++;
+  }
+  return port.toString();
+}
+
+/**
+ * Returns a random port in the 7448-7999 range.
+ */
+export function getRandomRouterPort(): string {
+  const min = 7448;
+  const max = 7999;
+  return Math.floor(Math.random() * (max - min + 1) + min).toString();
+}
+
+/**
+ * Detects whether an existing profile matches 'client', 'peer', or 'router' configuration.
  */
 export function detectProfilePreset(profile?: Partial<ConnectionProfile> | null): ConnectionPreset {
-  if (!profile) return 'cloud';
+  if (!profile) return 'client';
 
   const mode = (profile.mode || 'peer').toLowerCase();
-  const connects = profile.connect_locators || [];
-  const listens = profile.listen_locators || [];
-  const hasCustomTls = hasCustomTlsConfig(profile.tls_config);
-  const hasCustomConfig = Boolean(
-    profile.custom_config && Object.keys(profile.custom_config).length > 0
-  );
 
-  if (hasCustomConfig || listens.length > 0 || connects.length > 1 || mode === 'router') {
-    return 'custom';
+  if (mode === 'router') {
+    return 'router';
   }
 
-  if (connects.length === 1 && mode === 'client') {
-    return 'cloud';
+  if (mode === 'client') {
+    return 'client';
   }
 
-  if (connects.length === 0 && listens.length === 0 && mode === 'peer' && !hasCustomTls) {
-    return 'local';
-  }
-
-  return 'custom';
+  return 'peer';
 }
 
 /**

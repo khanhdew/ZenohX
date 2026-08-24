@@ -2,7 +2,7 @@
  * ZenohX Topology Graph Types & Interfaces
  */
 
-import type { ScoutedNode, ConnectionProfile, ActiveSession } from './zenoh';
+import type { ScoutedNode, ConnectionProfile, ActiveSession, SessionLinkInfo } from './zenoh';
 
 export type TopologyNodeType = 'router' | 'peer' | 'client';
 export type TopologyNodeStatus = 'connected' | 'scouted' | 'connecting' | 'disconnected';
@@ -15,9 +15,16 @@ export interface TopologyNode {
   type: TopologyNodeType;
   status: TopologyNodeStatus;
   locators: string[];
+  connectLocators?: string[];
+  links?: SessionLinkInfo[];
   isTls: boolean;
   profileId?: string;
   mode?: string;
+  connectedRouters?: string[];
+  connectedPeers?: string[];
+  activeSubscribers?: number;
+  activeQueryables?: number;
+  uptimeSeconds?: number;
 
   // Coordinates & physics state
   x: number;
@@ -38,6 +45,7 @@ export interface TopologyEdge {
   status: 'active' | 'scouted' | 'pending';
   isEncrypted: boolean;
   animated: boolean;
+  isExact?: boolean;
 }
 
 export interface TopologyGraphData {

@@ -131,6 +131,22 @@ export interface StoredMessage {
 }
 
 /**
+ * Authoritative link connection info retrieved from session.info().links() & transports().
+ */
+export interface SessionLinkInfo {
+  zid: string;
+  whatami: 'router' | 'peer' | 'client' | string;
+  src: string;
+  dst: string;
+  is_streamed: boolean;
+  mtu?: number;
+  interfaces?: string[];
+  auth_identifier?: string;
+  reliability?: string;
+  priorities?: string;
+}
+
+/**
  * Information on an active Zenoh session returned by backend.
  */
 export interface SessionInfo {
@@ -142,6 +158,12 @@ export interface SessionInfo {
   connect_locators: string[];
   listen_locators: string[];
   created_at: number;
+  connected_routers?: string[];
+  connected_peers?: string[];
+  links?: SessionLinkInfo[];
+  active_subscribers?: number;
+  active_queryables?: number;
+  uptime_seconds?: number;
 }
 
 /**
@@ -157,6 +179,12 @@ export interface ActiveSession {
   listen_locators?: string[];
   connected_at?: string | number;
   created_at?: string | number;
+  connected_routers?: string[];
+  connected_peers?: string[];
+  links?: SessionLinkInfo[];
+  active_subscribers?: number;
+  active_queryables?: number;
+  uptime_seconds?: number;
 }
 
 /**

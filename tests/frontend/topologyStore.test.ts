@@ -118,7 +118,7 @@ describe('Topology Store', () => {
     // filterType: all -> all nodes
     useTopologyStore.getState().setFilterType('all');
     let filtered = useTopologyStore.getState().getFilteredNodes();
-    assert.equal(filtered.length, 2); // r1, p1
+    assert.equal(filtered.length, 3); // r1 (router), p1 (peer), local-zid (client)
 
     // filterType: router -> router nodes only
     useTopologyStore.getState().setFilterType('router');

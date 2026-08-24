@@ -183,5 +183,97 @@ mod tests {
         assert_eq!(disc_event.status, "disconnected");
         assert_eq!(disc_event.session_id, session_id.to_string());
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_router_to_router_upstream_connection() {
+        let manager = SessionManager::new();
+
+        // 1. Start Upstream Router on port 17447
+        let r1_config = SessionConfig {
+            profile_id: Some("prof-r1".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/127.0.0.1:17447".to_string()],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r1_id = manager.connect(r1_config).await.expect("connect r1");
+
+        // 2. Start Downstream Router on port 17448 connecting to Upstream Router
+        let r2_config = SessionConfig {
+            profile_id: Some("prof-r2".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec!["tcp/127.0.0.1:17447".to_string()],
+            listen_locators: vec!["tcp/127.0.0.1:17448".to_string()],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r2_id = manager.connect(r2_config).await.expect("connect r2");
+
+        // Give Zenoh a moment to establish TCP link & handshake
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // Inspect transports & links on r2 session
+        if let Ok(session) = manager.get_session(&r2_id).await {
+            for t in session.info().transports().await {
+                println!("R2 Transport: zid={}, whatami={:?}", t.zid(), t.whatami());
+            }
+            for l in session.info().links().await {
+                println!("R2 Link: zid={}, src={}, dst={}", l.zid(), l.src(), l.dst());
+            }
+        }
+
+        manager.disconnect(&r2_id).await.expect("disconnect r2");
+        manager.disconnect(&r1_id).await.expect("disconnect r1");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_mutual_router_to_router_upstream_connection() {
+        let manager = SessionManager::new();
+
+        // 1. Router 1 connecting to Router 2 (port 17452), listening on 17451
+        let r1_config = SessionConfig {
+            profile_id: Some("prof-mutual-r1".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec!["tcp/127.0.0.1:17452".to_string()],
+            listen_locators: vec!["tcp/127.0.0.1:17451".to_string()],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r1_id = manager.connect(r1_config).await.expect("connect r1");
+
+        // 2. Router 2 connecting to Router 1 (port 17451), listening on 17452
+        let r2_config = SessionConfig {
+            profile_id: Some("prof-mutual-r2".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec!["tcp/127.0.0.1:17451".to_string()],
+            listen_locators: vec!["tcp/127.0.0.1:17452".to_string()],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r2_id = manager.connect(r2_config).await.expect("connect r2");
+
+        // Give Zenoh a moment to establish TCP link & handshake
+        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+
+        let r1_info = manager.get_session_info(&r1_id).await.expect("get r1 info");
+        let r2_info = manager.get_session_info(&r2_id).await.expect("get r2 info");
+
+        println!("Mutual R1: zid={}, links={:?}, routers={:?}, peers={:?}",
+            r1_info.zid, r1_info.links, r1_info.connected_routers, r1_info.connected_peers);
+        println!("Mutual R2: zid={}, links={:?}, routers={:?}, peers={:?}",
+            r2_info.zid, r2_info.links, r2_info.connected_routers, r2_info.connected_peers);
+
+        manager.disconnect(&r2_id).await.expect("disconnect r2");
+        manager.disconnect(&r1_id).await.expect("disconnect r1");
+    }
 }
 

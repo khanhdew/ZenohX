@@ -8,11 +8,13 @@ import {
   parseLocator,
   buildLocator,
   detectProfilePreset,
-  DEFAULT_CLOUD_PROTOCOL,
-  type CloudProtocol,
+  getSuggestedRouterPort,
+  DEFAULT_TRANSPORT_PROTOCOL,
+  type TransportProtocol,
   type ConnectionPreset,
 } from '../../../lib/tls';
 import { formatFriendlyError } from '../../../lib/errorUtils';
+import type { RouterListenEndpoint } from './RouterConfigForm';
 
 export interface UseProfileFormProps {
   isOpen: boolean;
@@ -28,25 +30,29 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
 
   const isEditing = Boolean(profile?.id);
 
-  // Preset Selection
-  const [preset, setPreset] = useState<ConnectionPreset>('cloud');
+  // Preset Selection: 'client' | 'peer' | 'router'
+  const [preset, setPreset] = useState<ConnectionPreset>('client');
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
-  // Simplified Cloud Form State
-  const [cloudName, setCloudName] = useState<string>('Cloud Router');
-  const [cloudHost, setCloudHost] = useState<string>('');
-  const [cloudPort, setCloudPort] = useState<string>('7447');
-  const [cloudProtocol, setCloudProtocol] = useState<CloudProtocol>(DEFAULT_CLOUD_PROTOCOL);
+  // Client Mode Form State
+  const [clientName, setClientName] = useState<string>('Client Router');
+  const [clientHost, setClientHost] = useState<string>('127.0.0.1');
+  const [clientPort, setClientPort] = useState<string>('7447');
+  const [clientProtocol, setClientProtocol] = useState<TransportProtocol>(DEFAULT_TRANSPORT_PROTOCOL);
 
-  // Simplified Local Form State
-  const [localName, setLocalName] = useState<string>('Local Peer');
-
-  // Advanced / Raw Form State
-  const [name, setName] = useState<string>('');
-  const [mode, setMode] = useState<ConnectionMode>('client');
+  // Peer Mode Form State
+  const [peerName, setPeerName] = useState<string>('Local Peer');
   const [connectLocators, setConnectLocators] = useState<string[]>([]);
   const [listenLocators, setListenLocators] = useState<string[]>([]);
-  const [scoutMulticast, setScoutMulticast] = useState<boolean>(false);
+  const [scoutMulticast, setScoutMulticast] = useState<boolean>(true);
+
+  // Router Mode Form State
+  const [routerName, setRouterName] = useState<string>('Local Router');
+  const [routerListenEndpoints, setRouterListenEndpoints] = useState<RouterListenEndpoint[]>([
+    { id: 'ep-1', protocol: 'tcp', host: '0.0.0.0', port: '7447' },
+  ]);
+  const [routerScoutMulticast, setRouterScoutMulticast] = useState<boolean>(true);
+  const [routerConnectLocators, setRouterConnectLocators] = useState<string[]>([]);
 
   // Auth State
   const [username, setUsername] = useState<string>('');
@@ -61,7 +67,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const [clientCert, setClientCert] = useState<string>('');
   const [clientKey, setClientKey] = useState<string>('');
 
-  // Custom JSON Config
+  // Custom JSON Config Overrides
   const [customConfigText, setCustomConfigText] = useState<string>('');
 
   // UI State
@@ -76,10 +82,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       if (profile) {
         const detected = detectProfilePreset(profile);
         setPreset(detected);
-        setShowAdvanced(detected === 'custom');
+        setShowAdvanced(false);
 
-        setName(profile.name || '');
-        setMode((profile.mode as ConnectionMode) || 'peer');
         setConnectLocators(profile.connect_locators ? [...profile.connect_locators] : []);
         setListenLocators(profile.listen_locators ? [...profile.listen_locators] : []);
         setScoutMulticast(profile.scout_multicast ?? true);
@@ -97,26 +101,48 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setClientCert(profile.tls_config?.client_cert || '');
         setClientKey(profile.tls_config?.client_key || '');
 
-        // Populate simplified cloud form if locator exists
+        // Populate client form if client mode
         if (profile.connect_locators && profile.connect_locators.length === 1) {
           const parsed = parseLocator(profile.connect_locators[0]);
           if (parsed) {
-            setCloudHost(parsed.host);
-            setCloudPort(parsed.port);
-            setCloudProtocol((parsed.protocol as CloudProtocol) || DEFAULT_CLOUD_PROTOCOL);
+            setClientHost(parsed.host);
+            setClientPort(parsed.port);
+            setClientProtocol((parsed.protocol as TransportProtocol) || DEFAULT_TRANSPORT_PROTOCOL);
           } else {
-            setCloudHost('');
-            setCloudPort('7447');
-            setCloudProtocol(DEFAULT_CLOUD_PROTOCOL);
+            setClientHost('');
+            setClientPort('7447');
+            setClientProtocol(DEFAULT_TRANSPORT_PROTOCOL);
           }
         } else {
-          setCloudHost('');
-          setCloudPort('7447');
-          setCloudProtocol(isTlsOn ? 'tls' : DEFAULT_CLOUD_PROTOCOL);
+          setClientHost('');
+          setClientPort('7447');
+          setClientProtocol(isTlsOn ? 'tls' : DEFAULT_TRANSPORT_PROTOCOL);
         }
+        setClientName(profile.name || 'Client Router');
 
-        setCloudName(profile.name || 'Cloud Router');
-        setLocalName(profile.name || 'Local Peer');
+        // Populate peer form if peer mode
+        setPeerName(profile.name || 'Local Peer');
+
+        // Populate router form if router mode
+        if (profile.listen_locators && profile.listen_locators.length > 0) {
+          const eps: RouterListenEndpoint[] = profile.listen_locators.map((loc, idx) => {
+            const parsed = parseLocator(loc);
+            return {
+              id: `ep-${idx + 1}-${Date.now()}`,
+              protocol: (parsed?.protocol as TransportProtocol) || 'tcp',
+              host: parsed?.host || '0.0.0.0',
+              port: parsed?.port || '7447',
+            };
+          });
+          setRouterListenEndpoints(eps);
+        } else {
+          setRouterListenEndpoints([
+            { id: `ep-1`, protocol: 'tcp', host: '0.0.0.0', port: '7447' },
+          ]);
+        }
+        setRouterName(profile.name || 'Local Router');
+        setRouterScoutMulticast(profile.scout_multicast ?? true);
+        setRouterConnectLocators(profile.connect_locators ? [...profile.connect_locators] : []);
 
         if (profile.custom_config && Object.keys(profile.custom_config).length > 0) {
           setCustomConfigText(JSON.stringify(profile.custom_config, null, 2));
@@ -125,21 +151,27 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         }
       } else {
         // Defaults for new connection profile
-        setPreset('cloud');
+        setPreset('client');
         setShowAdvanced(false);
 
-        setCloudName('Cloud Router');
-        setCloudHost('');
-        setCloudPort('7447');
-        setCloudProtocol(DEFAULT_CLOUD_PROTOCOL);
+        setClientName('Client Router');
+        setClientHost('127.0.0.1');
+        setClientPort('7447');
+        setClientProtocol(DEFAULT_TRANSPORT_PROTOCOL);
 
-        setLocalName('Local Peer');
-
-        setName('Custom Profile');
-        setMode('client');
+        setPeerName('Local Peer');
         setConnectLocators([]);
         setListenLocators([]);
-        setScoutMulticast(false);
+        setScoutMulticast(true);
+
+        const suggestedPort = getSuggestedRouterPort(useConnectionStore.getState().profiles);
+        setRouterName('Local Router');
+        setRouterListenEndpoints([
+          { id: `ep-1`, protocol: 'tcp', host: '0.0.0.0', port: suggestedPort },
+        ]);
+        setRouterScoutMulticast(true);
+        setRouterConnectLocators([]);
+
         setUsername('');
         setPassword('');
         setToken('');
@@ -157,7 +189,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     }
   }, [isOpen, profile]);
 
-  // Connect Locators Helpers
+  // Peer Connect Locators Helpers
   const addConnectLocator = () => {
     setConnectLocators((prev) => [...prev, '']);
   };
@@ -174,42 +206,76 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setConnectLocators((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Listen Locators Helpers
-  const addListenLocator = () => {
-    setListenLocators((prev) => [...prev, '']);
+  // Router Listen Endpoints Helpers
+  const addRouterListenEndpoint = () => {
+    setRouterListenEndpoints((prev) => {
+      const newId = `ep-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+      const hasTls = prev.some((e) => e.protocol === 'tls');
+      const nextProto: TransportProtocol = hasTls ? 'quic' : 'tls';
+      const nextPort = nextProto === 'tls' ? '7446' : '7448';
+      return [
+        ...prev,
+        { id: newId, protocol: nextProto, host: '0.0.0.0', port: nextPort },
+      ];
+    });
   };
 
-  const updateListenLocator = (index: number, val: string) => {
-    setListenLocators((prev) => {
+  const updateRouterListenEndpoint = (id: string, updates: Partial<RouterListenEndpoint>) => {
+    setRouterListenEndpoints((prev) =>
+      prev.map((ep) => (ep.id === id ? { ...ep, ...updates } : ep))
+    );
+  };
+
+  const removeRouterListenEndpoint = (id: string) => {
+    setRouterListenEndpoints((prev) =>
+      prev.length > 1 ? prev.filter((ep) => ep.id !== id) : prev
+    );
+  };
+
+  // Router Connect Locators Helpers
+  const addRouterConnectLocator = () => {
+    setRouterConnectLocators((prev) => [...prev, '']);
+  };
+
+  const updateRouterConnectLocator = (index: number, val: string) => {
+    setRouterConnectLocators((prev) => {
       const next = [...prev];
       next[index] = val;
       return next;
     });
   };
 
-  const removeListenLocator = (index: number) => {
-    setListenLocators((prev) => prev.filter((_, i) => i !== index));
+  const removeRouterConnectLocator = (index: number) => {
+    setRouterConnectLocators((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Validation
+  // Form Validation
   const validate = (): boolean => {
-    if (preset === 'cloud') {
-      if (!cloudName.trim()) {
+    if (preset === 'client') {
+      if (!clientName.trim()) {
         setValidationError('Profile Name is required.');
         return false;
       }
-      if (!cloudHost.trim()) {
-        setValidationError('Cloud / Remote Server Address is required (e.g. router.zenoh.io).');
+      if (!clientHost.trim()) {
+        setValidationError('Router Address is required (e.g. 127.0.0.1 or router.zenoh.io).');
         return false;
       }
-    } else if (preset === 'local') {
-      if (!localName.trim()) {
+    } else if (preset === 'peer') {
+      if (!peerName.trim()) {
         setValidationError('Profile Name is required.');
         return false;
       }
-    } else {
-      if (!name.trim()) {
-        setValidationError('Profile Name is required.');
+    } else if (preset === 'router') {
+      if (!routerName.trim()) {
+        setValidationError('Router Profile Name is required.');
+        return false;
+      }
+      if (routerListenEndpoints.length === 0) {
+        setValidationError('At least one listen endpoint is required.');
+        return false;
+      }
+      if (routerListenEndpoints.some((ep) => !ep.port.trim())) {
+        setValidationError('Listen Port is required for all endpoints (use 0 for auto).');
         return false;
       }
     }
@@ -250,10 +316,10 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       }
     }
 
-    if (preset === 'cloud') {
-      const locator = buildLocator(cloudProtocol, cloudHost, cloudPort);
+    if (preset === 'client') {
+      const locator = buildLocator(clientProtocol, clientHost, clientPort);
       const tlsConfig = resolveTlsConfig({
-        enableTls: cloudProtocol === 'tls',
+        enableTls: clientProtocol === 'tls',
         useCustomTls,
         caCert,
         clientCert,
@@ -269,7 +335,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         tls_config: tlsConfig,
         custom_config: customConfigObj,
       };
-    } else if (preset === 'local') {
+    } else if (preset === 'peer') {
       const tlsConfig = resolveTlsConfig({
         enableTls,
         useCustomTls,
@@ -280,18 +346,20 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       });
       return {
         mode: 'peer',
-        connect_locators: [],
+        connect_locators: connectLocators.map((l) => l.trim()).filter(Boolean),
         listen_locators: [],
-        scout_multicast: true,
+        scout_multicast: scoutMulticast,
         user_auth: null,
         tls_config: tlsConfig,
         custom_config: customConfigObj,
       };
-    } else {
-      const filteredConnect = connectLocators.map((l) => l.trim()).filter(Boolean);
-      const filteredListen = listenLocators.map((l) => l.trim()).filter(Boolean);
+    } else if (preset === 'router') {
+      const listenLocs = routerListenEndpoints
+        .map((ep) => buildLocator(ep.protocol, ep.host.trim() || '0.0.0.0', ep.port.trim() || '7447'))
+        .filter(Boolean);
+      const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls');
       const tlsConfig = resolveTlsConfig({
-        enableTls,
+        enableTls: hasTlsEndpoint || enableTls || useCustomTls,
         useCustomTls,
         caCert,
         clientCert,
@@ -299,15 +367,25 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         tlsOnly,
       });
       return {
-        mode,
-        connect_locators: filteredConnect,
-        listen_locators: filteredListen,
-        scout_multicast: scoutMulticast,
+        mode: 'router',
+        connect_locators: routerConnectLocators.map((l) => l.trim()).filter(Boolean),
+        listen_locators: listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'],
+        scout_multicast: routerScoutMulticast,
         user_auth: userAuth,
         tls_config: tlsConfig,
         custom_config: customConfigObj,
       };
     }
+
+    return {
+      mode: 'client',
+      connect_locators: [],
+      listen_locators: [],
+      scout_multicast: false,
+      user_auth: userAuth,
+      tls_config: null,
+      custom_config: customConfigObj,
+    };
   };
 
   const handleTestConnection = async () => {
@@ -356,11 +434,11 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
             }
           : null;
 
-      let finalName = name.trim();
-      let finalMode: string = mode;
+      let finalName = '';
+      let finalMode: ConnectionMode = 'client';
       let finalConnectLocators: string[] = [];
       let finalListenLocators: string[] = [];
-      let finalScoutMulticast = scoutMulticast;
+      let finalScoutMulticast = false;
       let finalTlsConfig = resolveTlsConfig({
         enableTls,
         useCustomTls,
@@ -370,25 +448,25 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         tlsOnly,
       });
 
-      if (preset === 'cloud') {
-        finalName = cloudName.trim();
+      if (preset === 'client') {
+        finalName = clientName.trim();
         finalMode = 'client';
         finalScoutMulticast = false;
-        const locator = buildLocator(cloudProtocol, cloudHost, cloudPort);
+        const locator = buildLocator(clientProtocol, clientHost, clientPort);
         finalConnectLocators = locator ? [locator] : [];
         finalListenLocators = [];
         finalTlsConfig = resolveTlsConfig({
-          enableTls: cloudProtocol === 'tls',
+          enableTls: clientProtocol === 'tls',
           useCustomTls,
           caCert,
           clientCert,
           clientKey,
           tlsOnly,
         });
-      } else if (preset === 'local') {
-        finalName = localName.trim();
+      } else if (preset === 'peer') {
+        finalName = peerName.trim();
         finalMode = 'peer';
-        finalScoutMulticast = true;
+        finalScoutMulticast = scoutMulticast;
         finalConnectLocators = connectLocators.map((l) => l.trim()).filter(Boolean);
         finalListenLocators = listenLocators.map((l) => l.trim()).filter(Boolean);
         finalTlsConfig = resolveTlsConfig({
@@ -399,9 +477,24 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
           clientKey,
           tlsOnly,
         });
-      } else {
-        finalConnectLocators = connectLocators.map((l) => l.trim()).filter(Boolean);
-        finalListenLocators = listenLocators.map((l) => l.trim()).filter(Boolean);
+      } else if (preset === 'router') {
+        finalName = routerName.trim();
+        finalMode = 'router';
+        finalScoutMulticast = routerScoutMulticast;
+        const listenLocs = routerListenEndpoints
+          .map((ep) => buildLocator(ep.protocol, ep.host.trim() || '0.0.0.0', ep.port.trim() || '7447'))
+          .filter(Boolean);
+        finalListenLocators = listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'];
+        finalConnectLocators = routerConnectLocators.map((l) => l.trim()).filter(Boolean);
+        const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls');
+        finalTlsConfig = resolveTlsConfig({
+          enableTls: hasTlsEndpoint || enableTls || useCustomTls,
+          useCustomTls: useCustomTls || Boolean(caCert || clientCert || clientKey),
+          caCert,
+          clientCert,
+          clientKey,
+          tlsOnly,
+        });
       }
 
       const now = Date.now();
@@ -444,24 +537,32 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setPreset,
     showAdvanced,
     setShowAdvanced,
-    cloudName,
-    setCloudName,
-    cloudHost,
-    setCloudHost,
-    cloudPort,
-    setCloudPort,
-    cloudProtocol,
-    setCloudProtocol,
-    localName,
-    setLocalName,
-    name,
-    setName,
-    mode,
-    setMode,
+    clientName,
+    setClientName,
+    clientHost,
+    setClientHost,
+    clientPort,
+    setClientPort,
+    clientProtocol,
+    setClientProtocol,
+    peerName,
+    setPeerName,
     connectLocators,
-    listenLocators,
-    scoutMulticast,
-    setScoutMulticast,
+    addConnectLocator,
+    updateConnectLocator,
+    removeConnectLocator,
+    routerName,
+    setRouterName,
+    routerListenEndpoints,
+    addRouterListenEndpoint,
+    updateRouterListenEndpoint,
+    removeRouterListenEndpoint,
+    routerScoutMulticast,
+    setRouterScoutMulticast,
+    routerConnectLocators,
+    addRouterConnectLocator,
+    updateRouterConnectLocator,
+    removeRouterConnectLocator,
     username,
     setUsername,
     password,
@@ -486,13 +587,20 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     testSuccessMessage,
     isSaving,
     isTesting,
-    addConnectLocator,
-    updateConnectLocator,
-    removeConnectLocator,
-    addListenLocator,
-    updateListenLocator,
-    removeListenLocator,
     handleTestConnection,
     handleSave,
+    // Backward-compatibility aliases
+    cloudName: clientName,
+    setCloudName: setClientName,
+    cloudHost: clientHost,
+    setCloudHost: setClientHost,
+    cloudPort: clientPort,
+    setCloudPort: setClientPort,
+    cloudProtocol: clientProtocol,
+    setCloudProtocol: setClientProtocol,
+    localName: peerName,
+    setLocalName: setPeerName,
   };
 }
+
+

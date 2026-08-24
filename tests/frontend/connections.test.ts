@@ -197,7 +197,8 @@ describe('Connection Manager Integration & Helpers', () => {
 
   test('isTlsEnabled detects TLS configuration and locators', () => {
     assert.equal(isTlsEnabled(null, ['tcp/127.0.0.1:7447']), false);
-    assert.equal(isTlsEnabled({}, ['tcp/127.0.0.1:7447']), true);
+    assert.equal(isTlsEnabled({ tls_only: true }, ['tcp/127.0.0.1:7447']), true);
+    assert.equal(isTlsEnabled({ ca_cert: '/path/to/ca.pem' }, ['tcp/127.0.0.1:7447']), true);
     assert.equal(isTlsEnabled(null, ['tls/127.0.0.1:7447']), true);
     assert.equal(isTlsEnabled(undefined, []), false);
   });
@@ -279,18 +280,18 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.equal(buildLocator('tcp', '   ', '7447'), '');
   });
 
-  test('detectProfilePreset identifies cloud, local, and custom configurations', () => {
-    // Cloud / Remote preset
+  test('detectProfilePreset identifies client, peer, and router configurations', () => {
+    // Client Mode preset
     assert.equal(
       detectProfilePreset({
         mode: 'client',
         connect_locators: ['tls/router.cloud:7447'],
         listen_locators: [],
       }),
-      'cloud'
+      'client'
     );
 
-    // Local LAN preset
+    // Peer Mode preset
     assert.equal(
       detectProfilePreset({
         mode: 'peer',
@@ -298,17 +299,17 @@ describe('Connection Manager Integration & Helpers', () => {
         listen_locators: [],
         scout_multicast: true,
       }),
-      'local'
+      'peer'
     );
 
-    // Custom / Advanced preset
+    // Router Mode preset
     assert.equal(
       detectProfilePreset({
         mode: 'router',
         connect_locators: ['tcp/10.0.0.1:7447'],
         listen_locators: ['tcp/0.0.0.0:7447'],
       }),
-      'custom'
+      'router'
     );
   });
 
@@ -665,6 +666,106 @@ describe('Connection Manager Integration & Helpers', () => {
     // Clean up window.location
     // @ts-ignore
     globalThis.window.location = { search: '' };
+  });
+
+  test('PresetSelector, ClientConfigForm, PeerConfigForm, and RouterConfigForm render correctly', async () => {
+    const React = await import('react');
+    const { PresetSelector } = await import('../../src/components/connections/profile/PresetSelector');
+    const { ClientConfigForm } = await import('../../src/components/connections/profile/ClientConfigForm');
+    const { PeerConfigForm } = await import('../../src/components/connections/profile/PeerConfigForm');
+    const { RouterConfigForm } = await import('../../src/components/connections/profile/RouterConfigForm');
+    const { getSuggestedRouterPort, getRandomRouterPort } = await import('../../src/lib/tls');
+
+    // Test port suggestion and random port helpers
+    assert.equal(getSuggestedRouterPort([]), '7447');
+    assert.equal(
+      getSuggestedRouterPort([
+        {
+          id: 'p1',
+          name: 'R1',
+          mode: 'router',
+          connect_locators: [],
+          listen_locators: ['tcp/0.0.0.0:7447'],
+          created_at: 1,
+          updated_at: 1,
+        },
+      ]),
+      '7448'
+    );
+    const randPort = parseInt(getRandomRouterPort(), 10);
+    assert.ok(randPort >= 7448 && randPort <= 7999);
+
+    // Test PresetSelector element
+    let selectedPreset = 'client';
+    const presetEl = React.createElement(PresetSelector, {
+      preset: 'client',
+      onSelectPreset: (p) => {
+        selectedPreset = p;
+      },
+    });
+    assert.ok(presetEl);
+    assert.equal(presetEl.type, PresetSelector);
+
+    // Test ClientConfigForm element
+    const clientFormEl = React.createElement(ClientConfigForm, {
+      clientName: 'My Client',
+      setClientName: () => {},
+      clientHost: '127.0.0.1',
+      setClientHost: () => {},
+      clientPort: '7447',
+      setClientPort: () => {},
+      clientProtocol: 'tcp',
+      setClientProtocol: () => {},
+      username: '',
+      setUsername: () => {},
+      password: '',
+      setPassword: () => {},
+    });
+    assert.ok(clientFormEl);
+    assert.equal(clientFormEl.type, ClientConfigForm);
+
+    // Test PeerConfigForm element
+    const peerFormEl = React.createElement(PeerConfigForm, {
+      peerName: 'My Peer',
+      setPeerName: () => {},
+      connectLocators: ['tcp/127.0.0.1:7447'],
+      addConnectLocator: () => {},
+      updateConnectLocator: () => {},
+      removeConnectLocator: () => {},
+      enableTls: true,
+      setEnableTls: () => {},
+      useCustomTls: false,
+      setUseCustomTls: () => {},
+      caCert: '',
+      setCaCert: () => {},
+      clientCert: '',
+      setClientCert: () => {},
+      clientKey: '',
+      setClientKey: () => {},
+    });
+    assert.ok(peerFormEl);
+    assert.equal(peerFormEl.type, PeerConfigForm);
+
+    // Test RouterConfigForm element with multiple listen endpoints (e.g. TCP + TLS)
+    const routerFormEl = React.createElement(RouterConfigForm, {
+      routerName: 'My Multi-Protocol Router',
+      setRouterName: () => {},
+      listenEndpoints: [
+        { id: 'ep-1', protocol: 'tcp', host: '0.0.0.0', port: '7447' },
+        { id: 'ep-2', protocol: 'tls', host: '0.0.0.0', port: '7446' },
+      ],
+      addListenEndpoint: () => {},
+      updateListenEndpoint: () => {},
+      removeListenEndpoint: () => {},
+      routerScoutMulticast: true,
+      setRouterScoutMulticast: () => {},
+      routerConnectLocators: ['tcp/10.0.0.1:7447'],
+      addRouterConnectLocator: () => {},
+      updateRouterConnectLocator: () => {},
+      removeRouterConnectLocator: () => {},
+    });
+    assert.ok(routerFormEl);
+    assert.equal(routerFormEl.type, RouterConfigForm);
   });
 });
 

@@ -4,8 +4,8 @@ use super::query::{
 };
 use super::scout::scout_nodes;
 use super::types::{
-    InboundQuery, ReplySample, ScoutedNode, SessionConfig, SessionInfo, SessionStatusEvent,
-    ZenohSample,
+    InboundQuery, ReplySample, ScoutedNode, SessionConfig, SessionInfo, SessionLinkInfo,
+    SessionStatusEvent, ZenohSample,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -504,42 +504,149 @@ impl SessionManager {
             .ok_or_else(|| format!("session with id '{session_id}' not found"))
     }
 
+    /// Helper to extract deep introspection & telemetry metadata from an active Zenoh session.
+    async fn extract_session_info(
+        id: Uuid,
+        session: &zenoh::Session,
+        profile_id: Option<String>,
+        config: SessionConfig,
+        created_at: i64,
+        active_subscribers: usize,
+        active_queryables: usize,
+    ) -> SessionInfo {
+        let zid = session.zid().to_string();
+
+        let mut connected_routers = Vec::new();
+        let mut routers = session.info().routers_zid().await;
+        while let Some(router_zid) = routers.next() {
+            connected_routers.push(router_zid.to_string());
+        }
+
+        let mut connected_peers = Vec::new();
+        let mut peers = session.info().peers_zid().await;
+        while let Some(peer_zid) = peers.next() {
+            connected_peers.push(peer_zid.to_string());
+        }
+
+        // Retrieve real bound listening locators (not default 0.0.0.0:0)
+        let mut real_listen_locators: Vec<String> = Vec::new();
+        for loc in session.info().locators().await {
+            real_listen_locators.push(loc.to_string());
+        }
+        let listen_locators = if !real_listen_locators.is_empty() {
+            real_listen_locators
+        } else {
+            config.listen_locators.clone()
+        };
+
+        // Retrieve authoritative live transports & links with full telemetry
+        let mut transport_map = std::collections::HashMap::new();
+        for t in session.info().transports().await {
+            let whatami_str = format!("{:?}", t.whatami()).to_lowercase();
+            transport_map.insert(t.zid().to_string(), whatami_str);
+        }
+
+        let mut links = Vec::new();
+        for l in session.info().links().await {
+            let link_zid = l.zid().to_string();
+            let whatami = transport_map
+                .get(&link_zid)
+                .cloned()
+                .unwrap_or_else(|| "router".to_string());
+            links.push(SessionLinkInfo {
+                zid: link_zid,
+                whatami,
+                src: l.src().to_string(),
+                dst: l.dst().to_string(),
+                is_streamed: l.is_streamed(),
+                mtu: Some(l.mtu()),
+                interfaces: l.interfaces().to_vec(),
+                auth_identifier: l.auth_identifier().map(|s| s.to_string()),
+                reliability: l.reliability().map(|r| format!("{:?}", r).to_lowercase()),
+                priorities: l.priorities().map(|(min, max)| format!("{min}-{max}")),
+            });
+        }
+
+        let now = chrono::Utc::now().timestamp();
+        let uptime_seconds = (now - created_at).max(0) as u64;
+
+        SessionInfo {
+            id,
+            profile_id,
+            zid,
+            mode: config.mode,
+            scout_multicast: config.scout_multicast,
+            connect_locators: config.connect_locators,
+            listen_locators,
+            created_at,
+            connected_routers,
+            connected_peers,
+            links,
+            active_subscribers,
+            active_queryables,
+            uptime_seconds,
+        }
+    }
+
     /// Retrieves session information for a given session ID.
     pub async fn get_session_info(&self, session_id: &Uuid) -> Result<SessionInfo, String> {
-        let lock = self.sessions.read().await;
-        let ctx = lock
-            .get(session_id)
-            .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
+        let (session, profile_id, config, created_at, active_subscribers, active_queryables) = {
+            let lock = self.sessions.read().await;
+            let ctx = lock
+                .get(session_id)
+                .ok_or_else(|| format!("session with id '{session_id}' not found"))?;
+            (
+                ctx.session.clone(),
+                ctx.profile_id.clone(),
+                ctx.config.clone(),
+                ctx.created_at,
+                ctx.subscribers.len(),
+                ctx.queryables.len(),
+            )
+        };
 
-        let zid = ctx.session.zid().to_string();
-
-        Ok(SessionInfo {
-            id: ctx.id,
-            profile_id: ctx.profile_id.clone(),
-            zid,
-            mode: ctx.config.mode.clone(),
-            scout_multicast: ctx.config.scout_multicast,
-            connect_locators: ctx.config.connect_locators.clone(),
-            listen_locators: ctx.config.listen_locators.clone(),
-            created_at: ctx.created_at,
-        })
+        Ok(Self::extract_session_info(
+            *session_id,
+            &session,
+            profile_id,
+            config,
+            created_at,
+            active_subscribers,
+            active_queryables,
+        ).await)
     }
 
     /// Retrieves information for all currently managed sessions.
     pub async fn get_all_sessions(&self) -> Vec<SessionInfo> {
-        let lock = self.sessions.read().await;
-        lock.values()
-            .map(|ctx| SessionInfo {
-                id: ctx.id,
-                profile_id: ctx.profile_id.clone(),
-                zid: ctx.session.zid().to_string(),
-                mode: ctx.config.mode.clone(),
-                scout_multicast: ctx.config.scout_multicast,
-                connect_locators: ctx.config.connect_locators.clone(),
-                listen_locators: ctx.config.listen_locators.clone(),
-                created_at: ctx.created_at,
-            })
-            .collect()
+        let contexts: Vec<(Uuid, zenoh::Session, Option<String>, SessionConfig, i64, usize, usize)> = {
+            let lock = self.sessions.read().await;
+            lock.values()
+                .map(|ctx| (
+                    ctx.id,
+                    ctx.session.clone(),
+                    ctx.profile_id.clone(),
+                    ctx.config.clone(),
+                    ctx.created_at,
+                    ctx.subscribers.len(),
+                    ctx.queryables.len(),
+                ))
+                .collect()
+        };
+
+        let mut result = Vec::with_capacity(contexts.len());
+        for (id, session, profile_id, config, created_at, active_subscribers, active_queryables) in contexts {
+            result.push(Self::extract_session_info(
+                id,
+                &session,
+                profile_id,
+                config,
+                created_at,
+                active_subscribers,
+                active_queryables,
+            ).await);
+        }
+
+        result
     }
 
     /// Scans the local network for Zenoh routers and peers via multicast.

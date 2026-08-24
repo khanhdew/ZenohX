@@ -1,12 +1,17 @@
 import React from 'react';
-import { Zap, Lock, Shield, ShieldCheck } from 'lucide-react';
+import { Zap, Lock, Shield, ShieldCheck, Plus, Trash2, Link } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
+import { Button } from '../../ui/button';
 
-export interface LocalConfigFormProps {
-  localName: string;
-  setLocalName: (val: string) => void;
+export interface PeerConfigFormProps {
+  peerName: string;
+  setPeerName: (val: string) => void;
+  connectLocators: string[];
+  addConnectLocator: () => void;
+  updateConnectLocator: (index: number, val: string) => void;
+  removeConnectLocator: (index: number) => void;
   enableTls: boolean;
   setEnableTls: (val: boolean) => void;
   useCustomTls: boolean;
@@ -21,9 +26,13 @@ export interface LocalConfigFormProps {
   setClientKey: (val: string) => void;
 }
 
-export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
-  localName,
-  setLocalName,
+export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
+  peerName,
+  setPeerName,
+  connectLocators,
+  addConnectLocator,
+  updateConnectLocator,
+  removeConnectLocator,
   enableTls,
   setEnableTls,
   useCustomTls,
@@ -37,18 +46,17 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
   clientKey,
   setClientKey,
 }) => {
-
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Profile Name */}
       <div className="space-y-1">
-        <Label htmlFor="local-name" className="text-xs font-semibold">
+        <Label htmlFor="peer-name" className="text-xs font-semibold">
           Profile Name <span className="text-destructive">*</span>
         </Label>
         <Input
-          id="local-name"
-          value={localName}
-          onChange={(e) => setLocalName(e.target.value)}
+          id="peer-name"
+          value={peerName}
+          onChange={(e) => setPeerName(e.target.value)}
           placeholder="Local Peer"
           className="h-8 text-xs bg-background"
         />
@@ -59,12 +67,76 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber-500 shrink-0" />
           <span className="text-xs font-semibold text-foreground">
-            Automatic Local Discovery (P2P Peer)
+            Automatic Local Discovery (P2P Mesh)
           </span>
         </div>
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          ZenohX will automatically discover and connect to all Zenoh peers, routers, and queryables on your local network using UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7446</code>).
+          ZenohX automatically discovers other Zenoh peers and routers on your local subnet using UDP multicast (<code className="font-mono text-[10px]">224.0.0.224:7446</code>).
         </p>
+      </div>
+
+      {/* Optional Direct Connect Locators (e.g. to connect directly to a router or remote peer) */}
+      <div className="space-y-2 pt-1 border-t">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label className="text-xs font-semibold flex items-center gap-1.5">
+              <Link className="w-3.5 h-3.5 text-primary" />
+              Direct Connect Locators (Optional)
+            </Label>
+            <p className="text-[10px] text-muted-foreground">
+              Connect directly to a specific router or peer (e.g. <code className="font-mono text-[10px]">tcp/127.0.0.1:7447</code>).
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={addConnectLocator}
+            className="h-7 text-xs gap-1"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Locator</span>
+          </Button>
+        </div>
+
+        {connectLocators.length === 0 ? (
+          <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
+            <span>Using pure multicast auto-discovery (no static links).</span>
+            <button
+              type="button"
+              onClick={() => {
+                addConnectLocator();
+                setTimeout(() => updateConnectLocator(0, 'tcp/127.0.0.1:7447'), 0);
+              }}
+              className="text-[10px] font-medium text-primary hover:underline"
+            >
+              + Link Localhost Router
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {connectLocators.map((loc, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Input
+                  value={loc}
+                  onChange={(e) => updateConnectLocator(idx, e.target.value)}
+                  placeholder="tcp/127.0.0.1:7447 or tcp/192.168.1.50:7447"
+                  className="h-8 text-xs font-mono bg-background flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="iconSm"
+                  onClick={() => removeConnectLocator(idx)}
+                  className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
+                  title="Remove locator"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* TLS / mTLS Security Section */}
@@ -98,24 +170,22 @@ export const LocalConfigForm: React.FC<LocalConfigFormProps> = ({
                     Strict TLS-Only Mode
                   </Label>
                   <p className="text-[10px] text-muted-foreground">
-                    Disables unencrypted TCP/UDP fallback; only connects to verified TLS peers.
+                    Only accept TLS-encrypted links (drop plaintext connections).
                   </p>
                 </div>
-                <Switch
-                  checked={tlsOnly}
-                  onCheckedChange={setTlsOnly}
-                />
+                <Switch checked={tlsOnly} onCheckedChange={setTlsOnly} />
               </div>
             )}
 
+            {/* Custom TLS / Certificates Toggle */}
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <Label className="text-xs font-medium flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5 text-muted-foreground" />
-                  Custom Certificate / Key (mTLS)
+                  Custom Certificates / mTLS
                 </Label>
                 <p className="text-[10px] text-muted-foreground">
-                  Provide custom CA, server/client certificate, and private key.
+                  Provide custom Root CA and client certificate/key files.
                 </p>
               </div>
               <Switch

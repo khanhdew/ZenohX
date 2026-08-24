@@ -108,6 +108,7 @@ describe('Topology Integration & Navigation', () => {
           mode: 'client',
           connect_locators: ['tcp/10.0.0.1:7447'],
           listen_locators: [],
+          connected_peers: ['zid-peer-2'],
         },
       },
       scoutedNodes: [
@@ -132,8 +133,9 @@ describe('Topology Integration & Navigation', () => {
     });
 
     const { nodes, edges } = useTopologyStore.getState();
-    assert.equal(nodes.length, 2);
-    assert.ok(nodes.some((n) => n.zid === 'zid-cloud-router' && n.status === 'connected'));
+    assert.equal(nodes.length, 3);
+    assert.ok(nodes.some((n) => n.zid === 'zid-local-client' && n.status === 'connected'));
+    assert.ok(nodes.some((n) => n.zid === 'zid-cloud-router' && n.status === 'scouted'));
     assert.ok(nodes.some((n) => n.zid === 'zid-peer-2' && n.status === 'scouted'));
     assert.equal(edges.length, 1);
     assert.equal(edges[0].status, 'active');

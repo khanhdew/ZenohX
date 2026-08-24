@@ -14,9 +14,9 @@ import { Badge } from '../ui/badge';
 import type { ConnectionProfile } from '../../types/zenoh';
 import { useProfileForm } from './profile/useProfileForm';
 import { PresetSelector } from './profile/PresetSelector';
-import { CloudConfigForm } from './profile/CloudConfigForm';
-import { LocalConfigForm } from './profile/LocalConfigForm';
-import { AdvancedConfigForm } from './profile/AdvancedConfigForm';
+import { ClientConfigForm } from './profile/ClientConfigForm';
+import { PeerConfigForm } from './profile/PeerConfigForm';
+import { RouterConfigForm } from './profile/RouterConfigForm';
 import { TlsConfigSection } from './profile/TlsConfigSection';
 import { RawJsonConfigSection } from './profile/RawJsonConfigSection';
 
@@ -81,7 +81,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 {form.isEditing ? 'Edit Connection' : 'New Connection'}
               </h2>
               <p className="text-[11px] text-muted-foreground">
-                Connect to a Zenoh cloud router or discover peers on your local network.
+                Connect to a Zenoh cloud router, join a peer mesh, or run a local router.
               </p>
             </div>
           </div>
@@ -125,21 +125,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             preset={form.preset}
             onSelectPreset={(p) => {
               form.setPreset(p);
-              form.setShowAdvanced(p === 'custom');
             }}
           />
 
           {/* Form Content Based on Preset */}
-          {form.preset === 'cloud' && (
-            <CloudConfigForm
-              cloudName={form.cloudName}
-              setCloudName={form.setCloudName}
-              cloudHost={form.cloudHost}
-              setCloudHost={form.setCloudHost}
-              cloudPort={form.cloudPort}
-              setCloudPort={form.setCloudPort}
-              cloudProtocol={form.cloudProtocol}
-              setCloudProtocol={form.setCloudProtocol}
+          {form.preset === 'client' && (
+            <ClientConfigForm
+              clientName={form.clientName}
+              setClientName={form.setClientName}
+              clientHost={form.clientHost}
+              setClientHost={form.setClientHost}
+              clientPort={form.clientPort}
+              setClientPort={form.setClientPort}
+              clientProtocol={form.clientProtocol}
+              setClientProtocol={form.setClientProtocol}
               tlsOnly={form.tlsOnly}
               setTlsOnly={form.setTlsOnly}
               username={form.username}
@@ -149,10 +148,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             />
           )}
 
-          {form.preset === 'local' && (
-            <LocalConfigForm
-              localName={form.localName}
-              setLocalName={form.setLocalName}
+          {form.preset === 'peer' && (
+            <PeerConfigForm
+              peerName={form.peerName}
+              setPeerName={form.setPeerName}
+              connectLocators={form.connectLocators}
+              addConnectLocator={form.addConnectLocator}
+              updateConnectLocator={form.updateConnectLocator}
+              removeConnectLocator={form.removeConnectLocator}
               enableTls={form.enableTls}
               setEnableTls={form.setEnableTls}
               useCustomTls={form.useCustomTls}
@@ -168,44 +171,42 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             />
           )}
 
-          {/* Toggle for Advanced Settings Accordion */}
-          {form.preset !== 'custom' && (
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={() => form.setShowAdvanced(!form.showAdvanced)}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"
-              >
-                {form.showAdvanced ? (
-                  <ChevronUp className="w-3.5 h-3.5" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5" />
-                )}
-                {form.showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings (mTLS, Custom JSON)'}
-              </button>
-            </div>
+          {form.preset === 'router' && (
+            <RouterConfigForm
+              routerName={form.routerName}
+              setRouterName={form.setRouterName}
+              listenEndpoints={form.routerListenEndpoints}
+              addListenEndpoint={form.addRouterListenEndpoint}
+              updateListenEndpoint={form.updateRouterListenEndpoint}
+              removeListenEndpoint={form.removeRouterListenEndpoint}
+              routerScoutMulticast={form.routerScoutMulticast}
+              setRouterScoutMulticast={form.setRouterScoutMulticast}
+              routerConnectLocators={form.routerConnectLocators}
+              addRouterConnectLocator={form.addRouterConnectLocator}
+              updateRouterConnectLocator={form.updateRouterConnectLocator}
+              removeRouterConnectLocator={form.removeRouterConnectLocator}
+            />
           )}
 
-          {/* Advanced / Full Custom Settings Body */}
-          {(form.showAdvanced || form.preset === 'custom') && (
-            <div className="space-y-5 pt-2 border-t animate-in fade-in duration-200">
-              {form.preset === 'custom' && (
-                <AdvancedConfigForm
-                  name={form.name}
-                  setName={form.setName}
-                  mode={form.mode}
-                  setMode={form.setMode}
-                  connectLocators={form.connectLocators}
-                  addConnectLocator={form.addConnectLocator}
-                  updateConnectLocator={form.updateConnectLocator}
-                  removeConnectLocator={form.removeConnectLocator}
-                  listenLocators={form.listenLocators}
-                  addListenLocator={form.addListenLocator}
-                  updateListenLocator={form.updateListenLocator}
-                  removeListenLocator={form.removeListenLocator}
-                />
+          {/* Toggle for Advanced Settings Accordion */}
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => form.setShowAdvanced(!form.showAdvanced)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"
+            >
+              {form.showAdvanced ? (
+                <ChevronUp className="w-3.5 h-3.5" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5" />
               )}
+              {form.showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings (mTLS, Custom JSON)'}
+            </button>
+          </div>
 
+          {/* Advanced Settings Body */}
+          {form.showAdvanced && (
+            <div className="space-y-5 pt-2 border-t animate-in fade-in duration-200">
               {/* Custom TLS / Certificates (mTLS) Card */}
               <TlsConfigSection
                 useCustomTls={form.useCustomTls}

@@ -129,6 +129,16 @@ mod tests {
         };
         assert!(tls_only_config.to_zenoh_config().is_ok());
 
+        // UUID with dashes in custom_config (should sanitize to 32 hex chars without error)
+        let uuid_custom = SessionConfig {
+            custom_config: Some(serde_json::json!({
+                "id": "59176069-cc84-4704-9e74-42d9d374d241",
+                "transport": { "unicast": { "max_sessions": 20 } }
+            })),
+            ..SessionConfig::default_peer()
+        };
+        assert!(uuid_custom.to_zenoh_config().is_ok());
+
         // Invalid custom_config (non-object, e.g. JSON array)
         let invalid_custom = SessionConfig {
             custom_config: Some(serde_json::json!(["not", "an", "object"])),
@@ -387,9 +397,34 @@ mod tests {
             "unixpipe//tmp/zenoh.sock".to_string(),
         ];
         let resolved = crate::zenoh::manager::resolve_bound_locators(raw);
-        assert!(resolved.iter().any(|l| l.contains("127.0.0.1:7447")));
+        assert!(!resolved.is_empty());
         assert!(resolved.iter().any(|l| l == "unixpipe//tmp/zenoh.sock"));
         assert!(!resolved.iter().any(|l| l.contains("0.0.0.0")));
+    }
+
+    #[test]
+    fn test_resolve_bound_locators_filters_link_local() {
+        let raw = vec![
+            "tcp/[::1]:34105".to_string(),
+            "tcp/[2001:ee2:e2:2600:38cd:5f4a:53d9:6dcf]:34105".to_string(),
+            "tcp/127.0.0.1:34105".to_string(),
+            "tcp/[fe80::ead3:55ad:1c22:b20a]:34105".to_string(),
+            "tcp/169.254.55.66:34105".to_string(),
+            "tcp/192.168.1.14:34105".to_string(),
+        ];
+        let resolved = crate::zenoh::manager::resolve_bound_locators(raw);
+        assert_eq!(
+            resolved,
+            vec![
+                "tcp/[2001:ee2:e2:2600:38cd:5f4a:53d9:6dcf]:34105".to_string(),
+                "tcp/192.168.1.14:34105".to_string(),
+            ]
+        );
+        // Must NOT contain loopback [::1] or 127.0.0.1, and NOT contain link-local fe80:: or 169.254.
+        assert!(!resolved.iter().any(|l| l.contains("[::1]")));
+        assert!(!resolved.iter().any(|l| l.contains("127.0.0.1")));
+        assert!(!resolved.iter().any(|l| l.contains("fe80:")));
+        assert!(!resolved.iter().any(|l| l.contains("169.254.")));
     }
 }
 

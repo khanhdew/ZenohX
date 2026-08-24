@@ -209,9 +209,14 @@ export const PubSubWorkspace: React.FC<PubSubWorkspaceProps> = ({ className = ''
 
   // Stats for the workspace
   const sessionSubs = useMemo(() => {
-    if (!sessionId) return subscriptions;
-    return subscriptions.filter((s) => !s.sessionId || s.sessionId === sessionId);
-  }, [subscriptions, sessionId]);
+    if (selectedProfileId) {
+      return subscriptions.filter((s) => s.profileId === selectedProfileId);
+    }
+    if (sessionId) {
+      return subscriptions.filter((s) => s.sessionId === sessionId);
+    }
+    return subscriptions;
+  }, [subscriptions, selectedProfileId, sessionId]);
 
   return (
     <div className={`flex flex-col h-full w-full bg-background text-foreground overflow-hidden ${className}`}>

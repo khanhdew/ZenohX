@@ -298,4 +298,86 @@ mod tests {
 
         manager.disconnect(&session_id).await.unwrap();
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_zenoh_pubsub_receives_untimestamped_messages() {
+        let manager = SessionManager::new();
+        let config = SessionConfig::default_peer();
+        let session_id = manager.connect(config).await.unwrap();
+
+        let (tx, mut rx) = mpsc::channel(10);
+        let sub_id = Uuid::new_v4();
+
+        manager
+            .subscribe(&session_id, sub_id, "untimestamped/test", move |sample| {
+                let _ = tx.try_send(sample);
+            })
+            .await
+            .unwrap();
+
+        // Directly publish through native zenoh::Session without adding .timestamp()
+        let raw_session = manager.get_session(&session_id).await.unwrap();
+        raw_session
+            .put("untimestamped/test", "raw message without hlc")
+            .await
+            .unwrap();
+
+        let received = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for untimestamped sample")
+            .expect("channel closed");
+
+        assert_eq!(received.key_expr, "untimestamped/test");
+        assert_eq!(received.payload, b"raw message without hlc");
+        assert!(received.timestamp > 0);
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_zenoh_pubsub_multiple_subscribers_same_key_expr() {
+        let manager = SessionManager::new();
+        let config = SessionConfig::default_peer();
+        let session_id = manager.connect(config).await.unwrap();
+
+        let (tx1, mut rx1) = mpsc::channel(10);
+        let (tx2, mut rx2) = mpsc::channel(10);
+        let sub_id1 = Uuid::new_v4();
+        let sub_id2 = Uuid::new_v4();
+
+        // Subscribe twice to the exact same key expression with different sub_ids
+        manager
+            .subscribe(&session_id, sub_id1, "shared/topic", move |sample| {
+                let _ = tx1.try_send(sample);
+            })
+            .await
+            .unwrap();
+
+        manager
+            .subscribe(&session_id, sub_id2, "shared/topic", move |sample| {
+                let _ = tx2.try_send(sample);
+            })
+            .await
+            .unwrap();
+
+        manager
+            .publish(&session_id, "shared/topic", b"shared data".to_vec(), "text", "put")
+            .await
+            .unwrap();
+
+        let recv1 = tokio::time::timeout(Duration::from_secs(3), rx1.recv())
+            .await
+            .expect("timeout waiting for sub1")
+            .expect("channel 1 closed");
+
+        let recv2 = tokio::time::timeout(Duration::from_secs(3), rx2.recv())
+            .await
+            .expect("timeout waiting for sub2")
+            .expect("channel 2 closed");
+
+        assert_eq!(recv1.payload, b"shared data");
+        assert_eq!(recv2.payload, b"shared data");
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
 }

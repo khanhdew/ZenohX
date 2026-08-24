@@ -66,7 +66,20 @@ pub fn extract_sample(
     session_id: Uuid,
     sub_id: Option<Uuid>,
     sample: &zenoh::sample::Sample,
-) -> ZenohSample {
+) -> Option<ZenohSample> {
+    let (timestamp, source_id) = if let Some(t) = sample.timestamp() {
+        let ts_millis = (t.get_time().as_nanos() / 1_000_000) as i64;
+        let zid = t.get_id().to_string();
+        let sid = if zid == "0" || zid.is_empty() {
+            None
+        } else {
+            Some(zid)
+        };
+        (ts_millis, sid)
+    } else {
+        (chrono::Utc::now().timestamp_millis(), None)
+    };
+
     let key_expr = sample.key_expr().to_string();
     let payload = sample.payload().to_bytes().to_vec();
     let kind = match sample.kind() {
@@ -74,19 +87,11 @@ pub fn extract_sample(
         zenoh::sample::SampleKind::Delete => "delete".to_string(),
     };
     let encoding = sample.encoding().to_string();
-    let (timestamp, source_id) = if let Some(t) = sample.timestamp() {
-        let ts_millis = (t.get_time().as_nanos() / 1_000_000) as i64;
-        let zid = t.get_id().to_string();
-        (ts_millis, if zid == "0" || zid.is_empty() { None } else { Some(zid) })
-    } else {
-        (chrono::Utc::now().timestamp_millis(), None)
-    };
-
     let attachment = sample.attachment().map(|a| a.to_bytes().to_vec());
     let express = Some(sample.express());
     let priority = Some(format!("{:?}", sample.priority()).to_lowercase());
 
-    ZenohSample {
+    Some(ZenohSample {
         session_id,
         sub_id,
         key_expr,
@@ -98,7 +103,7 @@ pub fn extract_sample(
         priority,
         express,
         attachment,
-    }
+    })
 }
 
 /// Publishes a payload with the specified encoding, operation kind (put or delete), and QoS options.
@@ -126,6 +131,7 @@ pub async fn publish_sample_with_options(
         "delete" => {
             session
                 .delete(key_expr)
+                .timestamp(session.new_timestamp())
                 .await
                 .map_err(|e| format!("failed to publish delete on '{key_expr}': {e}"))?;
         }
@@ -133,7 +139,8 @@ pub async fn publish_sample_with_options(
             let zenoh_encoding = parse_encoding(encoding);
             let mut builder = session
                 .put(key_expr, payload)
-                .encoding(zenoh_encoding);
+                .encoding(zenoh_encoding)
+                .timestamp(session.new_timestamp());
 
             if let Some(opts) = options {
                 if let Some(pri) = &opts.priority {
@@ -219,8 +226,9 @@ where
                 sample_res = subscriber.recv_async() => {
                     match sample_res {
                         Ok(sample) => {
-                            let extracted = extract_sample(session_id, Some(sub_id), &sample);
-                            (callback_arc)(extracted);
+                            if let Some(extracted) = extract_sample(session_id, Some(sub_id), &sample) {
+                                (callback_arc)(extracted);
+                            }
                         }
                         Err(_) => {
                             break;

@@ -46,6 +46,13 @@ pub async fn publish_sample_advanced(
         .await
         .unwrap_or_default();
 
+    let local_zid = state
+        .session_manager
+        .get_session(&session_id)
+        .await
+        .map(|s| s.zid().to_string())
+        .ok();
+
     let now = chrono::Utc::now().timestamp_millis();
     let stored = StoredMessage {
         id: None,
@@ -56,6 +63,7 @@ pub async fn publish_sample_advanced(
         encoding,
         kind,
         timestamp: now,
+        source_id: local_zid,
     };
     let _ = state.db.insert_message(&stored);
 
@@ -132,7 +140,9 @@ pub async fn subscribe_advanced(
     state
         .session_manager
         .subscribe_with_options(&session_id, sub_id, &key_expr, options, move |sample| {
-            let _ = batch_tx.try_send(sample);
+            if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = batch_tx.try_send(sample) {
+                eprintln!("Warning: Zenoh subscriber queue full, dropping sample for sub: {sub_id}");
+            }
         })
         .await
 }
@@ -144,6 +154,10 @@ fn flush_sample_buffer(
     profile_id: &str,
     app_handle: &AppHandle,
 ) {
+    if buffer.is_empty() {
+        return;
+    }
+
     let stored_list: Vec<StoredMessage> = buffer
         .iter()
         .map(|sample| StoredMessage {
@@ -155,10 +169,15 @@ fn flush_sample_buffer(
             encoding: sample.encoding.clone(),
             kind: sample.kind.clone(),
             timestamp: sample.timestamp,
+            source_id: sample.source_id.clone(),
         })
         .collect();
 
-    let _ = db.insert_messages_batch(&stored_list);
+    let db_clone = db.clone();
+    tokio::task::spawn_blocking(move || {
+        let _ = db_clone.insert_messages_batch(&stored_list);
+    });
+
     let _ = app_handle.emit("zenohx://samples-batched", &buffer);
     buffer.clear();
 }

@@ -374,7 +374,7 @@ export function buildProfileFromScoutedNode(
   return {
     id: crypto.randomUUID(),
     name: `Zenoh ${isRouter ? 'Router' : 'Peer'} (${shortZid})`,
-    mode: isRouter ? 'client' : 'peer',
+    mode: 'client',
     connect_locators: locators,
     listen_locators: [],
     scout_multicast: true,
@@ -387,7 +387,91 @@ export function buildProfileFromScoutedNode(
 }
 
 /**
+ * Checks if a locator or IP address is link-local (IPv6 fe80::/10 or IPv4 169.254.0.0/16).
+ */
+export function isLinkLocalLocator(locator: string): boolean {
+  if (!locator || typeof locator !== 'string') return false;
+  const lower = locator.toLowerCase();
+
+  // IPv6 link-local addresses fe80::/10 (fe80 to febf)
+  if (
+    lower.includes('[fe8') ||
+    lower.includes('[fe9') ||
+    lower.includes('[fea') ||
+    lower.includes('[feb') ||
+    lower.includes('fe80:') ||
+    lower.includes('/fe80:')
+  ) {
+    return true;
+  }
+
+  // IPv4 link-local addresses 169.254.0.0/16
+  if (lower.includes('169.254.')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Checks if a locator contains a loopback, link-local, or wildcard address.
+ */
+export function isExcludedLocator(locator: string): boolean {
+  if (!locator || typeof locator !== 'string') return true;
+  const lower = locator.toLowerCase();
+
+  // Unix domain sockets are local IPC endpoints - keep them
+  if (lower.startsWith('unix/') || lower.startsWith('unixpipe/')) {
+    return false;
+  }
+
+  // 1. Loopback addresses (IPv6 [::1] and IPv4 127.0.0.1 / localhost)
+  if (
+    lower.includes('[::1]') ||
+    lower.includes('/127.0.0.1') ||
+    lower.includes('127.0.0.1:') ||
+    lower.includes('localhost')
+  ) {
+    return true;
+  }
+
+  // 2. Link-local IPv6 fe80::/10 and IPv4 169.254.0.0/16
+  if (isLinkLocalLocator(locator)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Filters out link-local locators (fe80::/10 and 169.254.0.0/16) from an array of locators.
+ */
+export function filterLinkLocalLocators(locators: string[]): string[] {
+  if (!Array.isArray(locators)) return [];
+  return locators.filter((loc) => typeof loc === 'string' && loc.trim().length > 0 && !isLinkLocalLocator(loc));
+}
+
+/**
+ * Filters locators to strictly preserve real reachable IPv4 and real IPv6 addresses (and unix sockets),
+ * dropping loopback ([::1], 127.0.0.1) and link-local (fe80::, 169.254.) addresses.
+ */
+export function filterRealLocators(locators: string[]): string[] {
+  if (!Array.isArray(locators)) return [];
+  const clean = locators.filter(
+    (loc) => typeof loc === 'string' && loc.trim().length > 0 && !isExcludedLocator(loc)
+  );
+
+  // Fallback if all addresses were loopback on an offline machine
+  if (clean.length === 0) {
+    return filterLinkLocalLocators(locators);
+  }
+
+  return clean;
+}
+
+/**
  * Generates a clean, valid Zenoh JSON5 configuration string corresponding to the active SessionConfig or ConnectionProfile.
+ * Strictly preserves real IPv4 & real IPv6 endpoints, excluding link-local and loopback IPs.
  */
 export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<string, any>): string {
   const mode = (config.mode || 'peer').toLowerCase();
@@ -395,13 +479,16 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
     mode,
   };
 
-  const zid = (config as any).zid || ((config as any).id && !(config as any).id.startsWith('profile-') ? (config as any).id : undefined);
-  if (zid) {
-    result.id = zid;
+  const rawZid = (config as any).zid;
+  if (rawZid && typeof rawZid === 'string') {
+    const cleanZid = rawZid.replace(/-/g, '').toLowerCase();
+    if (/^[0-9a-f]{1,32}$/.test(cleanZid)) {
+      result.id = cleanZid;
+    }
   }
 
   const connectLocs = Array.isArray(config.connect_locators)
-    ? config.connect_locators.filter((l: any) => typeof l === 'string' && l.trim().length > 0)
+    ? filterRealLocators(config.connect_locators)
     : [];
 
   if (connectLocs.length > 0) {
@@ -419,7 +506,7 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
   }
 
   const listenLocs = Array.isArray(config.listen_locators)
-    ? config.listen_locators.filter((l: any) => typeof l === 'string' && l.trim().length > 0)
+    ? filterRealLocators(config.listen_locators)
     : [];
 
   if (listenLocs.length > 0) {
@@ -471,12 +558,44 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
   const custom = (config as any).custom_config;
   if (custom && typeof custom === 'object' && !Array.isArray(custom)) {
     for (const [k, v] of Object.entries(custom)) {
-      if (v && typeof v === 'object' && !Array.isArray(v) && result[k] && typeof result[k] === 'object') {
+      if (k === 'connect') {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          result.connect = { ...(v as any), ...result.connect };
+          if (connectLocs.length > 0) {
+            result.connect.endpoints = connectLocs;
+          }
+        }
+      } else if (k === 'listen') {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          result.listen = { ...(v as any), ...result.listen };
+          if (listenLocs.length > 0) {
+            result.listen.endpoints = listenLocs;
+          }
+        }
+      } else if (k === 'id') {
+        if (typeof v === 'string') {
+          const clean = v.replace(/-/g, '').toLowerCase();
+          if (/^[0-9a-f]{1,32}$/.test(clean)) {
+            result.id = clean;
+          }
+        }
+      } else if (k === 'mode') {
+        if (!(k in result)) {
+          result[k] = v;
+        }
+      } else if (v && typeof v === 'object' && !Array.isArray(v) && result[k] && typeof result[k] === 'object') {
         result[k] = { ...result[k], ...v };
-      } else {
+      } else if (!(k in result)) {
         result[k] = v;
       }
     }
+  }
+
+  if (result.listen && Array.isArray(result.listen.endpoints)) {
+    result.listen.endpoints = filterRealLocators(result.listen.endpoints);
+  }
+  if (result.connect && Array.isArray(result.connect.endpoints)) {
+    result.connect.endpoints = filterRealLocators(result.connect.endpoints);
   }
 
   return JSON.stringify(result, null, 2);

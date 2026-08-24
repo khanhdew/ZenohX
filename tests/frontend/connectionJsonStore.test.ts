@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { useConnectionJsonStore } from '../../src/stores/connectionJsonStore';
 import type { TopologyNode } from '../../src/types/topology';
-import type { ConnectionProfile, SessionInfo } from '../../src/types/zenoh';
+import { filterRealLocators, filterLinkLocalLocators, generateZenohJson5 } from '../../src/lib/tls';
 
 describe('Connection JSON Store (useConnectionJsonStore)', () => {
   beforeEach(() => {
@@ -187,6 +187,34 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.equal(parsed?.tls_config?.client_key, '/etc/client.key');
   });
 
+  it('parses JSON5 with single-line comments, multi-line comments, and trailing commas', () => {
+    const store = useConnectionJsonStore.getState();
+
+    const json5Content = `
+    // Zenoh configuration with comments
+    {
+      /* Mode of the Zenoh node */
+      "mode": "peer",
+      "connect": {
+        "endpoints": [
+          "tcp/192.168.1.14:42157", // Target peer
+        ],
+      },
+      "listen": {
+        "endpoints": [
+          "tcp/0.0.0.0:7447",
+        ],
+      },
+    }
+    `;
+
+    const parsed = store.parseJsonToProfile(json5Content);
+    assert.ok(parsed);
+    assert.equal(parsed?.mode, 'peer');
+    assert.deepEqual(parsed?.connect_locators, ['tcp/192.168.1.14:42157']);
+    assert.deepEqual(parsed?.listen_locators, ['tcp/0.0.0.0:7447']);
+  });
+
   it('stores custom raw JSON overrides per profile ID', () => {
     const store = useConnectionJsonStore.getState();
 
@@ -194,5 +222,96 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     store.setCustomOverride('profile-1', customText);
 
     assert.equal(useConnectionJsonStore.getState().customOverrides['profile-1'], customText);
+  });
+
+  it('filters out loopback ([::1], 127.0.0.1) and link-local (fe80::, 169.254.) locators, keeping strictly real IPv6 and real IPv4', () => {
+    const mixedEndpoints = [
+      'tcp/[::1]:34105',
+      'tcp/[2001:ee2:e2:2600:38cd:5f4a:53d9:6dcf]:34105',
+      'tcp/127.0.0.1:34105',
+      'tcp/[fe80::ead3:55ad:1c22:b20a]:34105',
+      'tcp/169.254.12.34:34105',
+      'tcp/192.168.1.14:34105',
+    ];
+
+    const filtered = filterRealLocators(mixedEndpoints);
+    assert.deepEqual(filtered, [
+      'tcp/[2001:ee2:e2:2600:38cd:5f4a:53d9:6dcf]:34105',
+      'tcp/192.168.1.14:34105',
+    ]);
+
+    const json5 = generateZenohJson5({
+      mode: 'peer',
+      listen_locators: mixedEndpoints,
+    });
+    const parsed = JSON.parse(json5);
+    assert.deepEqual(parsed.listen.endpoints, [
+      'tcp/[2001:ee2:e2:2600:38cd:5f4a:53d9:6dcf]:34105',
+      'tcp/192.168.1.14:34105',
+    ]);
+  });
+
+  it('updates live JSON5 when IP and port are modified in edit form', () => {
+    const store = useConnectionJsonStore.getState();
+
+    // Initial config
+    const initialConfig = {
+      profile_id: 'prof-client-1',
+      mode: 'client' as const,
+      connect_locators: ['tcp/127.0.0.1:7447'],
+      listen_locators: [],
+    };
+    const initialJson = store.syncEditFormJson(initialConfig);
+    const initialParsed = JSON.parse(initialJson);
+    assert.deepEqual(initialParsed.connect?.endpoints, ['tcp/127.0.0.1:7447']);
+
+    // User changes IP and port
+    const modifiedConfig = {
+      profile_id: 'prof-client-1',
+      mode: 'client' as const,
+      connect_locators: ['tcp/192.168.1.100:8000'],
+      listen_locators: [],
+      custom_config: {
+        mode: 'client',
+        connect: {
+          endpoints: ['tcp/127.0.0.1:7447'],
+        },
+      },
+    };
+    const modifiedJson = store.syncEditFormJson(modifiedConfig);
+    const modifiedParsed = JSON.parse(modifiedJson);
+
+    // Endpoints in JSON5 must reflect the new IP and port (192.168.1.100:8000)
+    assert.deepEqual(modifiedParsed.connect?.endpoints, ['tcp/192.168.1.100:8000']);
+  });
+
+  it('updates live JSON5 when router listen endpoints IP/Port are modified', () => {
+    const store = useConnectionJsonStore.getState();
+
+    const routerConfig = {
+      profile_id: 'prof-router-1',
+      mode: 'router' as const,
+      connect_locators: [],
+      listen_locators: ['tcp/0.0.0.0:7448', 'ws/0.0.0.0:8081'],
+      custom_config: {
+        mode: 'router',
+        listen: {
+          endpoints: ['tcp/0.0.0.0:7447'],
+        },
+        transport: {
+          unicast: {
+            max_sessions: 25,
+          },
+        },
+      },
+    };
+
+    const json = store.syncEditFormJson(routerConfig);
+    const parsed = JSON.parse(json);
+
+    // Live listen endpoints must match new form inputs
+    assert.deepEqual(parsed.listen?.endpoints, ['tcp/0.0.0.0:7448', 'ws/0.0.0.0:8081']);
+    // Custom non-standard properties must be merged
+    assert.equal(parsed.transport?.unicast?.max_sessions, 25);
   });
 });

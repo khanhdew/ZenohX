@@ -599,10 +599,33 @@ export function normalizeEncoding(
 // ============================================================================
 
 /**
- * Formats a unix timestamp (ms) to HH:mm:ss.SSS time string.
+ * Normalizes input timestamp (seconds, ms, us, ns, Date, string) to a valid JavaScript Date.
  */
-export function formatTimeWithMs(timestamp: number): string {
-  const d = new Date(timestamp);
+export function normalizeTimestampToDate(timestamp: number | string | Date | null | undefined): Date {
+  if (!timestamp) return new Date();
+  if (timestamp instanceof Date) return timestamp;
+  let num = typeof timestamp === 'string' ? Number(timestamp) : timestamp;
+  if (isNaN(num) || num <= 0) return new Date();
+
+  // If timestamp is in seconds (e.g. 10 digits: ~1.7e9), convert to ms
+  if (num < 100_000_000_000) {
+    num *= 1000;
+  } else if (num > 10_000_000_000_000_000) {
+    // If timestamp is in nanoseconds (e.g. 19 digits), convert to ms
+    num = Math.floor(num / 1_000_000);
+  } else if (num > 10_000_000_000_000) {
+    // If timestamp is in microseconds (e.g. 16 digits), convert to ms
+    num = Math.floor(num / 1000);
+  }
+
+  return new Date(num);
+}
+
+/**
+ * Formats a unix timestamp (ms, sec, us, ns) to HH:mm:ss.SSS time string.
+ */
+export function formatTimeWithMs(timestamp: number | string | Date | null | undefined): string {
+  const d = normalizeTimestampToDate(timestamp);
   const hours = d.getHours().toString().padStart(2, '0');
   const minutes = d.getMinutes().toString().padStart(2, '0');
   const seconds = d.getSeconds().toString().padStart(2, '0');
@@ -611,10 +634,10 @@ export function formatTimeWithMs(timestamp: number): string {
 }
 
 /**
- * Formats a unix timestamp (ms) to YYYY/MM/DD HH:mm:ss.SSS date-time string.
+ * Formats a unix timestamp (ms, sec, us, ns) to YYYY/MM/DD HH:mm:ss.SSS date-time string.
  */
-export function formatFullDateTime(timestamp: number): string {
-  const d = new Date(timestamp);
+export function formatFullDateTime(timestamp: number | string | Date | null | undefined): string {
+  const d = normalizeTimestampToDate(timestamp);
   const year = d.getFullYear();
   const month = (d.getMonth() + 1).toString().padStart(2, '0');
   const day = d.getDate().toString().padStart(2, '0');
@@ -764,13 +787,13 @@ export function findMatchingSubscription<T extends SubscriptionLike>(
   if (!subscriptions || subscriptions.length === 0 || !keyExpr) return undefined;
 
   // Filter by profile or session if available
-  const scoped = subscriptions.filter((s) => {
-    if (profileId && s.profileId && s.profileId !== profileId) return false;
-    if (sessionId && s.sessionId && s.sessionId !== sessionId) return false;
-    return true;
-  });
+  let candidates = subscriptions;
+  if (profileId) {
+    candidates = subscriptions.filter((s) => s.profileId === profileId);
+  } else if (sessionId) {
+    candidates = subscriptions.filter((s) => s.sessionId === sessionId);
+  }
 
-  const candidates = scoped.length > 0 ? scoped : subscriptions;
   const matching = candidates.filter((s) => matchesKeyExpr(s.keyExpr, keyExpr));
   if (matching.length === 0) return undefined;
   if (matching.length === 1) return matching[0];

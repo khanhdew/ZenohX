@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS message_history (
     encoding TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'put',
     timestamp INTEGER NOT NULL,
+    source_id TEXT,
     FOREIGN KEY(profile_id) REFERENCES connection_profiles(id) ON DELETE CASCADE
 );
 
@@ -72,5 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_query_ts ON query_history(timestamp DESC);
 
 pub fn initialize_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(CREATE_TABLES_SQL)?;
+    // Run safe migration for existing SQLite databases
+    let _ = conn.execute("ALTER TABLE message_history ADD COLUMN source_id TEXT;", []);
     Ok(())
 }

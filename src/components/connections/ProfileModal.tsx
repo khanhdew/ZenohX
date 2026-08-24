@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { SimpleTooltip } from '../ui/tooltip';
 import type { ConnectionProfile } from '../../types/zenoh';
 import { useProfileForm } from './profile/useProfileForm';
 import { PresetSelector } from './profile/PresetSelector';
@@ -77,14 +78,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <div className="p-1.5 rounded-md bg-muted/60 text-foreground">
               <PanelRight className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">
+            <SimpleTooltip content="Connect to a Zenoh cloud router, join a peer mesh, or run a local router.">
+              <h2 className="text-sm font-semibold text-foreground cursor-pointer">
                 {form.isEditing ? 'Edit Connection' : 'New Connection'}
               </h2>
-              <p className="text-[11px] text-muted-foreground">
-                Connect to a Zenoh cloud router, join a peer mesh, or run a local router.
-              </p>
-            </div>
+            </SimpleTooltip>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[10px] uppercase font-mono">
@@ -225,6 +223,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 customConfigText={form.customConfigText}
                 setCustomConfigText={form.setCustomConfigText}
                 generatedConfigJson={form.generatedConfigJson}
+                onApplyJson={form.applyJsonToForm}
               />
             </div>
           )}

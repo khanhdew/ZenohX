@@ -185,8 +185,8 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
   // Filter queryables & inbound queries for current session / profile
   const sessionQueryables = useMemo(() => {
     return activeQueryables.filter((q) => {
-      if (profileId && q.profileId && q.profileId !== profileId) return false;
-      if (sessionId && q.sessionId && q.sessionId !== sessionId) return false;
+      if (profileId) return q.profileId === profileId;
+      if (sessionId) return q.sessionId === sessionId;
       return true;
     });
   }, [activeQueryables, profileId, sessionId]);

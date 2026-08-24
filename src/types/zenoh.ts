@@ -178,6 +178,7 @@ export interface StoredMessage {
   encoding: EncodingType | string;
   kind: PutKind | string;
   timestamp: number;
+  source_id?: string | null;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useConnectionStore } from '../../../stores/connectionStore';
 import { useConnectionJsonStore } from '../../../stores/connectionJsonStore';
-import type { ConnectionMode, ConnectionProfile, SessionConfig, ReconnectRetryConfig } from '../../../types/zenoh';
+import type { ConnectionMode, ConnectionProfile, SessionConfig, ReconnectRetryConfig, UserAuth } from '../../../types/zenoh';
 import {
   hasCustomTlsConfig,
   resolveTlsConfig,
@@ -10,6 +10,7 @@ import {
   buildLocator,
   detectProfilePreset,
   getSuggestedRouterPort,
+  generateZenohJson5,
   DEFAULT_TRANSPORT_PROTOCOL,
   type TransportProtocol,
   type ConnectionPreset,
@@ -176,7 +177,12 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setRouterConnectLocators(profile.connect_locators ? [...profile.connect_locators] : []);
 
         if (profile.custom_config && Object.keys(profile.custom_config).length > 0) {
-          setCustomConfigText(JSON.stringify(profile.custom_config, null, 2));
+          const { mode: _m, id: _id, connect: _c, listen: _l, scouting: _s, transport: _t, ...restOverrides } = profile.custom_config as any;
+          if (Object.keys(restOverrides).length > 0) {
+            setCustomConfigText(JSON.stringify(restOverrides, null, 2));
+          } else {
+            setCustomConfigText('');
+          }
         } else {
           setCustomConfigText('');
         }
@@ -242,7 +248,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
 
   // Peer Listen Locators Helpers
   const addListenLocator = () => {
-    setListenLocators((prev) => [...prev, '']);
+    setListenLocators((prev) => [...prev, prev.length === 0 ? 'tcp/0.0.0.0:7447' : '']);
   };
 
   const updateListenLocator = (index: number, val: string) => {
@@ -608,12 +614,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setTestSuccessMessage(null);
 
     try {
-      let customConfigObj: Record<string, unknown> | null = null;
-      if (customConfigText.trim()) {
-        customConfigObj = JSON.parse(customConfigText);
-      }
-
-      const userAuth =
+      let userAuth: UserAuth | null =
         username.trim() || password.trim() || token.trim()
           ? {
               username: username.trim() || undefined,
@@ -622,7 +623,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
             }
           : null;
 
-      const reconnectRetryConfig: ReconnectRetryConfig | null = enableReconnectRetry
+      let reconnectRetryConfig: ReconnectRetryConfig | null = enableReconnectRetry
         ? (profile?.reconnect_retry || DEFAULT_RECONNECT_RETRY_CONFIG)
         : null;
 
@@ -694,6 +695,48 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         });
       }
 
+      let customConfigObj: Record<string, unknown> | null = null;
+      if (customConfigText.trim()) {
+        try {
+          customConfigObj = JSON.parse(customConfigText);
+        } catch {
+          // Handled by validate()
+        }
+      }
+
+      // If listen_locators is empty or dynamic :0, but the active session is currently bound to a real port,
+      // preserve the live bound endpoint so reconnecting doesn't allocate a new random ephemeral port!
+      const boundLocs = activeSession?.bound_locators;
+      if (boundLocs && boundLocs.length > 0 && finalMode !== 'client') {
+        const hasWildcardOrEmpty =
+          finalListenLocators.length === 0 ||
+          finalListenLocators.some((l) => l.endsWith(':0') || l.includes('0.0.0.0:0') || l.includes('[::]:0'));
+        if (hasWildcardOrEmpty) {
+          finalListenLocators = boundLocs;
+        }
+      }
+
+      // Generate the full live JSON5 configuration object for this profile
+      const fullJson5Str = generateZenohJson5({
+        id: profile?.id,
+        mode: finalMode,
+        connect_locators: finalConnectLocators,
+        listen_locators: finalListenLocators,
+        scout_multicast: finalScoutMulticast,
+        scout_gossip: finalScoutGossip,
+        reconnect_retry: reconnectRetryConfig,
+        user_auth: userAuth,
+        tls_config: finalTlsConfig,
+        custom_config: customConfigObj,
+      });
+
+      let finalCustomConfig: Record<string, unknown> | null = customConfigObj;
+      try {
+        finalCustomConfig = JSON.parse(fullJson5Str);
+      } catch {
+        // Fallback
+      }
+
       const now = Date.now();
       const updatedProfile: ConnectionProfile = {
         id: profile?.id || crypto.randomUUID(),
@@ -706,7 +749,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         reconnect_retry: reconnectRetryConfig,
         user_auth: userAuth,
         tls_config: finalTlsConfig,
-        custom_config: customConfigObj,
+        custom_config: finalCustomConfig,
         created_at: profile?.created_at || now,
         updated_at: now,
       };
@@ -746,6 +789,11 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     if (parsed.mode === 'router' || parsed.mode === 'peer' || parsed.mode === 'client') {
       setPreset(parsed.mode);
     }
+    if (parsed.name) {
+      if (parsed.mode === 'router') setRouterName(parsed.name);
+      else if (parsed.mode === 'peer') setPeerName(parsed.name);
+      else setClientName(parsed.name);
+    }
     if (parsed.connect_locators && parsed.connect_locators.length > 0) {
       setConnectLocators(parsed.connect_locators);
       setRouterConnectLocators(parsed.connect_locators);
@@ -756,7 +804,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setClientProtocol((parsedFirst.protocol as TransportProtocol) || DEFAULT_TRANSPORT_PROTOCOL);
       }
     }
-    if (parsed.listen_locators) {
+    if (parsed.listen_locators && parsed.listen_locators.length > 0) {
       setListenLocators(parsed.listen_locators);
       const eps: RouterListenEndpoint[] = parsed.listen_locators.map((loc, idx) => {
         const p = parseLocator(loc);
@@ -779,6 +827,22 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       setScoutGossip(parsed.scout_gossip);
       setRouterScoutGossip(parsed.scout_gossip);
     }
+    if (parsed.user_auth) {
+      if (parsed.user_auth.username) setUsername(parsed.user_auth.username);
+      if (parsed.user_auth.password) setPassword(parsed.user_auth.password);
+    }
+    if (parsed.tls_config) {
+      setEnableTls(true);
+      if (parsed.tls_config.ca_cert) setCaCert(parsed.tls_config.ca_cert);
+      if (parsed.tls_config.client_cert) setClientCert(parsed.tls_config.client_cert);
+      if (parsed.tls_config.client_key) setClientKey(parsed.tls_config.client_key);
+      if (parsed.tls_config.ca_cert || parsed.tls_config.client_cert || parsed.tls_config.client_key) {
+        setUseCustomTls(true);
+      }
+    }
+    if (parsed.reconnect_retry) {
+      setEnableReconnectRetry(true);
+    }
     return true;
   };
 
@@ -788,6 +852,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setPreset,
     showAdvanced,
     setShowAdvanced,
+    applyJsonToForm,
     clientName,
     setClientName,
     clientHost,
@@ -798,7 +863,6 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     setClientProtocol,
     enableReconnectRetry,
     setEnableReconnectRetry,
-    applyJsonToForm,
     peerName,
     setPeerName,
     connectLocators,

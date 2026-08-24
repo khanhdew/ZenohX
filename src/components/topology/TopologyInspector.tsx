@@ -89,10 +89,11 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
       const primaryLocator = node.locators[0] || '';
       const now = Date.now();
+      const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
       const newProfile: ConnectionProfile = {
-        id: `profile-${now}`,
+        id: newProfId,
         name: node.label,
-        mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
+        mode: 'client',
         connect_locators: primaryLocator ? [primaryLocator] : [],
         listen_locators: [],
         scout_multicast: true,
@@ -230,54 +231,76 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         </div>
 
         {/* Advertised Locators List */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-medium text-muted-foreground">
-            Advertised Locators ({node.locators.length})
-          </label>
-          {node.locators.length === 0 ? (
-            <div className="p-2.5 rounded-md bg-muted/40 border space-y-1 text-[11px] text-muted-foreground">
-              <p className="font-medium text-foreground">Dynamic LAN Discovery</p>
-              <p className="text-[10px] leading-relaxed">
-                This node is operating via automatic UDP multicast scouting (<code className="font-mono text-[10px]">224.0.0.224:7446</code>) with ephemeral OS-assigned ports.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {node.locators.map((loc, idx) => {
-                const proto = extractLocatorProtocol(loc, node.isTls);
-                const host = extractLocatorHostPort(loc);
-                const isCopied = copiedLocator === loc;
+        {(() => {
+          const effectiveLocators =
+            node.locators && node.locators.length > 0
+              ? node.locators
+              : node.type !== 'client' && existingProfile?.listen_locators && existingProfile.listen_locators.length > 0
+              ? existingProfile.listen_locators
+              : [];
 
-                return (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-1.5 rounded-md bg-muted/40 border text-[11px]"
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono">
-                        {proto}
-                      </Badge>
-                      <span className="font-mono truncate">{host}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="iconSm"
-                      onClick={() => handleCopyLocator(loc)}
-                      className="h-5 w-5 shrink-0"
-                      title="Copy Locator"
-                    >
-                      {isCopied ? (
-                        <Check className="w-3 h-3 text-emerald-500" />
-                      ) : (
-                        <Copy className="w-3 h-3 text-muted-foreground" />
-                      )}
-                    </Button>
-                  </div>
-                );
-              })}
+          return (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Advertised Locators ({effectiveLocators.length})
+              </label>
+              {effectiveLocators.length === 0 ? (
+                <div className="p-2.5 rounded-md bg-muted/40 border space-y-1 text-[11px] text-muted-foreground">
+                  {node.type === 'client' ? (
+                    <>
+                      <p className="font-medium text-foreground">Outbound Client Session</p>
+                      <p className="text-[10px] leading-relaxed">
+                        Client nodes connect outbound to upstream routers and do not bind or advertise listening endpoints.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium text-foreground">Dynamic LAN Discovery</p>
+                      <p className="text-[10px] leading-relaxed">
+                        This node is operating via automatic UDP multicast scouting (<code className="font-mono text-[10px]">224.0.0.224:7446</code>) with ephemeral OS-assigned ports.
+                      </p>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {effectiveLocators.map((loc, idx) => {
+                    const proto = extractLocatorProtocol(loc, node.isTls);
+                    const host = extractLocatorHostPort(loc);
+                    const isCopied = copiedLocator === loc;
+
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between p-1.5 rounded-md bg-muted/40 border text-[11px]"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono">
+                            {proto}
+                          </Badge>
+                          <span className="font-mono truncate">{host}</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="iconSm"
+                          onClick={() => handleCopyLocator(loc)}
+                          className="h-5 w-5 shrink-0"
+                          title="Copy Locator"
+                        >
+                          {isCopied ? (
+                            <Check className="w-3 h-3 text-emerald-500" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-muted-foreground" />
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Configured Upstreams (Connect Endpoints) */}
         {((node.connectLocators && node.connectLocators.length > 0) ||

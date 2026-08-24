@@ -826,36 +826,149 @@ fn get_primary_local_ip() -> Option<std::net::IpAddr> {
     }
 }
 
-/// Resolves wildcard `0.0.0.0` or `[::]` in bound listening locators to real reachable host IPs.
+/// Checks if a locator contains an IPv6 or IPv4 link-local address (e.g. fe80::/10 or 169.254.0.0/16).
+pub fn is_link_local_locator(loc: &str) -> bool {
+    let lower = loc.to_lowercase();
+
+    // IPv6 link-local addresses are fe80::/10 (fe80 to febf)
+    if lower.contains("[fe8")
+        || lower.contains("[fe9")
+        || lower.contains("[fea")
+        || lower.contains("[feb")
+        || lower.contains("fe80:")
+        || lower.contains("/fe80:")
+    {
+        return true;
+    }
+
+    // IPv4 link-local addresses are 169.254.0.0/16
+    if lower.contains("169.254.") {
+        return true;
+    }
+
+    // Extract host portion if possible
+    if let Some(host_port) = loc.split('/').last() {
+        let host = if host_port.starts_with('[') {
+            host_port.split(']').next().map(|s| s.trim_start_matches('['))
+        } else {
+            host_port.split(':').next()
+        };
+        if let Some(h) = host {
+            if let Ok(ip) = h.parse::<std::net::IpAddr>() {
+                match ip {
+                    std::net::IpAddr::V4(v4) => {
+                        if v4.is_link_local() {
+                            return true;
+                        }
+                    }
+                    std::net::IpAddr::V6(v6) => {
+                        if (v6.segments()[0] & 0xffc0) == 0xfe80 {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Checks if a locator is an excluded endpoint (loopback, link-local, or wildcard).
+pub fn is_excluded_locator(loc: &str) -> bool {
+    let lower = loc.to_lowercase();
+
+    // Unix domain sockets are local IPC endpoints - keep them
+    if lower.starts_with("unix/") || lower.starts_with("unixpipe/") {
+        return false;
+    }
+
+    // 1. IPv6 and IPv4 Loopback
+    if lower.contains("[::1]") || lower.contains("/127.0.0.1") || lower.contains("127.0.0.1:") || lower.contains("localhost") {
+        return true;
+    }
+
+    // 2. Link-local
+    if is_link_local_locator(loc) {
+        return true;
+    }
+
+    // 3. Wildcards
+    if lower.contains("0.0.0.0") || lower.contains("[::]") {
+        return true;
+    }
+
+    // Check parsed IP
+    if let Some(host_port) = loc.split('/').last() {
+        let host = if host_port.starts_with('[') {
+            host_port.split(']').next().map(|s| s.trim_start_matches('['))
+        } else {
+            host_port.split(':').next()
+        };
+        if let Some(h) = host {
+            if let Ok(ip) = h.parse::<std::net::IpAddr>() {
+                match ip {
+                    std::net::IpAddr::V4(v4) => {
+                        if v4.is_loopback() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast() {
+                            return true;
+                        }
+                    }
+                    std::net::IpAddr::V6(v6) => {
+                        if v6.is_loopback() || v6.is_unspecified() || (v6.segments()[0] & 0xffc0) == 0xfe80 {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Resolves wildcard `0.0.0.0` or `[::]` in bound listening locators to real reachable host IPs,
+/// keeping strictly real IPv4 and real IPv6 endpoints (and unix sockets), and excluding link-local
+/// and loopback endpoints.
 pub fn resolve_bound_locators(raw_locators: Vec<String>) -> Vec<String> {
     let primary_ip = get_primary_local_ip().map(|ip| ip.to_string());
     let mut resolved = Vec::new();
 
-    for loc in raw_locators {
+    for loc in &raw_locators {
         if loc.contains("0.0.0.0") {
             if let Some(ip) = &primary_ip {
                 let lan_loc = loc.replace("0.0.0.0", ip);
-                if !resolved.contains(&lan_loc) {
+                if !is_excluded_locator(&lan_loc) && !resolved.contains(&lan_loc) {
                     resolved.push(lan_loc);
                 }
-            }
-            let loopback_loc = loc.replace("0.0.0.0", "127.0.0.1");
-            if !resolved.contains(&loopback_loc) {
-                resolved.push(loopback_loc);
             }
         } else if loc.contains("[::]") {
             if let Some(ip) = &primary_ip {
                 let lan_loc = loc.replace("[::]", ip);
-                if !resolved.contains(&lan_loc) {
+                if !is_excluded_locator(&lan_loc) && !resolved.contains(&lan_loc) {
                     resolved.push(lan_loc);
                 }
             }
-            let loopback_loc = loc.replace("[::]", "127.0.0.1");
-            if !resolved.contains(&loopback_loc) {
-                resolved.push(loopback_loc);
+        } else if !is_excluded_locator(loc) {
+            if !resolved.contains(loc) {
+                resolved.push(loc.clone());
             }
-        } else {
-            if !resolved.contains(&loc) {
+        }
+    }
+
+    // Fallback: If no real external/LAN IPs were resolved (e.g. offline machine), provide 127.0.0.1
+    if resolved.is_empty() {
+        for loc in raw_locators {
+            if loc.contains("0.0.0.0") {
+                let loopback = loc.replace("0.0.0.0", "127.0.0.1");
+                if !resolved.contains(&loopback) {
+                    resolved.push(loopback);
+                }
+            } else if loc.contains("[::]") {
+                let loopback = loc.replace("[::]", "127.0.0.1");
+                if !resolved.contains(&loopback) {
+                    resolved.push(loopback);
+                }
+            } else if !is_link_local_locator(&loc) && !resolved.contains(&loc) {
                 resolved.push(loc);
             }
         }

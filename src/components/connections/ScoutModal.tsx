@@ -22,6 +22,7 @@ import {
   getLocatorProtocol,
   getPreferredLocator,
   resolveTlsConfig,
+  isTlsEnabled,
 } from '../../lib/tls';
 import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 import { ScoutFilters } from './scout/ScoutFilters';
@@ -140,8 +141,18 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   const handleCreateProfile = async (node: ScoutedNode) => {
     setActionLoadingZid(node.zid);
     try {
+      const state = getNodeState(node);
+      const chosenLocator = state.selectedLocator || getPreferredLocator(node.locators || []);
       const existing = findMatchingProfile(profiles, node);
       if (existing) {
+        if (chosenLocator && !existing.connect_locators.includes(chosenLocator)) {
+          const updatedProfile: ConnectionProfile = {
+            ...existing,
+            connect_locators: [chosenLocator],
+            updated_at: Date.now(),
+          };
+          await saveProfile(updatedProfile);
+        }
         if (onUseAsProfile) {
           onUseAsProfile(node);
         }
@@ -185,9 +196,35 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
   const handleConnectDirectly = async (node: ScoutedNode) => {
     setActionLoadingZid(node.zid);
     try {
+      const state = getNodeState(node);
+      const chosenLocator = state.selectedLocator || getPreferredLocator(node.locators || []);
+      const customTlsConfig = resolveTlsConfig({
+        enableTls: state.enableTls,
+        useCustomTls: state.useCustomTls,
+        caCert: state.caCert,
+        clientCert: state.clientCert,
+        clientKey: state.clientKey,
+      });
+
       const existing = findMatchingProfile(profiles, node);
       if (existing) {
-        await connectSession(existing.id);
+        const needsUpdate =
+          (chosenLocator && !existing.connect_locators.includes(chosenLocator)) ||
+          Boolean(state.enableTls) !== isTlsEnabled(existing.tls_config, existing.connect_locators);
+
+        if (needsUpdate) {
+          const updatedProfile: ConnectionProfile = {
+            ...existing,
+            connect_locators: chosenLocator ? [chosenLocator] : existing.connect_locators,
+            tls_config: customTlsConfig,
+            updated_at: Date.now(),
+          };
+          await saveProfile(updatedProfile);
+          await connectSession(updatedProfile.id);
+        } else {
+          await connectSession(existing.id);
+        }
+
         setActionLoadingZid(null);
         onClose();
         return;

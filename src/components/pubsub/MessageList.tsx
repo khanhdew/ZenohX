@@ -75,15 +75,16 @@ export const MessageList: React.FC<MessageListProps> = ({
     const sourceList = isPaused ? frozenMessages : messages;
 
     return sourceList.filter((m) => {
-      // 1. Session filter
-      if (activeSessionId && m.sessionId && m.sessionId !== activeSessionId) {
-        return false;
-      }
-
-      // 2. Profile filter
+      // 1. Profile / Session filter
       const currentProfileId = propProfileId || selectedProfileId;
-      if (currentProfileId && m.profileId && m.profileId !== currentProfileId) {
-        return false;
+      if (currentProfileId) {
+        if (m.profileId && m.profileId !== currentProfileId) {
+          return false;
+        }
+      } else if (activeSessionId) {
+        if (m.sessionId && m.sessionId !== activeSessionId) {
+          return false;
+        }
       }
 
       // 3. Direction filter

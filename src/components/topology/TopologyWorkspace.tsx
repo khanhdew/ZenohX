@@ -100,14 +100,14 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     }
 
     const now = Date.now();
-    const isRouter = node.type === 'router';
-    const isClient = node.type === 'client';
+    const primaryLoc = (node.locators && node.locators[0]) || (node.connectLocators && node.connectLocators[0]) || '';
+    const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
     const newProf: ConnectionProfile = {
-      id: `profile-${now}`,
+      id: newProfId,
       name: node.label,
-      mode: isRouter ? 'router' : isClient ? 'client' : 'peer',
-      connect_locators: isRouter ? (node.connectLocators || []) : (node.locators || []),
-      listen_locators: isRouter ? (node.locators && node.locators.length > 0 ? node.locators : ['tcp/0.0.0.0:7447']) : [],
+      mode: 'client',
+      connect_locators: primaryLoc ? [primaryLoc] : (node.locators || []),
+      listen_locators: [],
       scout_multicast: true,
       scout_gossip: true,
       user_auth: null,
@@ -130,14 +130,14 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
       }
 
       const now = Date.now();
-      const isRouter = node.type === 'router';
-      const isClient = node.type === 'client';
+      const primaryLocator = (node.locators && node.locators[0]) || (node.connectLocators && node.connectLocators[0]) || '';
+      const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
       const newProf: ConnectionProfile = {
-        id: `profile-${now}`,
+        id: newProfId,
         name: node.label,
-        mode: isRouter ? 'router' : isClient ? 'client' : 'peer',
-        connect_locators: isRouter ? (node.connectLocators || []) : (node.locators || []),
-        listen_locators: isRouter ? (node.locators && node.locators.length > 0 ? node.locators : ['tcp/0.0.0.0:7447']) : [],
+        mode: 'client',
+        connect_locators: primaryLocator ? [primaryLocator] : (node.locators || []),
+        listen_locators: [],
         scout_multicast: true,
         scout_gossip: true,
         user_auth: null,

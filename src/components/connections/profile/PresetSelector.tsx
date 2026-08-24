@@ -2,6 +2,7 @@ import React from 'react';
 import { Cloud, Server, Share2, Check } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Badge } from '../../ui/badge';
+import { SimpleTooltip } from '../../ui/tooltip';
 import type { ConnectionPreset } from '../../../lib/tls';
 
 export interface PresetSelectorProps {
@@ -63,25 +64,26 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
 }) => {
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs font-semibold">Zenoh Topology Role</Label>
+      <SimpleTooltip content="Select operating role: Router (forwarding hub), Peer (P2P mesh), or Client (edge node).">
+        <Label className="text-xs font-semibold cursor-help inline-block">Zenoh Topology Role</Label>
+      </SimpleTooltip>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
         {ROLES.map((role) => {
           const Icon = role.icon;
           const isSelected = preset === role.id;
 
           return (
-            <button
-              key={role.id}
-              type="button"
-              onClick={() => onSelectPreset(role.id)}
-              className={`p-3 rounded-lg border text-left flex flex-col justify-between gap-2 transition-all cursor-pointer ${
-                isSelected
-                  ? `${role.selectedBorder} ${role.selectedBg} shadow-xs`
-                  : 'border-border bg-card hover:bg-muted/40'
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between mb-1">
+            <SimpleTooltip key={role.id} content={role.summary} side="bottom">
+              <button
+                type="button"
+                onClick={() => onSelectPreset(role.id)}
+                className={`p-2.5 rounded-lg border text-left flex flex-col justify-between gap-1.5 transition-all cursor-pointer ${
+                  isSelected
+                    ? `${role.selectedBorder} ${role.selectedBg} shadow-xs`
+                    : 'border-border bg-card hover:bg-muted/40'
+                }`}
+              >
+                <div className="flex items-center justify-between w-full">
                   <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
                     <Icon className={`w-4 h-4 shrink-0 ${role.iconColor}`} />
                     {role.title}
@@ -97,14 +99,11 @@ export const PresetSelector: React.FC<PresetSelectorProps> = ({
                     </Badge>
                   )}
                 </div>
-                <div className="text-[10px] font-medium text-muted-foreground">
+                <div className="text-[11px] font-medium text-muted-foreground">
                   {role.subtitle}
                 </div>
-              </div>
-              <p className="text-[10px] text-muted-foreground leading-tight">
-                {role.summary}
-              </p>
-            </button>
+              </button>
+            </SimpleTooltip>
           );
         })}
       </div>

@@ -114,14 +114,14 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const currentProfileId = propProfileId || selectedProfileId;
   const activeSessionId = propSessionId || getActiveSessionId(currentProfileId || undefined);
 
-  // Filter subscriptions to the active profile / session
+  // Filter subscriptions strictly to the active profile (or active session if no profile)
   const sessionSubscriptions = useMemo(() => {
     return subscriptions.filter((s) => {
-      if (currentProfileId && s.profileId && s.profileId !== currentProfileId) {
-        return false;
+      if (currentProfileId) {
+        return s.profileId === currentProfileId;
       }
-      if (activeSessionId && s.sessionId && s.sessionId !== activeSessionId) {
-        return false;
+      if (activeSessionId) {
+        return s.sessionId === activeSessionId;
       }
       return true;
     });

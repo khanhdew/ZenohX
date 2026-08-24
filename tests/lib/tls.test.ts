@@ -218,7 +218,6 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.equal(parsed.mode, 'router');
     assert.deepEqual(parsed.listen?.endpoints, [
       'tcp/192.168.1.50:43219',
-      'tcp/127.0.0.1:43219',
     ]);
     assert.deepEqual(parsed.connect?.endpoints, ['tcp/192.168.1.10:7447']);
     assert.equal(parsed.scouting?.multicast?.enabled, true);

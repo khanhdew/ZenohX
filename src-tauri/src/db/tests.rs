@@ -109,6 +109,7 @@ mod tests {
                 encoding: "text".to_string(),
                 kind: "put".to_string(),
                 timestamp: 1700000000 + i as i64,
+                source_id: Some(format!("zid-test-{}", i)),
             };
             let row_id = db.insert_message(&msg).expect("failed to insert message");
             inserted_ids.push(row_id);
@@ -118,7 +119,9 @@ mod tests {
         let page1 = db.get_messages(Some(&profile_id), 2, 0).expect("failed to query page1");
         assert_eq!(page1.len(), 2);
         assert_eq!(page1[0].key_expr, "demo/sensor/5");
+        assert_eq!(page1[0].source_id.as_deref(), Some("zid-test-5"));
         assert_eq!(page1[1].key_expr, "demo/sensor/4");
+        assert_eq!(page1[1].source_id.as_deref(), Some("zid-test-4"));
 
         // Fetch limit 2 offset 2
         let page2 = db.get_messages(Some(&profile_id), 2, 2).expect("failed to query page2");
@@ -153,6 +156,7 @@ mod tests {
             encoding: "text".to_string(),
             kind: "put".to_string(),
             timestamp: 1700001000,
+            source_id: Some("local-zid-adhoc".to_string()),
         };
         let adhoc_id = db.insert_message(&unsaved_msg).expect("inserting ad-hoc msg must succeed");
         assert!(adhoc_id > 0);
@@ -160,6 +164,7 @@ mod tests {
         let global_adhoc = db.get_messages(None, 10, 0).expect("querying adhoc message");
         assert_eq!(global_adhoc.len(), 1);
         assert_eq!(global_adhoc[0].key_expr, "demo/adhoc");
+        assert_eq!(global_adhoc[0].source_id.as_deref(), Some("local-zid-adhoc"));
 
         db.clear_all_messages().expect("failed to clear all messages");
         let final_check = db.get_messages(None, 10, 0).expect("final check");

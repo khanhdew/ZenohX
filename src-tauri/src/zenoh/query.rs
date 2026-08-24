@@ -231,8 +231,7 @@ pub async fn execute_query(
     while let Ok(reply) = receiver.recv_async().await {
         let latency_ms = start_time.elapsed().as_millis() as u64;
         let now = chrono::Utc::now().timestamp_millis();
-
-        let replier_id: Option<String> = None;
+        let replier_id: Option<String> = reply.replier_id().map(|z| z.zid().to_string());
 
         match reply.result() {
             Ok(sample) => {

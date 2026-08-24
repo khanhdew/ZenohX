@@ -504,7 +504,7 @@ describe('Connection Manager Integration & Helpers', () => {
     };
 
     const plainProfile = buildProfileFromScoutedNode(plainNode);
-    assert.equal(plainProfile.mode, 'peer');
+    assert.equal(plainProfile.mode, 'client');
     assert.deepEqual(plainProfile.connect_locators, ['tcp/peer.lan:7447']);
     assert.equal(plainProfile.tls_config, null);
   });

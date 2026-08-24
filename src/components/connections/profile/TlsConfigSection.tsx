@@ -3,6 +3,7 @@ import { Lock, ShieldCheck } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
+import { SimpleTooltip } from '../../ui/tooltip';
 
 export interface TlsConfigSectionProps {
   useCustomTls: boolean;
@@ -34,15 +35,12 @@ export const TlsConfigSection: React.FC<TlsConfigSectionProps> = ({
       {/* Strict TLS-Only Toggle */}
       {setTlsOnly && (
         <div className="flex items-center justify-between pb-2 border-b">
-          <div className="space-y-0.5">
-            <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+          <SimpleTooltip content="Disables unencrypted TCP/UDP fallback; only connects to verified TLS nodes.">
+            <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground cursor-pointer">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-              Strict TLS-Only Mode
+              <span>Strict TLS-Only Mode</span>
             </span>
-            <p className="text-[10px] text-muted-foreground">
-              Disables unencrypted TCP/UDP fallback; only connects to verified TLS nodes.
-            </p>
-          </div>
+          </SimpleTooltip>
           <Switch
             checked={tlsOnly}
             onCheckedChange={setTlsOnly}
@@ -52,15 +50,12 @@ export const TlsConfigSection: React.FC<TlsConfigSectionProps> = ({
 
       {/* Custom Certificates Toggle */}
       <div className="flex items-center justify-between">
-        <div>
-          <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground">
+        <SimpleTooltip content="Supply custom Root CA or client certificate/key for bidirectional verification.">
+          <span className="text-xs font-semibold flex items-center gap-1.5 text-foreground cursor-pointer">
             <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-            Custom TLS Certificates (mTLS)
+            <span>Custom TLS Certificates (mTLS)</span>
           </span>
-          <p className="text-[10px] text-muted-foreground">
-            Supply custom Root CA or client certificate/key.
-          </p>
-        </div>
+        </SimpleTooltip>
         <Switch
           checked={useCustomTls}
           onCheckedChange={setUseCustomTls}

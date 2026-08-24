@@ -15,6 +15,7 @@ import {
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
+import { SimpleTooltip } from '../../ui/tooltip';
 import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS, getRandomRouterPort } from '../../../lib/tls';
 
 export interface RouterListenEndpoint {
@@ -93,15 +94,12 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
       {/* Customizable Listen Endpoints Section */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
+          <SimpleTooltip content="Bind multi-transport network interfaces (TCP, TLS, WebSocket, Unix Socket, QUIC) for incoming node connections.">
+            <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
               <Server className="w-3.5 h-3.5 text-indigo-500" />
-              Listen Endpoints ({listenEndpoints.length})
+              <span>Listen Endpoints ({listenEndpoints.length})</span>
             </Label>
-            <p className="text-[10px] text-muted-foreground">
-              Bind multi-transport interfaces for incoming node connections.
-            </p>
-          </div>
+          </SimpleTooltip>
           <Button
             type="button"
             variant="outline"
@@ -314,14 +312,11 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
       {/* Upstream Router Connect Locators */}
       <div className="space-y-2 pt-2 border-t">
         <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-semibold">
+          <SimpleTooltip content="Connect this router to upstream cloud/edge routers for multi-router routing.">
+            <Label className="text-xs font-semibold cursor-pointer">
               Upstream Routers (Hierarchical Mesh)
             </Label>
-            <p className="text-[10px] text-muted-foreground">
-              Connect this router to upstream cloud/edge routers for multi-router routing.
-            </p>
-          </div>
+          </SimpleTooltip>
           <Button
             type="button"
             variant="outline"

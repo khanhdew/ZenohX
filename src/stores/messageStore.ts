@@ -145,6 +145,8 @@ export interface MessageState {
   getFilteredMessages: (sessionId?: string) => MessageItem[];
 }
 
+let listenerInitPromise: Promise<void> | null = null;
+
 export const useMessageStore = create<MessageState>((set, get) => ({
   subscriptions: [],
   messages: [],
@@ -222,99 +224,132 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (get().isListening && (get().unlistenFn || get().unlistenBatchedFn)) {
       return;
     }
+    if (listenerInitPromise) {
+      return listenerInitPromise;
+    }
 
-    try {
-      // Listen for batched high-throughput samples (frame-rate aligned 60 FPS)
-      const unlistenBatched = await onZenohSamplesBatched((samples: ZenohSample[]) => {
-        if (!samples || samples.length === 0) return;
-
-        const now = Date.now();
-        while (recentOutgoingPubs.length > 0 && now - recentOutgoingPubs[0].timestamp > 4000) {
-          recentOutgoingPubs.shift();
+    listenerInitPromise = (async () => {
+      try {
+        // Clean up any stale listeners first
+        const prev = get().unlistenBatchedFn;
+        if (prev) {
+          try {
+            prev();
+          } catch {
+            // Ignore
+          }
         }
 
-        const state = get();
-        const newItems: MessageItem[] = [];
+        // Listen for batched high-throughput samples (frame-rate aligned 60 FPS)
+        const unlistenBatched = await onZenohSamplesBatched((samples: ZenohSample[]) => {
+          if (!samples || samples.length === 0) return;
 
-        for (const sample of samples) {
-          const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
-          const activeSession = useConnectionStore.getState().getActiveSession(sample.session_id);
-          const localZid = activeSession?.zid?.toLowerCase();
-          const sourceZid = sample.source_id?.toLowerCase();
-
-          // Check if this sample is an echo/loopback of our own publication on the same session
-          const isSelfZid = Boolean(localZid && sourceZid && localZid === sourceZid);
-          const isSelfPublished =
-            isSelfZid ||
-            recentOutgoingPubs.some(
-              (p) =>
-                p.sessionId === sample.session_id &&
-                p.keyExpr === sample.key_expr &&
-                p.length === (sample.payload?.length || 0) &&
-                Math.abs(now - p.timestamp) < 2000
-            );
-
-          if (isSelfPublished) {
-            // This message was already added as 'outgoing' by publish();
-            // Skip adding duplicate 'incoming' loopback message.
-            continue;
+          const now = Date.now();
+          while (recentOutgoingPubs.length > 0 && now - recentOutgoingPubs[0].timestamp > 4000) {
+            recentOutgoingPubs.shift();
           }
 
-          const item: MessageItem = {
-            id: generateId(),
-            sessionId: sample.session_id,
-            profileId,
-            subId: sample.sub_id,
-            direction: 'incoming',
-            keyExpr: sample.key_expr,
-            payload: sample.payload,
-            encoding: normalizeEncoding(sample.encoding, sample.payload, sample.key_expr),
-            kind: (sample.kind as PutKind) || 'put',
-            timestamp: sample.timestamp || Date.now(),
-            sourceId: sample.source_id || undefined,
-            priority: sample.priority || undefined,
-            express: sample.express || undefined,
-            attachment: sample.attachment || undefined,
-          };
-          newItems.push(item);
+          const state = get();
+          const newItems: MessageItem[] = [];
 
-          useTrafficStore.getState().recordEvent({
-            sessionId: sample.session_id,
-            profileId,
-            direction: 'inbound',
-            opType: 'sub',
-            keyExpr: sample.key_expr,
-            bytes: sample.payload?.length || 0,
-          });
-        }
+          for (const sample of samples) {
+            // Strictly discard all messages that don't have a valid publisher ZID (source_id)
+            if (!sample.source_id || sample.source_id.trim() === '' || sample.source_id === '0') {
+              continue;
+            }
 
-        if (newItems.length === 0) return;
+            const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
+            const activeSession = useConnectionStore.getState().getActiveSession(sample.session_id);
+            const localZid = activeSession?.zid?.toLowerCase();
+            const sourceZid = sample.source_id.toLowerCase();
 
-        if (state.isPaused) {
-          set((s) => ({
-            pausedBuffer: [...s.pausedBuffer, ...newItems].slice(-5000),
-          }));
-          return;
-        }
+            // Check if this sample is an echo/loopback of our own publication on the same session
+            const isSelfZid = Boolean(localZid && sourceZid && localZid === sourceZid);
+            const isSelfPublished =
+              isSelfZid ||
+              recentOutgoingPubs.some(
+                (p) =>
+                  p.sessionId === sample.session_id &&
+                  p.keyExpr === sample.key_expr &&
+                  p.length === (sample.payload?.length || 0) &&
+                  Math.abs(now - p.timestamp) < 2000
+              );
 
-        get().addMessagesBatch(newItems);
-      });
+            if (isSelfPublished) {
+              // This message was already added as 'outgoing' by publish();
+              // Skip adding duplicate 'incoming' loopback message.
+              continue;
+            }
 
-      set({ isListening: true, unlistenBatchedFn: unlistenBatched });
-    } catch (err) {
-      set({ error: `Failed to initialize sample listener: ${err}` });
-    }
+            const item: MessageItem = {
+              id: generateId(),
+              sessionId: sample.session_id,
+              profileId,
+              subId: sample.sub_id,
+              direction: 'incoming',
+              keyExpr: sample.key_expr,
+              payload: sample.payload,
+              encoding: normalizeEncoding(sample.encoding, sample.payload, sample.key_expr),
+              kind: (sample.kind as PutKind) || 'put',
+              timestamp: sample.timestamp || Date.now(),
+              sourceId: sample.source_id || undefined,
+              priority: sample.priority || undefined,
+              express: sample.express || undefined,
+              attachment: sample.attachment || undefined,
+            };
+            newItems.push(item);
+
+            useTrafficStore.getState().recordEvent({
+              sessionId: sample.session_id,
+              profileId,
+              direction: 'inbound',
+              opType: 'sub',
+              keyExpr: sample.key_expr,
+              bytes: sample.payload?.length || 0,
+            });
+          }
+
+          if (newItems.length === 0) return;
+
+          if (state.isPaused) {
+            set((s) => ({
+              pausedBuffer: [...s.pausedBuffer, ...newItems].slice(-5000),
+            }));
+            return;
+          }
+
+          get().addMessagesBatch(newItems);
+        });
+
+        set({ isListening: true, unlistenBatchedFn: unlistenBatched });
+      } catch (err) {
+        set({ error: `Failed to initialize sample listener: ${err}` });
+      } finally {
+        listenerInitPromise = null;
+      }
+    })();
+
+    return listenerInitPromise;
   },
 
   cleanupListener: () => {
     const unlisten = get().unlistenFn;
     if (unlisten) {
-      unlisten();
+      try {
+        unlisten();
+      } catch {
+        // Ignore
+      }
     }
     const unlistenBatched = get().unlistenBatchedFn;
     if (unlistenBatched) {
-      unlistenBatched();
+      try {
+        unlistenBatched();
+      } catch {
+        // Ignore
+      }
     }
+    listenerInitPromise = null;
     set({ isListening: false, unlistenFn: null, unlistenBatchedFn: null });
   },
 
@@ -328,7 +363,10 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   ) => {
     set({ error: null });
     const targetProfileId =
-      profileId || useConnectionStore.getState().sessionToProfile[sessionId] || '';
+      profileId ||
+      (sessionId ? useConnectionStore.getState().sessionToProfile[sessionId] : undefined) ||
+      useConnectionStore.getState().selectedProfileId ||
+      '';
     const subId = generateId();
 
     try {
@@ -349,6 +387,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         count: 0,
         active: Boolean(sessionId),
         createdAt: Date.now(),
+        allowedOrigin: options?.allowed_origin,
       };
 
       // Persist as subscription preset in SQLite
@@ -453,7 +492,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       } else {
         const targetSessionId = sessionId || sub.sessionId;
         if (targetSessionId) {
-          await subscribeKey(targetSessionId, subId, sub.keyExpr);
+          const subOptions =
+            sub.allowedOrigin && sub.allowedOrigin !== 'any'
+              ? { allowed_origin: sub.allowedOrigin }
+              : undefined;
+          await subscribeKey(targetSessionId, subId, sub.keyExpr, subOptions);
           set((state) => ({
             subscriptions: state.subscriptions.map((s) =>
               s.id === subId ? { ...s, active: true, sessionId: targetSessionId } : s
@@ -585,14 +628,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   loadSubscriptions: async (profileId: string, activeSessionId?: string) => {
     if (!profileId) return;
     try {
-      const presets = await loadSubscriptionPresets(profileId);
+      const presets = (await loadSubscriptionPresets(profileId)) || [];
       const currentSubs = get().subscriptions;
 
       const loadedSubs: SubscriptionItem[] = [];
 
       for (const preset of presets) {
+        // STRICT SCOPE: Only match existing subscriptions belonging to the SAME profile
         const existing = currentSubs.find(
-          (s) => s.id === preset.id || s.keyExpr === preset.key_expr
+          (s) => s.profileId === profileId && (s.id === preset.id || s.keyExpr === preset.key_expr)
         );
         let isActive = false;
 
@@ -603,8 +647,20 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           } catch {
             isActive = false;
           }
-        } else if (existing?.active && existing.sessionId === activeSessionId) {
-          isActive = true;
+        } else if (activeSessionId && existing?.active) {
+          if (existing.sessionId !== activeSessionId) {
+            try {
+              await subscribeKey(activeSessionId, preset.id, preset.key_expr);
+              isActive = true;
+            } catch {
+              isActive = false;
+            }
+          } else {
+            isActive = true;
+          }
+        } else {
+          // Inactive when not connected
+          isActive = false;
         }
 
         loadedSubs.push({
@@ -615,6 +671,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           encoding: (preset.default_encoding as EncodingType) || 'json',
           colorTag:
             preset.color_tag ||
+            existing?.colorTag ||
             COLOR_PALETTE[loadedSubs.length % COLOR_PALETTE.length],
           count: existing?.count || 0,
           active: isActive,
@@ -627,10 +684,17 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
 
       set((state) => {
+        // Preserve all subscriptions belonging to other profiles
         const otherSubs = state.subscriptions.filter(
           (s) => s.profileId && s.profileId !== profileId
         );
-        return { subscriptions: [...otherSubs, ...loadedSubs] };
+        // Also preserve any in-memory subscriptions for this profile not in presets yet
+        const inMemoryUnsaved = state.subscriptions.filter(
+          (s) =>
+            s.profileId === profileId &&
+            !presets.some((p) => p.id === s.id || p.key_expr === s.keyExpr)
+        );
+        return { subscriptions: [...otherSubs, ...loadedSubs, ...inMemoryUnsaved] };
       });
     } catch (err) {
       console.error('Load subscriptions failed:', err);
@@ -721,6 +785,19 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   addMessage: (msg: MessageItem) => {
     set((state) => {
+      // Check recent messages for duplicate
+      const recentWindow = state.messages.slice(-100);
+      const isDuplicate = recentWindow.some((m) => {
+        if (m.id === msg.id) return true;
+        const keyMatch = m.keyExpr === msg.keyExpr;
+        const dirMatch = m.direction === msg.direction;
+        const timeMatch = Math.abs(m.timestamp - msg.timestamp) < 1000;
+        const lenMatch = (m.payload?.length || 0) === (msg.payload?.length || 0);
+        const profileMatch = !m.profileId || !msg.profileId || m.profileId === msg.profileId;
+        return keyMatch && dirMatch && timeMatch && lenMatch && profileMatch;
+      });
+      if (isDuplicate) return state;
+
       const newMessages = [...state.messages, msg];
       if (newMessages.length > state.maxMessages) {
         newMessages.splice(0, newMessages.length - state.maxMessages);
@@ -732,9 +809,27 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   addMessagesBatch: (msgs: MessageItem[]) => {
     if (!msgs || msgs.length === 0) return;
     set((state) => {
+      // 1. Deduplicate new batch internally and against recent in-memory messages
+      const recentWindow = state.messages.slice(-300);
+      const seenSignatures = new Set(
+        recentWindow.map(
+          (m) =>
+            `${m.sessionId || m.profileId || ''}:${m.keyExpr}:${m.timestamp}:${m.id || ''}:${m.direction}`
+        )
+      );
+
+      const uniqueMsgs: MessageItem[] = [];
+      for (const msg of msgs) {
+        const sig = `${msg.sessionId || msg.profileId || ''}:${msg.keyExpr}:${msg.timestamp}:${msg.id || ''}:${msg.direction}`;
+        if (!seenSignatures.has(sig)) {
+          seenSignatures.add(sig);
+          uniqueMsgs.push(msg);
+        }
+      }
+
       // Tally message counts per subscription
       const countMap = new Map<string, number>();
-      for (const msg of msgs) {
+      for (const msg of uniqueMsgs) {
         if (msg.subId) {
           countMap.set(msg.subId, (countMap.get(msg.subId) || 0) + 1);
         } else {
@@ -753,7 +848,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         return sub;
       });
 
-      let merged = [...state.messages, ...msgs];
+      if (uniqueMsgs.length === 0) {
+        return { subscriptions: updatedSubs };
+      }
+
+      let merged = [...state.messages, ...uniqueMsgs];
       if (merged.length > state.maxMessages) {
         merged = merged.slice(merged.length - state.maxMessages);
       }
@@ -834,36 +933,78 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     set({ error: null });
     try {
       const stored = await queryMessages(profileId, limit, offset);
-      const mapped: MessageItem[] = stored.map((m) => ({
-        id: m.id ? String(m.id) : generateId(),
-        sessionId: '',
-        profileId: m.profile_id,
-        direction: (m.direction as 'incoming' | 'outgoing') || 'incoming',
-        keyExpr: m.key_expr,
-        payload: m.payload,
-        encoding: normalizeEncoding(m.encoding, m.payload),
-        kind: (m.kind as PutKind) || 'put',
-        timestamp: m.timestamp,
-      }));
+      const activeSession = profileId
+        ? useConnectionStore.getState().activeSessions[profileId]
+        : undefined;
+      const defaultSessionId = activeSession?.id || '';
 
       set((state) => {
-        const combined = [...mapped, ...state.messages];
-        // Deduplicate by id or unique timestamp + keyExpr + direction
-        const seen = new Set<string>();
-        const unique = combined.filter((item) => {
-          const key = item.id || `${item.timestamp}-${item.keyExpr}-${item.direction}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        });
-        // Sort chronologically ascending for the message feed
-        unique.sort((a, b) => a.timestamp - b.timestamp);
+        const existingMessages = [...state.messages];
 
-        if (unique.length > state.maxMessages) {
-          unique.splice(0, unique.length - state.maxMessages);
+        for (const m of stored) {
+          const storedIdStr = String(m.id);
+          const payloadLen = m.payload?.length || 0;
+
+          // Check if an existing in-memory message matches this database record
+          const existingIdx = existingMessages.findIndex((existing) => {
+            if (existing.id === storedIdStr) return true;
+            const profileMatch =
+              !m.profile_id || !existing.profileId || m.profile_id === existing.profileId;
+            const keyMatch = existing.keyExpr === m.key_expr;
+            const dirMatch = existing.direction === m.direction;
+            const timeMatch = Math.abs(existing.timestamp - m.timestamp) < 1000;
+            const lenMatch = (existing.payload?.length || 0) === payloadLen;
+            return profileMatch && keyMatch && dirMatch && timeMatch && lenMatch;
+          });
+
+          if (existingIdx !== -1) {
+            // Merge SQLite persistent ID into existing message, preserving its active sessionId
+            existingMessages[existingIdx] = {
+              ...existingMessages[existingIdx],
+              id: storedIdStr,
+              sessionId: existingMessages[existingIdx].sessionId || defaultSessionId,
+              profileId: existingMessages[existingIdx].profileId || m.profile_id,
+            };
+          } else {
+            // New message from SQLite
+            const item: MessageItem = {
+              id: storedIdStr,
+              sessionId: defaultSessionId,
+              profileId: m.profile_id,
+              direction: (m.direction as 'incoming' | 'outgoing') || 'incoming',
+              keyExpr: m.key_expr,
+              payload: m.payload,
+              encoding: normalizeEncoding(m.encoding, m.payload),
+              kind: (m.kind as PutKind) || 'put',
+              timestamp: m.timestamp,
+              sourceId: m.direction === 'incoming' ? (m.source_id || undefined) : undefined,
+              senderZid: m.direction === 'outgoing' ? (m.source_id || undefined) : undefined,
+            };
+            existingMessages.push(item);
+          }
         }
 
-        return { messages: unique };
+        // Deduplicate any remaining items by signature
+        const seenSignatures = new Set<string>();
+        const uniqueMessages: MessageItem[] = [];
+
+        // Sort chronologically ascending
+        existingMessages.sort((a, b) => a.timestamp - b.timestamp);
+
+        for (const item of existingMessages) {
+          const payloadLen = item.payload?.length || 0;
+          const sig = `${item.profileId || ''}:${item.keyExpr}:${item.direction}:${item.timestamp}:${payloadLen}`;
+          if (!seenSignatures.has(sig)) {
+            seenSignatures.add(sig);
+            uniqueMessages.push(item);
+          }
+        }
+
+        if (uniqueMessages.length > state.maxMessages) {
+          uniqueMessages.splice(0, uniqueMessages.length - state.maxMessages);
+        }
+
+        return { messages: uniqueMessages };
       });
     } catch (err) {
       console.error('Load history failed:', err);

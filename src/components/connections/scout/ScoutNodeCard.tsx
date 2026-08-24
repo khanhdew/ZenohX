@@ -19,6 +19,7 @@ import { Button } from '../../ui/button';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
+import { SimpleTooltip } from '../../ui/tooltip';
 import type { ScoutedNode } from '../../../types/zenoh';
 import { getLocatorProtocol } from '../../../lib/tls';
 
@@ -295,15 +296,12 @@ export const ScoutNodeCard: React.FC<ScoutNodeCardProps> = ({
           <div className="mt-2.5 p-3 rounded-md bg-muted/20 border space-y-3 animate-in fade-in duration-150">
             {/* Master TLS Toggle */}
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-xs font-semibold flex items-center gap-1.5">
+              <SimpleTooltip content="Encrypt transport channel using TLS.">
+                <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
                   <Lock className="w-3 h-3 text-emerald-500" />
-                  Enable TLS Encryption
+                  <span>Enable TLS Encryption</span>
                 </Label>
-                <p className="text-[10px] text-muted-foreground">
-                  Encrypt transport channel using TLS.
-                </p>
-              </div>
+              </SimpleTooltip>
               <Switch
                 checked={nodeState.enableTls}
                 onCheckedChange={(checked) =>
@@ -316,15 +314,12 @@ export const ScoutNodeCard: React.FC<ScoutNodeCardProps> = ({
               <div className="space-y-3 pt-2 border-t">
                 {/* System Root CAs or Custom */}
                 <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <SimpleTooltip content="Use custom CA or client certificate for authentication. When disabled, default system root certificates are used.">
+                    <Label className="text-xs font-medium flex items-center gap-1.5 cursor-pointer">
                       <Shield className="w-3 h-3 text-muted-foreground" />
-                      Custom Certificates (mTLS)
+                      <span>Custom Certificates (mTLS)</span>
                     </Label>
-                    <p className="text-[10px] text-muted-foreground">
-                      Use custom CA or client certificate for authentication.
-                    </p>
-                  </div>
+                  </SimpleTooltip>
                   <Switch
                     checked={nodeState.useCustomTls}
                     onCheckedChange={(checked) =>

@@ -35,6 +35,7 @@ pub struct StoredMessage {
     pub encoding: String, // "json" | "cbor" | "text" | "raw"
     pub kind: String,     // "put" | "delete"
     pub timestamp: i64,
+    pub source_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

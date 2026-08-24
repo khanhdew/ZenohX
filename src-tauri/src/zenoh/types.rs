@@ -273,6 +273,15 @@ impl SessionConfig {
         if let Some(custom) = &self.custom_config {
             if let Some(obj) = custom.as_object() {
                 for (k, v) in obj {
+                    if k == "id" {
+                        if let Some(s) = v.as_str() {
+                            let clean_id = s.replace('-', "").to_lowercase();
+                            if !clean_id.is_empty() && clean_id.chars().all(|c| c.is_ascii_hexdigit()) {
+                                let _ = config.insert_json5("id", &format!("\"{clean_id}\""));
+                            }
+                        }
+                        continue;
+                    }
                     let json_val = serde_json::to_string(v)
                         .map_err(|e| format!("failed to serialize custom config value: {e}"))?;
                     config

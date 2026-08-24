@@ -24,4 +24,34 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
+export interface SimpleTooltipProps {
+  content: React.ReactNode;
+  children: React.ReactNode;
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  className?: string;
+  delayDuration?: number;
+}
+
+export const SimpleTooltip: React.FC<SimpleTooltipProps> = ({
+  content,
+  children,
+  side = 'top',
+  className,
+  delayDuration = 200,
+}) => {
+  if (!content) return <>{children}</>;
+  return (
+    <TooltipProvider delayDuration={delayDuration}>
+      <Tooltip>
+        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipContent side={side} className={cn('max-w-xs text-[11px] font-normal leading-snug', className)}>
+          {content}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+export const HelpTooltip = SimpleTooltip;
+
 export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

@@ -24,11 +24,22 @@ import { formatTimeWithMs, getPayloadSnippet, encodePayload } from '../../src/li
 import type { MessageItem } from '../../src/types/zenoh';
 
 describe('Pub/Sub Workspace Helpers & Formatters', () => {
-  test('formatTimeWithMs formats timestamps correctly', () => {
-    const fixedTime = new Date('2026-08-23T14:30:15.789Z').getTime();
-    const formatted = formatTimeWithMs(fixedTime);
-    assert.match(formatted, /^\d{2}:\d{2}:\d{2}\.\d{3}$/);
-    assert.ok(formatted.endsWith('789'));
+  test('formatTimeWithMs formats timestamps correctly across ms, sec, and ns scales', () => {
+    const fixedTimeMs = new Date('2026-08-23T14:30:15.789Z').getTime();
+    const formattedMs = formatTimeWithMs(fixedTimeMs);
+    assert.match(formattedMs, /^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+    assert.ok(formattedMs.endsWith('789'));
+
+    // Seconds scale timestamp (e.g. 10 digits)
+    const fixedTimeSec = Math.floor(fixedTimeMs / 1000);
+    const formattedSec = formatTimeWithMs(fixedTimeSec);
+    assert.match(formattedSec, /^\d{2}:\d{2}:15\.000$/);
+
+    // Nanoseconds scale timestamp (e.g. 19 digits)
+    const fixedTimeNs = fixedTimeMs * 1_000_000;
+    const formattedNs = formatTimeWithMs(fixedTimeNs);
+    assert.match(formattedNs, /^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+    assert.ok(formattedNs.endsWith('789'));
   });
 
   test('getPayloadSnippet handles empty and various encoding payloads', () => {
@@ -436,5 +447,320 @@ describe('Pub/Sub Workspace Store Integration', () => {
     assert.ok(workspaceEl);
     assert.equal(workspaceEl.type, PubSubWorkspace);
   });
+
+  test('discards all incoming samples that do not have a valid ZID (source_id)', async () => {
+    let capturedHandler: ((event: { payload: unknown }) => void) | null = null;
+    mockInvokeHandler = async () => undefined;
+
+    // @ts-expect-error Mocking tauri internals
+    globalThis.window.__TAURI_INTERNALS__.invoke = async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === 'plugin:event|listen') {
+        capturedHandler = args?.handler as (event: { payload: unknown }) => void;
+        return 1;
+      }
+      return mockInvokeHandler(cmd, args);
+    };
+
+    useMessageStore.getState().cleanupListener();
+    useMessageStore.setState({
+      messages: [],
+      subscriptions: [],
+    });
+
+    await useMessageStore.getState().initListener();
+    assert.ok(capturedHandler);
+
+    // Simulate batch with 1 valid message (with ZID) and 2 invalid messages (without ZID or 0)
+    capturedHandler({
+      payload: [
+        {
+          session_id: 'sess-test-zid',
+          key_expr: 'sensor/with-zid',
+          payload: Array.from(Buffer.from('valid')),
+          encoding: 'text',
+          kind: 'put',
+          timestamp: Date.now(),
+          source_id: 'abcdef0123456789', // Valid ZID
+        },
+        {
+          session_id: 'sess-test-zid',
+          key_expr: 'sensor/without-zid',
+          payload: Array.from(Buffer.from('invalid-1')),
+          encoding: 'text',
+          kind: 'put',
+          timestamp: Date.now(),
+          source_id: undefined, // Missing ZID
+        },
+        {
+          session_id: 'sess-test-zid',
+          key_expr: 'sensor/zero-zid',
+          payload: Array.from(Buffer.from('invalid-2')),
+          encoding: 'text',
+          kind: 'put',
+          timestamp: Date.now(),
+          source_id: '0', // Zero ZID
+        },
+      ],
+    });
+
+    const messages = useMessageStore.getState().messages;
+    // Exactly 1 message should be kept
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].keyExpr, 'sensor/with-zid');
+    assert.equal(messages[0].sourceId, 'abcdef0123456789');
+  });
+
+  test('multi-node subscription isolation: same key expression on different nodes does not cross-contaminate or overwrite', async () => {
+    const sqlitePresets: Record<string, Array<{ id: string; profile_id: string; key_expr: string; default_encoding: string; auto_subscribe: boolean; color_tag: string }>> = {
+      'node-1': [],
+      'node-2': [],
+    };
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'subscribe' || cmd === 'unsubscribe') return undefined;
+      if (cmd === 'save_subscription_preset') {
+        const p = args?.preset as { id: string; profile_id: string; key_expr: string; default_encoding: string; auto_subscribe: boolean; color_tag: string };
+        if (p && sqlitePresets[p.profile_id]) {
+          const list = sqlitePresets[p.profile_id];
+          const idx = list.findIndex((item) => item.id === p.id);
+          if (idx >= 0) list[idx] = p;
+          else list.push(p);
+        }
+        return undefined;
+      }
+      if (cmd === 'load_subscription_presets') {
+        const pid = args?.profileId as string;
+        return sqlitePresets[pid] || [];
+      }
+      return undefined;
+    };
+
+    useConnectionStore.setState({
+      profiles: [
+        { id: 'node-1', name: 'Node 1', mode: 'peer', connect_locators: [], listen_locators: [], scout_multicast: true, created_at: 1, updated_at: 1 },
+        { id: 'node-2', name: 'Node 2', mode: 'peer', connect_locators: [], listen_locators: [], scout_multicast: true, created_at: 2, updated_at: 2 },
+      ],
+      sessionToProfile: {
+        'sess-node-1': 'node-1',
+        'sess-node-2': 'node-2',
+      },
+      activeSessions: {
+        'node-1': { id: 'sess-node-1', profile_id: 'node-1', zid: 'z1', mode: 'peer', scout_multicast: true, connect_locators: [], listen_locators: [], created_at: 1 },
+        'node-2': { id: 'sess-node-2', profile_id: 'node-2', zid: 'z2', mode: 'peer', scout_multicast: true, connect_locators: [], listen_locators: [], created_at: 2 },
+      },
+      selectedProfileId: 'node-1',
+    });
+
+    useMessageStore.setState({
+      subscriptions: [],
+      messages: [],
+    });
+
+    // 1. Subscribe to 'demo/**' on Node 1
+    const subNode1Id = await useMessageStore.getState().subscribe(
+      'sess-node-1',
+      'demo/**',
+      'json',
+      '#3b82f6',
+      'node-1'
+    );
+
+    assert.equal(useMessageStore.getState().subscriptions.length, 1);
+    const sub1 = useMessageStore.getState().subscriptions[0];
+    assert.equal(sub1.id, subNode1Id);
+    assert.equal(sub1.profileId, 'node-1');
+    assert.equal(sub1.sessionId, 'sess-node-1');
+    assert.equal(sub1.keyExpr, 'demo/**');
+    assert.equal(sub1.colorTag, '#3b82f6');
+
+    // 2. Subscribe to 'demo/**' on Node 2 with different encoding and color
+    const subNode2Id = await useMessageStore.getState().subscribe(
+      'sess-node-2',
+      'demo/**',
+      'text',
+      '#ef4444',
+      'node-2'
+    );
+
+    // Both subscriptions MUST exist independently
+    assert.equal(useMessageStore.getState().subscriptions.length, 2);
+
+    const sub1After = useMessageStore.getState().subscriptions.find((s) => s.id === subNode1Id);
+    const sub2After = useMessageStore.getState().subscriptions.find((s) => s.id === subNode2Id);
+
+    assert.ok(sub1After, 'Node 1 subscription must exist');
+    assert.ok(sub2After, 'Node 2 subscription must exist');
+    assert.equal(sub1After?.profileId, 'node-1');
+    assert.equal(sub1After?.sessionId, 'sess-node-1');
+    assert.equal(sub1After?.encoding, 'json');
+    assert.equal(sub1After?.colorTag, '#3b82f6');
+
+    assert.equal(sub2After?.profileId, 'node-2');
+    assert.equal(sub2After?.sessionId, 'sess-node-2');
+    assert.equal(sub2After?.encoding, 'text');
+    assert.equal(sub2After?.colorTag, '#ef4444');
+
+    // 3. Switch to Node 1 and reload subscriptions from presets
+    await useMessageStore.getState().loadSubscriptions('node-1', 'sess-node-1');
+    assert.equal(useMessageStore.getState().subscriptions.length, 2);
+
+    const sub1Reloaded = useMessageStore.getState().subscriptions.find((s) => s.id === subNode1Id);
+    const sub2Reloaded = useMessageStore.getState().subscriptions.find((s) => s.id === subNode2Id);
+
+    assert.equal(sub1Reloaded?.profileId, 'node-1');
+    assert.equal(sub1Reloaded?.encoding, 'json');
+    assert.equal(sub2Reloaded?.profileId, 'node-2');
+    assert.equal(sub2Reloaded?.encoding, 'text');
+
+    // 4. Disconnect Node 1: subscriptions for Node 1 must NOT disappear
+    await useMessageStore.getState().loadSubscriptions('node-1', undefined);
+    assert.equal(useMessageStore.getState().subscriptions.length, 2);
+
+    const sub1Offline = useMessageStore.getState().subscriptions.find((s) => s.id === subNode1Id);
+    assert.equal(sub1Offline?.profileId, 'node-1');
+    assert.equal(sub1Offline?.active, false);
+
+    // 5. Reconnect Node 1 with new session ID: subscriptions must remain intact
+    await useMessageStore.getState().loadSubscriptions('node-1', 'sess-node-1-new');
+    assert.equal(useMessageStore.getState().subscriptions.length, 2);
+
+    const sub1Reconnected = useMessageStore.getState().subscriptions.find((s) => s.id === subNode1Id);
+    assert.equal(sub1Reconnected?.profileId, 'node-1');
+    assert.equal(sub1Reconnected?.sessionId, 'sess-node-1-new');
+    assert.equal(sub1Reconnected?.active, true);
+
+    // 6. Update Node 2's subscription: Node 1's subscription must remain UNTOUCHED
+    await useMessageStore.getState().updateSubscription(
+      subNode2Id,
+      {
+        keyExpr: 'demo/updated/**',
+        encoding: 'cbor',
+        colorTag: '#8b5cf6',
+      },
+      'sess-node-2'
+    );
+
+    const sub1AfterUpdate = useMessageStore.getState().subscriptions.find((s) => s.id === subNode1Id);
+    const sub2AfterUpdate = useMessageStore.getState().subscriptions.find((s) => s.id === subNode2Id);
+
+    assert.equal(sub1AfterUpdate?.keyExpr, 'demo/**');
+    assert.equal(sub1AfterUpdate?.encoding, 'json');
+    assert.equal(sub1AfterUpdate?.colorTag, '#3b82f6');
+    assert.equal(sub1AfterUpdate?.profileId, 'node-1');
+
+    assert.equal(sub2AfterUpdate?.keyExpr, 'demo/updated/**');
+    assert.equal(sub2AfterUpdate?.encoding, 'cbor');
+    assert.equal(sub2AfterUpdate?.colorTag, '#8b5cf6');
+    assert.equal(sub2AfterUpdate?.profileId, 'node-2');
+
+    // 7. Unsubscribe Node 2: Node 1's subscription must STILL exist
+    await useMessageStore.getState().unsubscribe('sess-node-2', subNode2Id);
+    assert.equal(useMessageStore.getState().subscriptions.length, 1);
+    assert.equal(useMessageStore.getState().subscriptions[0].id, subNode1Id);
+    assert.equal(useMessageStore.getState().subscriptions[0].profileId, 'node-1');
+  });
+
+  test('loadHistory preserves source_id and senderZid from SQLite stored messages', async () => {
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'query_messages') {
+        return [
+          {
+            id: 1,
+            profile_id: 'prof-history-1',
+            direction: 'incoming',
+            key_expr: 'sensor/temperature',
+            payload: Array.from(Buffer.from('{"temp": 21.5}')),
+            encoding: 'json',
+            kind: 'put',
+            timestamp: 1700000001,
+            source_id: 'zid-remote-node-999',
+          },
+          {
+            id: 2,
+            profile_id: 'prof-history-1',
+            direction: 'outgoing',
+            key_expr: 'control/switch',
+            payload: Array.from(Buffer.from('{"on": true}')),
+            encoding: 'json',
+            kind: 'put',
+            timestamp: 1700000002,
+            source_id: 'zid-local-node-111',
+          },
+        ];
+      }
+      return undefined;
+    };
+
+    useMessageStore.setState({
+      messages: [],
+    });
+
+    await useMessageStore.getState().loadHistory('prof-history-1');
+
+    const msgs = useMessageStore.getState().messages;
+    assert.equal(msgs.length, 2);
+
+    const incoming = msgs.find((m) => m.direction === 'incoming');
+    const outgoing = msgs.find((m) => m.direction === 'outgoing');
+
+    assert.ok(incoming);
+    assert.equal(incoming?.sourceId, 'zid-remote-node-999');
+    assert.equal(incoming?.senderZid, undefined);
+
+    assert.ok(outgoing);
+    assert.equal(outgoing?.senderZid, 'zid-local-node-111');
+  });
+
+  test('loadHistory deduplicates with in-memory published message and preserves sessionId', async () => {
+    const fixedTs = 1700000500;
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'query_messages') {
+        return [
+          {
+            id: 42,
+            profile_id: 'prof-1',
+            direction: 'outgoing',
+            key_expr: 'demo/test/dup',
+            payload: Array.from(Buffer.from('{"data": 123}')),
+            encoding: 'json',
+            kind: 'put',
+            timestamp: fixedTs,
+            source_id: 'zid-local',
+          },
+        ];
+      }
+      return undefined;
+    };
+
+    // 1. In-memory message from publish()
+    useMessageStore.setState({
+      messages: [
+        {
+          id: 'uuid-in-memory-1',
+          sessionId: 'sess-active-1',
+          profileId: 'prof-1',
+          direction: 'outgoing',
+          keyExpr: 'demo/test/dup',
+          payload: Array.from(Buffer.from('{"data": 123}')),
+          encoding: 'json',
+          kind: 'put',
+          timestamp: fixedTs,
+          senderZid: 'zid-local',
+        },
+      ],
+    });
+
+    // 2. loadHistory runs (e.g. from background reload)
+    await useMessageStore.getState().loadHistory('prof-1');
+
+    const msgs = useMessageStore.getState().messages;
+    // Must NOT have 2 messages (one with session, one without)
+    assert.equal(msgs.length, 1, 'Should have exactly 1 deduplicated message');
+    assert.equal(msgs[0].sessionId, 'sess-active-1', 'Should preserve active sessionId');
+    assert.equal(msgs[0].id, '42', 'Should update to SQLite persistent ID');
+  });
 });
+
+
+
 

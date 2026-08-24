@@ -668,12 +668,14 @@ export const useQueryStore = create<QueryState>((set, get) => ({
   loadQueryables: async (profileId: string, activeSessionId?: string) => {
     if (!profileId) return;
     try {
-      const presets = await loadQueryablePresetsIpc(profileId);
+      const presets = (await loadQueryablePresetsIpc(profileId)) || [];
       const current = get().activeQueryables;
       const loaded: ActiveQueryable[] = [];
 
       for (const preset of presets) {
-        const existing = current.find((q) => q.id === preset.id || q.keyExpr === preset.key_expr);
+        const existing = current.find(
+          (q) => q.profileId === profileId && (q.id === preset.id || q.keyExpr === preset.key_expr)
+        );
 
         if (activeSessionId) {
           try {
@@ -706,7 +708,12 @@ export const useQueryStore = create<QueryState>((set, get) => ({
         const other = state.activeQueryables.filter(
           (q) => q.profileId && q.profileId !== profileId
         );
-        return { activeQueryables: [...other, ...loaded] };
+        const inMemoryUnsaved = state.activeQueryables.filter(
+          (q) =>
+            q.profileId === profileId &&
+            !presets.some((p) => p.id === q.id || p.key_expr === q.keyExpr)
+        );
+        return { activeQueryables: [...other, ...loaded, ...inMemoryUnsaved] };
       });
     } catch (err) {
       console.error('Load queryables failed:', err);

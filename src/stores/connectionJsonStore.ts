@@ -54,15 +54,23 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
     const zid = node.zid || activeSession?.zid || matchingProfile?.id;
     const mode = (node.type || matchingProfile?.mode || activeSession?.mode || 'peer') as 'router' | 'peer' | 'client';
 
-    const listenLocators =
-      (node.locators && node.locators.length > 0
+    const isClient = mode === 'client';
+
+    const listenLocators = isClient
+      ? []
+      : (node.locators && node.locators.length > 0
         ? node.locators
         : activeSession?.bound_locators && activeSession.bound_locators.length > 0
         ? activeSession.bound_locators
         : matchingProfile?.listen_locators) || [];
 
-    const connectLocators =
-      (node.connectLocators && node.connectLocators.length > 0
+    const connectLocators = isClient
+      ? (node.connectLocators && node.connectLocators.length > 0
+        ? node.connectLocators
+        : matchingProfile?.connect_locators && matchingProfile.connect_locators.length > 0
+        ? matchingProfile.connect_locators
+        : node.locators) || []
+      : (node.connectLocators && node.connectLocators.length > 0
         ? node.connectLocators
         : matchingProfile?.connect_locators) || [];
 
@@ -120,20 +128,32 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
   parseJsonToProfile: (jsonString: string) => {
     if (!jsonString || !jsonString.trim()) return null;
     try {
-      const parsed = JSON.parse(jsonString);
+      // Strip comments and trailing commas to support JSON5 input
+      const cleaned = jsonString
+        .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1')
+        .replace(/,\s*([}\]])/g, '$1')
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
       const mode = (parsed.mode || 'peer').toLowerCase() as 'router' | 'peer' | 'client';
 
-      const connectLocs = Array.isArray(parsed.connect?.endpoints)
-        ? parsed.connect.endpoints
-        : Array.isArray(parsed.connect_locators)
-        ? parsed.connect_locators
-        : [];
+      let connectLocs: string[] = [];
+      if (Array.isArray(parsed.connect?.endpoints)) {
+        connectLocs = parsed.connect.endpoints.filter((l: any) => typeof l === 'string' && l.trim());
+      } else if (typeof parsed.connect?.endpoints === 'string' && parsed.connect.endpoints.trim()) {
+        connectLocs = [parsed.connect.endpoints.trim()];
+      } else if (Array.isArray(parsed.connect_locators)) {
+        connectLocs = parsed.connect_locators.filter((l: any) => typeof l === 'string' && l.trim());
+      }
 
-      const listenLocs = Array.isArray(parsed.listen?.endpoints)
-        ? parsed.listen.endpoints
-        : Array.isArray(parsed.listen_locators)
-        ? parsed.listen_locators
-        : [];
+      let listenLocs: string[] = [];
+      if (Array.isArray(parsed.listen?.endpoints)) {
+        listenLocs = parsed.listen.endpoints.filter((l: any) => typeof l === 'string' && l.trim());
+      } else if (typeof parsed.listen?.endpoints === 'string' && parsed.listen.endpoints.trim()) {
+        listenLocs = [parsed.listen.endpoints.trim()];
+      } else if (Array.isArray(parsed.listen_locators)) {
+        listenLocs = parsed.listen_locators.filter((l: any) => typeof l === 'string' && l.trim());
+      }
 
       const scoutMulticast =
         typeof parsed.scouting?.multicast?.enabled === 'boolean'
@@ -171,15 +191,30 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
         tlsConfig = parsed.tls_config;
       }
 
+      let reconnectRetry = null;
+      if (parsed.connect?.retry) {
+        reconnectRetry = {
+          period_init_ms: parsed.connect.retry.period_init_ms ?? 1000,
+          period_max_ms: parsed.connect.retry.period_max_ms ?? 10000,
+          factor: parsed.connect.retry.period_increase_factor ?? 2,
+          timeout_ms: parsed.connect.timeout_ms ?? 0,
+        };
+      } else if (parsed.reconnect_retry) {
+        reconnectRetry = parsed.reconnect_retry;
+      }
+
       return {
         id: parsed.id || parsed.zid,
+        name: parsed.name,
         mode,
         connect_locators: connectLocs,
         listen_locators: listenLocs,
         scout_multicast: scoutMulticast,
         scout_gossip: scoutGossip,
+        reconnect_retry: reconnectRetry,
         user_auth: userAuth,
         tls_config: tlsConfig,
+        custom_config: parsed,
       };
     } catch (err) {
       console.warn('Failed to parse JSON into ConnectionProfile:', err);

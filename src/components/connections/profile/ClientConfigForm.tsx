@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
+import { SimpleTooltip } from '../../ui/tooltip';
 import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS } from '../../../lib/tls';
 
 export interface ClientConfigFormProps {
@@ -83,7 +84,9 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
 
       {/* Transport Protocol Selection */}
       <div className="space-y-1.5">
-        <Label className="text-xs font-semibold">Transport Protocol</Label>
+        <SimpleTooltip content="Choose underlying transport protocol (TCP, TLS, QUIC, WebSocket, or Unix Socket).">
+          <Label className="text-xs font-semibold cursor-pointer">Transport Protocol</Label>
+        </SimpleTooltip>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
           {CLIENT_PROTOCOLS.map((p) => {
             const Icon = getProtocolIcon(p.id);
@@ -238,10 +241,12 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
 
       {/* User Authentication */}
       <div className="space-y-2 pt-2 border-t">
-        <Label className="text-xs font-semibold flex items-center gap-1.5">
-          <Shield className="w-3.5 h-3.5 text-muted-foreground" />
-          User Authentication (Optional)
-        </Label>
+        <SimpleTooltip content="Zenoh user credentials or password token passed during session handshake.">
+          <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
+            <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+            <span>User Authentication (Optional)</span>
+          </Label>
+        </SimpleTooltip>
         <div className="grid grid-cols-2 gap-2">
           <Input
             value={username}

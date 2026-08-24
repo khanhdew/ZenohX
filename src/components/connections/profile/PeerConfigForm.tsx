@@ -8,6 +8,7 @@ import {
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
+import { SimpleTooltip } from '../../ui/tooltip';
 
 export interface PeerConfigFormProps {
   peerName: string;
@@ -69,15 +70,12 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
       {/* Optional Direct Connect Locators (to remote peers or routers) */}
       <div className="space-y-2 pt-1 border-t">
         <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
+          <SimpleTooltip content="Explicit unicast links to remote peers or upstream routers.">
+            <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
               <Link className="w-3.5 h-3.5 text-primary" />
-              Direct Connect Links (Optional)
+              <span>Direct Connect Links (Optional)</span>
             </Label>
-            <p className="text-[10px] text-muted-foreground">
-              Explicit unicast links to remote peers or upstream routers.
-            </p>
-          </div>
+          </SimpleTooltip>
           <Button
             type="button"
             variant="outline"
@@ -136,15 +134,12 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
       {addListenLocator && updateListenLocator && removeListenLocator && (
         <div className="space-y-2 pt-1 border-t">
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-semibold flex items-center gap-1.5">
+            <SimpleTooltip content="Allow inbound direct connections from non-multicast peers.">
+              <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
                 <Radio className="w-3.5 h-3.5 text-emerald-500" />
-                Static Listen Endpoints (Optional)
+                <span>Static Listen Endpoints (Optional)</span>
               </Label>
-              <p className="text-[10px] text-muted-foreground">
-                Allow inbound direct connections from non-multicast peers.
-              </p>
-            </div>
+            </SimpleTooltip>
             <Button
               type="button"
               variant="outline"

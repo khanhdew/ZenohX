@@ -226,8 +226,8 @@ impl Database {
 
         conn.execute(
             "INSERT INTO message_history (
-                profile_id, direction, key_expr, payload, encoding, kind, timestamp
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                profile_id, direction, key_expr, payload, encoding, kind, timestamp, source_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 profile_id_param,
                 message.direction,
@@ -236,6 +236,7 @@ impl Database {
                 message.encoding,
                 message.kind,
                 message.timestamp,
+                message.source_id,
             ],
         )?;
         Ok(conn.last_insert_rowid())
@@ -251,8 +252,8 @@ impl Database {
         {
             let mut stmt = tx.prepare(
                 "INSERT INTO message_history (
-                    profile_id, direction, key_expr, payload, encoding, kind, timestamp
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    profile_id, direction, key_expr, payload, encoding, kind, timestamp, source_id
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?;
 
             for msg in messages {
@@ -270,6 +271,7 @@ impl Database {
                     msg.encoding,
                     msg.kind,
                     msg.timestamp,
+                    msg.source_id,
                 ])?;
             }
         }
@@ -291,7 +293,7 @@ impl Database {
         let mut messages = Vec::new();
         if target.is_empty() || target == "__all__" {
             let mut stmt = conn.prepare(
-                "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp
+                "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp, source_id
                  FROM message_history
                  ORDER BY timestamp DESC, id DESC
                  LIMIT ?1 OFFSET ?2",
@@ -303,7 +305,7 @@ impl Database {
             }
         } else {
             let mut stmt = conn.prepare(
-                "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp
+                "SELECT id, profile_id, direction, key_expr, payload, encoding, kind, timestamp, source_id
                  FROM message_history
                  WHERE profile_id = ?1
                  ORDER BY timestamp DESC, id DESC
@@ -536,6 +538,7 @@ impl Database {
 /// Helper function to map a SQLite row to a `StoredMessage`.
 fn map_message_row(row: &rusqlite::Row) -> rusqlite::Result<StoredMessage> {
     let profile_id: Option<String> = row.get(1)?;
+    let source_id: Option<String> = row.get(8)?;
     Ok(StoredMessage {
         id: Some(row.get(0)?),
         profile_id: profile_id.unwrap_or_default(),
@@ -545,6 +548,7 @@ fn map_message_row(row: &rusqlite::Row) -> rusqlite::Result<StoredMessage> {
         encoding: row.get(5)?,
         kind: row.get(6)?,
         timestamp: row.get(7)?,
+        source_id,
     })
 }
 

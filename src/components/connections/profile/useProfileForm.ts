@@ -465,7 +465,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         clientKey,
         tlsOnly,
       });
+      const activeZid = profile?.id
+        ? useConnectionStore.getState().activeSessions[profile.id]?.zid
+        : (profile as any)?.zid;
       return {
+        profile_id: profile?.id,
+        id: activeZid || profile?.id,
+        zid: activeZid,
         mode: 'client',
         connect_locators: locator ? [locator] : [],
         listen_locators: [],
@@ -485,7 +491,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         clientKey,
         tlsOnly,
       });
+      const activeZid = profile?.id
+        ? useConnectionStore.getState().activeSessions[profile.id]?.zid
+        : (profile as any)?.zid;
       return {
+        profile_id: profile?.id,
+        id: activeZid || profile?.id,
+        zid: activeZid,
         mode: 'peer',
         connect_locators: connectLocators.map((l) => l.trim()).filter(Boolean),
         listen_locators: listenLocators.map((l) => l.trim()).filter(Boolean),
@@ -509,7 +521,13 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         clientKey,
         tlsOnly,
       });
+      const activeZid = profile?.id
+        ? useConnectionStore.getState().activeSessions[profile.id]?.zid
+        : (profile as any)?.zid;
       return {
+        profile_id: profile?.id,
+        id: activeZid || profile?.id,
+        zid: activeZid,
         mode: 'router',
         connect_locators: routerConnectLocators.map((l) => l.trim()).filter(Boolean),
         listen_locators: listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'],
@@ -523,6 +541,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     }
 
     return {
+      profile_id: profile?.id,
       mode: 'client',
       connect_locators: [],
       listen_locators: [],

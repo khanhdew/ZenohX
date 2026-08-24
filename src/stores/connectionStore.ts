@@ -288,26 +288,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const sessionId = await connectSession(config);
       const sessionInfo = await getSessionInfo(sessionId);
 
-      // If the session obtained bound_locators with real IPs and ports, auto-update the stored profile in SQLite
-      if (sessionInfo.bound_locators && sessionInfo.bound_locators.length > 0) {
-        const hasWildcardOrEphemeral = profile.listen_locators.some(
-          (l) => l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]')
-        );
-        if (hasWildcardOrEphemeral) {
-          const updated: ConnectionProfile = {
-            ...profile,
-            listen_locators: sessionInfo.bound_locators,
-            updated_at: Date.now(),
-          };
-          saveProfileIpc(updated).catch((e) =>
-            console.warn('Could not auto-persist bound locators to storage:', e)
-          );
-          set((state) => ({
-            profiles: state.profiles.map((p) => (p.id === profile.id ? updated : p)),
-          }));
-        }
-      }
-
       set((state) => ({
         activeSessions: { ...state.activeSessions, [profileId]: sessionInfo },
         sessionToProfile: { ...state.sessionToProfile, [sessionId]: profileId },

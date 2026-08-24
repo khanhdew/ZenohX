@@ -99,15 +99,17 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
       return;
     }
 
-    const primaryLoc = node.locators[0] || '';
     const now = Date.now();
+    const isRouter = node.type === 'router';
+    const isClient = node.type === 'client';
     const newProf: ConnectionProfile = {
       id: `profile-${now}`,
       name: node.label,
-      mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
-      connect_locators: primaryLoc ? [primaryLoc] : [],
-      listen_locators: [],
+      mode: isRouter ? 'router' : isClient ? 'client' : 'peer',
+      connect_locators: isRouter ? (node.connectLocators || []) : (node.locators || []),
+      listen_locators: isRouter ? (node.locators && node.locators.length > 0 ? node.locators : ['tcp/0.0.0.0:7447']) : [],
       scout_multicast: true,
+      scout_gossip: true,
       user_auth: null,
       tls_config: node.isTls ? {} : null,
       custom_config: null,
@@ -127,15 +129,17 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
         return;
       }
 
-      const primaryLoc = node.locators[0] || '';
       const now = Date.now();
+      const isRouter = node.type === 'router';
+      const isClient = node.type === 'client';
       const newProf: ConnectionProfile = {
         id: `profile-${now}`,
         name: node.label,
-        mode: (node.type === 'router' ? 'client' : 'peer') as 'client' | 'peer',
-        connect_locators: primaryLoc ? [primaryLoc] : [],
-        listen_locators: [],
+        mode: isRouter ? 'router' : isClient ? 'client' : 'peer',
+        connect_locators: isRouter ? (node.connectLocators || []) : (node.locators || []),
+        listen_locators: isRouter ? (node.locators && node.locators.length > 0 ? node.locators : ['tcp/0.0.0.0:7447']) : [],
         scout_multicast: true,
+        scout_gossip: true,
         user_auth: null,
         tls_config: node.isTls ? {} : null,
         custom_config: null,

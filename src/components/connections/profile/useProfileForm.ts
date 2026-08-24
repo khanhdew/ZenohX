@@ -159,7 +159,10 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
               id: `ep-${idx + 1}-${Date.now()}`,
               protocol: (parsed?.protocol as TransportProtocol) || 'tcp',
               host: parsed?.host || '0.0.0.0',
-              port: parsed?.port || (parsed?.protocol === 'unix' ? '' : '7447'),
+              port:
+                parsed?.port !== undefined && parsed.port !== ''
+                  ? parsed.port
+                  : (parsed?.protocol === 'unix' ? '' : '7447'),
             };
           });
           setRouterListenEndpoints(eps);

@@ -469,8 +469,35 @@ export const MessageList: React.FC<MessageListProps> = ({
                         </span>
                       </div>
 
-                      {/* Right Meta: Encoding & Byte Size */}
+                      {/* Right Meta: Encoding, QoS Badges & Byte Size */}
                       <div className="flex items-center gap-1.5 shrink-0 text-[10px] text-muted-foreground">
+                        {item.priority && item.priority !== 'data' && (
+                          <Badge
+                            variant="outline"
+                            className="text-[8px] font-mono px-1 py-0 uppercase bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                            title={`QoS Priority: ${item.priority}`}
+                          >
+                            {item.priority}
+                          </Badge>
+                        )}
+                        {item.express && (
+                          <Badge
+                            variant="outline"
+                            className="text-[8px] font-mono px-1 py-0 bg-primary/10 text-primary border-primary/20"
+                            title="Express delivery (batching bypassed)"
+                          >
+                            EXP
+                          </Badge>
+                        )}
+                        {item.attachment && item.attachment.length > 0 && (
+                          <Badge
+                            variant="outline"
+                            className="text-[8px] font-mono px-1 py-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                            title={`Attachment metadata: ${item.attachment.length} bytes`}
+                          >
+                            ATT
+                          </Badge>
+                        )}
                         <span className="uppercase rounded bg-muted px-1 py-0.2 font-mono text-[9px]">
                           {effectiveEncoding}
                         </span>

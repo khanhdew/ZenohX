@@ -15,6 +15,42 @@ export type PutKind = 'put' | 'delete';
 
 export type MessageDirection = 'incoming' | 'outgoing';
 
+export type QosPriority =
+  | 'realtime'
+  | 'interactive_high'
+  | 'interactive_low'
+  | 'data_high'
+  | 'data'
+  | 'data_low'
+  | 'background';
+
+export type CongestionControl = 'drop' | 'block';
+
+export type SubscriptionOrigin = 'any' | 'session_local' | 'remote';
+
+export interface PublishOptions {
+  priority?: QosPriority | string;
+  congestion_control?: CongestionControl | string;
+  express?: boolean;
+  attachment?: number[];
+}
+
+export interface SubscribeOptions {
+  allowed_origin?: SubscriptionOrigin | string;
+}
+
+export interface StreamGeneratorConfig {
+  session_id: string;
+  generator_id: string;
+  key_expr: string;
+  encoding: string;
+  rate_hz: number;
+  payload_template: string;
+  priority?: QosPriority | string;
+  congestion_control?: CongestionControl | string;
+  total_count?: number;
+}
+
 export type QueryTarget = 'all' | 'complete' | 'best_matching';
 
 export type QueryConsolidation = 'auto' | 'none' | 'latest' | 'monotonic';
@@ -208,6 +244,9 @@ export interface ZenohSample {
   kind: PutKind | string;
   timestamp: number;
   source_id?: string | null;
+  priority?: string | null;
+  express?: boolean | null;
+  attachment?: number[] | null;
 }
 
 /**
@@ -276,6 +315,7 @@ export interface SubscriptionItem {
   count: number;
   active: boolean;
   createdAt: number;
+  allowedOrigin?: SubscriptionOrigin | string;
 }
 
 /**
@@ -294,6 +334,9 @@ export interface MessageItem {
   timestamp: number;
   sourceId?: string | null;
   senderZid?: string | null;
+  priority?: string | null;
+  express?: boolean | null;
+  attachment?: number[] | null;
 }
 
 export type QueryableReplyMode = 'payload' | 'script';

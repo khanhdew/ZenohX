@@ -41,6 +41,7 @@ export const EditSubscriptionModal: React.FC<EditSubscriptionModalProps> = ({
 
   const [keyExpr, setKeyExpr] = useState<string>('');
   const [encoding, setEncoding] = useState<EncodingType>('json');
+  const [allowedOrigin, setAllowedOrigin] = useState<string>('any');
   const [colorTag, setColorTag] = useState<string>(SUBSCRIPTION_COLOR_PALETTE[0]);
   const [active, setActive] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -50,6 +51,7 @@ export const EditSubscriptionModal: React.FC<EditSubscriptionModalProps> = ({
     if (subscription && open) {
       setKeyExpr(subscription.keyExpr || '');
       setEncoding((subscription.encoding as EncodingType) || 'json');
+      setAllowedOrigin(subscription.allowedOrigin || 'any');
       setColorTag(subscription.colorTag || SUBSCRIPTION_COLOR_PALETTE[0]);
       setActive(subscription.active ?? true);
       setError(null);
@@ -89,6 +91,7 @@ export const EditSubscriptionModal: React.FC<EditSubscriptionModalProps> = ({
           encoding,
           colorTag,
           active,
+          allowedOrigin: allowedOrigin !== 'any' ? allowedOrigin : undefined,
         },
         sessionId
       );
@@ -151,6 +154,25 @@ export const EditSubscriptionModal: React.FC<EditSubscriptionModalProps> = ({
                 <SelectItem value="cbor">CBOR</SelectItem>
                 <SelectItem value="text">Text</SelectItem>
                 <SelectItem value="raw">RAW / Hex</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Allowed Origin (Locality) Field */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium">Allowed Origin (Locality)</Label>
+            <Select
+              value={allowedOrigin}
+              onValueChange={(val) => setAllowedOrigin(val)}
+              disabled={isSaving}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="Select origin" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any (Local & Remote network)</SelectItem>
+                <SelectItem value="remote">Remote Only (Filter out local publications)</SelectItem>
+                <SelectItem value="session_local">Local Only (Same node publications)</SelectItem>
               </SelectContent>
             </Select>
           </div>

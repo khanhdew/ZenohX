@@ -197,4 +197,105 @@ mod tests {
         let unsub_res = manager.unsubscribe(&invalid_session_id, sub_id).await;
         assert!(unsub_res.is_err());
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_zenoh_pubsub_qos_and_options() {
+        use crate::zenoh::types::{PublishOptions, SubscribeOptions};
+
+        let manager = SessionManager::new();
+        let config = SessionConfig::default_peer();
+        let session_id = manager.connect(config).await.unwrap();
+
+        let (tx, mut rx) = mpsc::channel(10);
+        let sub_id = Uuid::new_v4();
+
+        manager
+            .subscribe_with_options(
+                &session_id,
+                sub_id,
+                "robot/telemetry/imu",
+                Some(SubscribeOptions {
+                    allowed_origin: Some("any".to_string()),
+                }),
+                move |sample| {
+                    let _ = tx.try_send(sample);
+                },
+            )
+            .await
+            .unwrap();
+
+        manager
+            .publish_with_options(
+                &session_id,
+                "robot/telemetry/imu",
+                b"{\"accel\": [0.0, 9.81, 0.0]}".to_vec(),
+                "json",
+                "put",
+                Some(PublishOptions {
+                    priority: Some("realtime".to_string()),
+                    congestion_control: Some("drop".to_string()),
+                    express: Some(true),
+                    attachment: Some(b"source:imu_sensor_1".to_vec()),
+                }),
+            )
+            .await
+            .unwrap();
+
+        let received = tokio::time::timeout(Duration::from_secs(3), rx.recv())
+            .await
+            .expect("timeout waiting for qos sample")
+            .expect("channel closed");
+
+        assert_eq!(received.key_expr, "robot/telemetry/imu");
+        assert_eq!(received.payload, b"{\"accel\": [0.0, 9.81, 0.0]}");
+        assert_eq!(received.attachment, Some(b"source:imu_sensor_1".to_vec()));
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_zenoh_stream_generator_burst_and_continuous() {
+        use crate::zenoh::types::StreamGeneratorConfig;
+
+        let manager = SessionManager::new();
+        let config = SessionConfig::default_peer();
+        let session_id = manager.connect(config).await.unwrap();
+
+        let (tx, mut rx) = mpsc::channel(100);
+        let sub_id = Uuid::new_v4();
+
+        manager
+            .subscribe(&session_id, sub_id, "stream/counter", move |sample| {
+                let _ = tx.try_send(sample);
+            })
+            .await
+            .unwrap();
+
+        let gen_id = Uuid::new_v4();
+        let gen_config = StreamGeneratorConfig {
+            session_id,
+            generator_id: gen_id,
+            key_expr: "stream/counter".to_string(),
+            encoding: "json".to_string(),
+            rate_hz: 50,
+            payload_template: "{\"seq\": {{counter}}, \"val\": {{sin}}}".to_string(),
+            priority: Some("data_high".to_string()),
+            congestion_control: Some("drop".to_string()),
+            total_count: Some(5), // Burst of 5
+        };
+
+        manager.start_stream_generator(gen_config).await.unwrap();
+
+        let mut received_count = 0;
+        for _ in 0..5 {
+            if let Ok(Some(sample)) = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await {
+                assert_eq!(sample.key_expr, "stream/counter");
+                received_count += 1;
+            }
+        }
+
+        assert_eq!(received_count, 5);
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
 }

@@ -1,11 +1,13 @@
-use super::pubsub::{publish_sample, subscribe_with_callback, ActiveSubscriber};
+use super::pubsub::{
+    publish_sample_with_options, subscribe_with_callback_and_options, ActiveSubscriber,
+};
 use super::query::{
     declare_queryable_with_handler, execute_query, ActiveQueryable, QueryHandle,
 };
 use super::scout::scout_nodes;
 use super::types::{
-    InboundQuery, ReplySample, ScoutedNode, SessionConfig, SessionInfo, SessionLinkInfo,
-    SessionStatusEvent, ZenohSample,
+    InboundQuery, PublishOptions, ReplySample, ScoutedNode, SessionConfig, SessionInfo,
+    SessionLinkInfo, SessionStatusEvent, StreamGeneratorConfig, SubscribeOptions, ZenohSample,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -34,6 +36,7 @@ pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<Uuid, SessionContext>>>,
     pending_queries: Arc<RwLock<HashMap<Uuid, QueryHandle>>>,
     status_callback: Arc<RwLock<Option<StatusCallback>>>,
+    generators: Arc<RwLock<HashMap<Uuid, tokio::sync::oneshot::Sender<()>>>>,
 }
 
 impl Default for SessionManager {
@@ -49,6 +52,7 @@ impl SessionManager {
             sessions: Arc::new(RwLock::new(HashMap::new())),
             pending_queries: Arc::new(RwLock::new(HashMap::new())),
             status_callback: Arc::new(RwLock::new(None)),
+            generators: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -278,6 +282,21 @@ impl SessionManager {
     where
         F: Fn(ZenohSample) + Send + Sync + 'static,
     {
+        self.subscribe_with_options(session_id, sub_id, key_expr, None, callback).await
+    }
+
+    /// Subscribes to a key expression with QoS options and a callback function.
+    pub async fn subscribe_with_options<F>(
+        &self,
+        session_id: &Uuid,
+        sub_id: Uuid,
+        key_expr: &str,
+        options: Option<SubscribeOptions>,
+        callback: F,
+    ) -> Result<(), String>
+    where
+        F: Fn(ZenohSample) + Send + Sync + 'static,
+    {
         let mut lock = self.sessions.write().await;
         let context = lock
             .get_mut(session_id)
@@ -289,7 +308,7 @@ impl SessionManager {
         }
 
         let active_sub =
-            subscribe_with_callback(&context.session, *session_id, sub_id, key_expr, callback)
+            subscribe_with_callback_and_options(&context.session, *session_id, sub_id, key_expr, options, callback)
                 .await?;
         context.subscribers.insert(sub_id, active_sub);
 
@@ -322,8 +341,106 @@ impl SessionManager {
         encoding: &str,
         kind: &str,
     ) -> Result<(), String> {
+        self.publish_with_options(session_id, key_expr, payload, encoding, kind, None).await
+    }
+
+    /// Publishes a payload with advanced QoS options (priority, congestion control, express, attachment).
+    pub async fn publish_with_options(
+        &self,
+        session_id: &Uuid,
+        key_expr: &str,
+        payload: Vec<u8>,
+        encoding: &str,
+        kind: &str,
+        options: Option<PublishOptions>,
+    ) -> Result<(), String> {
         let session = self.get_session(session_id).await?;
-        publish_sample(&session, key_expr, payload, encoding, kind).await
+        publish_sample_with_options(&session, key_expr, payload, encoding, kind, options).await
+    }
+
+    /// Starts a high-rate background stream generator that publishes samples at a fixed rate.
+    pub async fn start_stream_generator(&self, config: StreamGeneratorConfig) -> Result<(), String> {
+        let session = self.get_session(&config.session_id).await?;
+        let gen_id = config.generator_id;
+
+        // If generator already exists, stop it first
+        self.stop_stream_generator(&gen_id).await.ok();
+
+        let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+        {
+            let mut gen_lock = self.generators.write().await;
+            gen_lock.insert(gen_id, stop_tx);
+        }
+
+        let rate_hz = config.rate_hz.max(1).min(10000);
+        let interval_nanos = 1_000_000_000u64 / rate_hz as u64;
+        let mut ticker = tokio::time::interval(std::time::Duration::from_nanos(interval_nanos));
+        ticker.tick().await; // Consume first tick
+
+        let key_expr = config.key_expr;
+        let encoding = config.encoding;
+        let template = config.payload_template;
+        let total_count = config.total_count;
+        let options = PublishOptions {
+            priority: config.priority,
+            congestion_control: config.congestion_control,
+            express: Some(rate_hz >= 100),
+            attachment: None,
+        };
+
+        let generators_arc = self.generators.clone();
+
+        tokio::spawn(async move {
+            let mut counter: u64 = 0;
+            loop {
+                tokio::select! {
+                    _ = &mut stop_rx => {
+                        break;
+                    }
+                    _ = ticker.tick() => {
+                        counter += 1;
+                        let now = chrono::Utc::now().timestamp_millis();
+                        let interpolated = template
+                            .replace("{{counter}}", &counter.to_string())
+                            .replace("{{timestamp}}", &now.to_string())
+                            .replace("{{sin}}", &format!("{:.4}", (counter as f64 * 0.1).sin()))
+                            .replace("{{random}}", &(counter.wrapping_mul(1103515245).wrapping_add(12345) % 1000).to_string());
+
+                        let payload_bytes = interpolated.into_bytes();
+                        let _ = publish_sample_with_options(
+                            &session,
+                            &key_expr,
+                            payload_bytes,
+                            &encoding,
+                            "put",
+                            Some(options.clone()),
+                        ).await;
+
+                        if let Some(limit) = total_count {
+                            if counter >= limit {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut lock = generators_arc.write().await;
+            lock.remove(&gen_id);
+        });
+
+        Ok(())
+    }
+
+    /// Stops an active background stream generator by ID.
+    pub async fn stop_stream_generator(&self, generator_id: &Uuid) -> Result<(), String> {
+        let mut lock = self.generators.write().await;
+        if let Some(tx) = lock.remove(generator_id) {
+            let _ = tx.send(());
+            Ok(())
+        } else {
+            Err(format!("stream generator with id '{generator_id}' not found"))
+        }
     }
 
     /// Executes a distributed query `session.get` and collects all replies until timeout.

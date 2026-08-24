@@ -241,6 +241,42 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
+    /// Inserts a batch of stored messages within a single SQLite transaction.
+    pub fn insert_messages_batch(&self, messages: &[StoredMessage]) -> Result<()> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                "INSERT INTO message_history (
+                    profile_id, direction, key_expr, payload, encoding, kind, timestamp
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+
+            for msg in messages {
+                let profile_id_param = if msg.profile_id.trim().is_empty() {
+                    None
+                } else {
+                    Some(msg.profile_id.as_str())
+                };
+
+                stmt.execute(rusqlite::params![
+                    profile_id_param,
+                    msg.direction,
+                    msg.key_expr,
+                    msg.payload,
+                    msg.encoding,
+                    msg.kind,
+                    msg.timestamp,
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Fetches messages for a given profile with limit and offset pagination (newest first).
     /// If profile_id is None, empty, or "__all__", queries across all profiles.
     pub fn get_messages(

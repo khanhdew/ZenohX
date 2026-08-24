@@ -131,6 +131,7 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
   const [newKeyExpr, setNewKeyExpr] = useState<string>('');
   const [newEncoding, setNewEncoding] = useState<EncodingType>('json');
+  const [newOrigin, setNewOrigin] = useState<string>('any');
   const [selectedColor, setSelectedColor] = useState<string>(SUBSCRIPTION_COLOR_PALETTE[0]);
   const [isSubscribing, setIsSubscribing] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -184,9 +185,11 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
         key,
         newEncoding,
         selectedColor,
-        currentProfileId || undefined
+        currentProfileId || undefined,
+        newOrigin !== 'any' ? { allowed_origin: newOrigin } : undefined
       );
       setNewKeyExpr('');
+      setNewOrigin('any');
       // Auto cycle to next color for subsequent subscription
       const nextColorIndex = (SUBSCRIPTION_COLOR_PALETTE.indexOf(selectedColor) + 1) % SUBSCRIPTION_COLOR_PALETTE.length;
       setSelectedColor(SUBSCRIPTION_COLOR_PALETTE[nextColorIndex]);
@@ -384,6 +387,26 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
                 <SelectItem value="cbor">CBOR</SelectItem>
                 <SelectItem value="text">Text</SelectItem>
                 <SelectItem value="raw">RAW / Hex</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Allowed Origin (Locality) Selector */}
+          <div className="space-y-1 pt-1">
+            <label className="text-[11px] font-medium text-muted-foreground">
+              Allowed Origin (Locality)
+            </label>
+            <Select
+              value={newOrigin}
+              onValueChange={(val) => setNewOrigin(val)}
+            >
+              <SelectTrigger className="h-8 text-xs bg-background">
+                <SelectValue placeholder="Origin" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any (Local & Remote)</SelectItem>
+                <SelectItem value="remote">Remote Only (Network)</SelectItem>
+                <SelectItem value="session_local">Local Only (This Node)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -632,6 +655,12 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
                         <span className="rounded border px-1 py-0.2 text-[9px] uppercase font-mono">
                           {sub.encoding || 'raw'}
                         </span>
+
+                        {sub.allowedOrigin && sub.allowedOrigin !== 'any' && (
+                          <span className="rounded border bg-muted/40 px-1 py-0.2 text-[9px] font-mono capitalize">
+                            {sub.allowedOrigin.replace('_', ' ')}
+                          </span>
+                        )}
                       </div>
 
                       {isFiltered && (

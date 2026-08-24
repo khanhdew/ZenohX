@@ -191,6 +191,147 @@ describe('Pub/Sub Workspace Store Integration', () => {
     assert.equal(useMessageStore.getState().selectedMessage, null);
   });
 
+  test('publishing with QoS options invokes publish_sample_advanced with correct payload', async () => {
+    let advancedCmd: string | null = null;
+    let receivedOptions: Record<string, unknown> | null = null;
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'publish_sample_advanced') {
+        advancedCmd = cmd;
+        receivedOptions = args?.options as Record<string, unknown>;
+        return undefined;
+      }
+      return undefined;
+    };
+
+    await useMessageStore.getState().publish(
+      'sess-100',
+      'robot/cmd_vel',
+      '{"linear": 1.5}',
+      'json',
+      'put',
+      undefined,
+      {
+        qos: {
+          priority: 'realtime',
+          congestion_control: 'drop',
+          express: true,
+          attachment: [1, 2, 3],
+        },
+      }
+    );
+
+    assert.equal(advancedCmd, 'publish_sample_advanced');
+    assert.equal(receivedOptions?.priority, 'realtime');
+    assert.equal(receivedOptions?.congestion_control, 'drop');
+    assert.equal(receivedOptions?.express, true);
+
+    const msgs = useMessageStore.getState().messages;
+    assert.equal(msgs.length, 1);
+    assert.equal(msgs[0].priority, 'realtime');
+    assert.equal(msgs[0].express, true);
+  });
+
+  test('addMessagesBatch processes batched samples and updates subscription counts in single pass', () => {
+    useMessageStore.setState({
+      subscriptions: [
+        {
+          id: 'sub-1',
+          sessionId: 'sess-1',
+          keyExpr: 'sensor/telemetry',
+          encoding: 'json',
+          count: 0,
+          active: true,
+          createdAt: Date.now(),
+        },
+      ],
+      messages: [],
+    });
+
+    const batch: MessageItem[] = [
+      {
+        id: 'b-1',
+        sessionId: 'sess-1',
+        subId: 'sub-1',
+        direction: 'incoming',
+        keyExpr: 'sensor/telemetry',
+        payload: [1],
+        encoding: 'json',
+        kind: 'put',
+        timestamp: 100,
+      },
+      {
+        id: 'b-2',
+        sessionId: 'sess-1',
+        subId: 'sub-1',
+        direction: 'incoming',
+        keyExpr: 'sensor/telemetry',
+        payload: [2],
+        encoding: 'json',
+        kind: 'put',
+        timestamp: 101,
+      },
+    ];
+
+    useMessageStore.getState().addMessagesBatch(batch);
+
+    assert.equal(useMessageStore.getState().messages.length, 2);
+    assert.equal(useMessageStore.getState().subscriptions[0].count, 2);
+  });
+
+  test('togglePause and resumeLive freezes tailing and buffers incoming samples', () => {
+    assert.equal(useMessageStore.getState().isPaused, false);
+
+    useMessageStore.getState().togglePause();
+    assert.equal(useMessageStore.getState().isPaused, true);
+
+    // Simulate buffering
+    useMessageStore.setState({
+      pausedBuffer: [
+        {
+          id: 'buf-1',
+          sessionId: 'sess-1',
+          direction: 'incoming',
+          keyExpr: 'temp',
+          payload: [],
+          encoding: 'json',
+          kind: 'put',
+          timestamp: 100,
+        },
+      ],
+    });
+
+    useMessageStore.getState().resumeLive();
+    assert.equal(useMessageStore.getState().isPaused, false);
+    assert.equal(useMessageStore.getState().pausedBuffer.length, 0);
+    assert.equal(useMessageStore.getState().messages.length, 1);
+  });
+
+  test('startGenerator and stopGenerator workflow', async () => {
+    let invokedGenCmd = '';
+    mockInvokeHandler = async (cmd) => {
+      invokedGenCmd = cmd;
+      return undefined;
+    };
+
+    const config = {
+      session_id: 'sess-1',
+      generator_id: 'gen-123',
+      key_expr: 'bench/sine',
+      encoding: 'json',
+      rate_hz: 100,
+      payload_template: '{"v": {{sin}}}',
+    };
+
+    await useMessageStore.getState().startGenerator(config);
+    assert.equal(invokedGenCmd, 'start_stream_generator');
+    assert.ok(useMessageStore.getState().activeGenerators['gen-123']);
+
+    await useMessageStore.getState().stopGenerator('gen-123');
+    assert.equal(invokedGenCmd, 'stop_stream_generator');
+    assert.equal(useMessageStore.getState().activeGenerators['gen-123'], undefined);
+  });
+
   test('PublishBar component is exported and defined', async () => {
     const { PublishBar } = await import('../../src/components/pubsub/PublishBar');
     assert.equal(typeof PublishBar, 'function');

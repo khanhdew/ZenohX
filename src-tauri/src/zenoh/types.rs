@@ -294,6 +294,40 @@ pub struct SessionInfo {
     pub uptime_seconds: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct PublishOptions {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub priority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub congestion_control: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub express: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub attachment: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SubscribeOptions {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub allowed_origin: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StreamGeneratorConfig {
+    pub session_id: uuid::Uuid,
+    pub generator_id: uuid::Uuid,
+    pub key_expr: String,
+    pub encoding: String,
+    pub rate_hz: u32,
+    pub payload_template: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub priority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub congestion_control: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub total_count: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ZenohSample {
     pub session_id: uuid::Uuid,
@@ -305,6 +339,12 @@ pub struct ZenohSample {
     pub timestamp: i64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub source_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub priority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub express: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub attachment: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

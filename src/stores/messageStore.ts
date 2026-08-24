@@ -7,7 +7,10 @@ import { create } from 'zustand';
 import type {
   EncodingType,
   MessageItem,
+  PublishOptions,
   PutKind,
+  StreamGeneratorConfig,
+  SubscribeOptions,
   SubscriptionItem,
   SubscriptionPreset,
   ZenohSample,
@@ -18,9 +21,12 @@ import {
   deleteSubscriptionPreset,
   loadSubscriptionPresets,
   onZenohSample,
+  onZenohSamplesBatched,
   publishSample,
   queryMessages,
   saveSubscriptionPreset,
+  startStreamGenerator,
+  stopStreamGenerator,
   subscribeKey,
   unsubscribeKey,
 } from '../lib/tauri';
@@ -63,7 +69,19 @@ export interface MessageState {
   selectedMessage: MessageItem | null;
   isListening: boolean;
   unlistenFn: UnlistenFn | null;
+  unlistenBatchedFn: UnlistenFn | null;
   error: string | null;
+
+  // Live tailing & performance controls
+  isPaused: boolean;
+  pausedBuffer: MessageItem[];
+  togglePause: () => void;
+  resumeLive: () => void;
+
+  // Stream generators
+  activeGenerators: Record<string, StreamGeneratorConfig>;
+  startGenerator: (config: StreamGeneratorConfig) => Promise<void>;
+  stopGenerator: (generatorId: string) => Promise<void>;
 
   // Actions
   initListener: () => Promise<void>;
@@ -74,7 +92,8 @@ export interface MessageState {
     keyExpr: string,
     encoding?: EncodingType | string,
     colorTag?: string,
-    profileId?: string
+    profileId?: string,
+    options?: SubscribeOptions
   ) => Promise<string>;
 
   unsubscribe: (sessionId: string, subId: string) => Promise<void>;
@@ -86,6 +105,7 @@ export interface MessageState {
       encoding?: EncodingType | string;
       colorTag?: string;
       active?: boolean;
+      allowedOrigin?: string;
     },
     activeSessionId?: string
   ) => Promise<void>;
@@ -98,10 +118,11 @@ export interface MessageState {
     encoding?: EncodingType | string,
     kind?: PutKind | string,
     profileId?: string,
-    options?: { protoTypeName?: string }
+    options?: { protoTypeName?: string; qos?: PublishOptions }
   ) => Promise<void>;
 
   addMessage: (msg: MessageItem) => void;
+  addMessagesBatch: (msgs: MessageItem[]) => void;
   clearMessages: (sessionId?: string, profileId?: string) => Promise<void>;
   deleteMessage: (messageId: number | string) => Promise<void>;
   selectMessage: (msg: MessageItem | null) => void;
@@ -125,66 +146,124 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   selectedMessage: null,
   isListening: false,
   unlistenFn: null,
+  unlistenBatchedFn: null,
   error: null,
 
+  isPaused: false,
+  pausedBuffer: [],
+  activeGenerators: {},
+
+  togglePause: () => {
+    const wasPaused = get().isPaused;
+    if (wasPaused) {
+      get().resumeLive();
+    } else {
+      set({ isPaused: true });
+    }
+  },
+
+  resumeLive: () => {
+    set((state) => {
+      const merged = [...state.messages, ...state.pausedBuffer];
+      if (merged.length > state.maxMessages) {
+        merged.splice(0, merged.length - state.maxMessages);
+      }
+      return {
+        isPaused: false,
+        pausedBuffer: [],
+        messages: merged,
+      };
+    });
+  },
+
+  startGenerator: async (config: StreamGeneratorConfig) => {
+    set({ error: null });
+    try {
+      await startStreamGenerator(config);
+      set((state) => ({
+        activeGenerators: {
+          ...state.activeGenerators,
+          [config.generator_id]: config,
+        },
+      }));
+    } catch (err) {
+      console.error('Start stream generator failed:', err);
+      const friendly = formatFriendlyError(err, 'Start Generator').fullMessage;
+      set({ error: friendly });
+      throw new Error(friendly);
+    }
+  },
+
+  stopGenerator: async (generatorId: string) => {
+    set({ error: null });
+    try {
+      await stopStreamGenerator(generatorId);
+      set((state) => {
+        const copy = { ...state.activeGenerators };
+        delete copy[generatorId];
+        return { activeGenerators: copy };
+      });
+    } catch (err) {
+      console.error('Stop stream generator failed:', err);
+      const friendly = formatFriendlyError(err, 'Stop Generator').fullMessage;
+      set({ error: friendly });
+    }
+  },
+
   initListener: async () => {
-    if (get().isListening && get().unlistenFn) {
+    if (get().isListening && (get().unlistenFn || get().unlistenBatchedFn)) {
       return;
     }
 
     try {
-      const unlisten = await onZenohSample((sample: ZenohSample) => {
-        const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
-        const item: MessageItem = {
-          id: generateId(),
-          sessionId: sample.session_id,
-          profileId,
-          subId: sample.sub_id,
-          direction: 'incoming',
-          keyExpr: sample.key_expr,
-          payload: sample.payload,
-          encoding: normalizeEncoding(sample.encoding, sample.payload, sample.key_expr),
-          kind: (sample.kind as PutKind) || 'put',
-          timestamp: sample.timestamp || Date.now(),
-          sourceId: sample.source_id || undefined,
-        };
+      // Listen for batched high-throughput samples (frame-rate aligned 60 FPS)
+      const unlistenBatched = await onZenohSamplesBatched((samples: ZenohSample[]) => {
+        if (!samples || samples.length === 0) return;
 
-        useTrafficStore.getState().recordEvent({
-          sessionId: sample.session_id,
-          profileId,
-          direction: 'inbound',
-          opType: 'sub',
-          keyExpr: sample.key_expr,
-          bytes: sample.payload?.length || 0,
-        });
+        const state = get();
+        const newItems: MessageItem[] = [];
 
-        set((state) => {
-
-          // Increment subscription counters
-          const updatedSubs = state.subscriptions.map((sub) => {
-            if (
-              sub.sessionId === sample.session_id &&
-              (sub.id === sample.sub_id || sub.keyExpr === sample.key_expr)
-            ) {
-              return { ...sub, count: sub.count + 1 };
-            }
-            return sub;
-          });
-
-          // Ring buffer append with max capacity limit
-          const newMessages = [...state.messages, item];
-          if (newMessages.length > state.maxMessages) {
-            newMessages.splice(0, newMessages.length - state.maxMessages);
-          }
-
-          return {
-            messages: newMessages,
-            subscriptions: updatedSubs,
+        for (const sample of samples) {
+          const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
+          const item: MessageItem = {
+            id: generateId(),
+            sessionId: sample.session_id,
+            profileId,
+            subId: sample.sub_id,
+            direction: 'incoming',
+            keyExpr: sample.key_expr,
+            payload: sample.payload,
+            encoding: normalizeEncoding(sample.encoding, sample.payload, sample.key_expr),
+            kind: (sample.kind as PutKind) || 'put',
+            timestamp: sample.timestamp || Date.now(),
+            sourceId: sample.source_id || undefined,
+            priority: sample.priority || undefined,
+            express: sample.express || undefined,
+            attachment: sample.attachment || undefined,
           };
-        });
+          newItems.push(item);
+
+          useTrafficStore.getState().recordEvent({
+            sessionId: sample.session_id,
+            profileId,
+            direction: 'inbound',
+            opType: 'sub',
+            keyExpr: sample.key_expr,
+            bytes: sample.payload?.length || 0,
+          });
+        }
+
+        if (state.isPaused) {
+          set((s) => ({
+            pausedBuffer: [...s.pausedBuffer, ...newItems].slice(-5000),
+          }));
+          return;
+        }
+
+        get().addMessagesBatch(newItems);
       });
 
-      set({ isListening: true, unlistenFn: unlisten });
+      set({ isListening: true, unlistenBatchedFn: unlistenBatched });
     } catch (err) {
       set({ error: `Failed to initialize sample listener: ${err}` });
     }
@@ -195,7 +274,11 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     if (unlisten) {
       unlisten();
     }
-    set({ isListening: false, unlistenFn: null });
+    const unlistenBatched = get().unlistenBatchedFn;
+    if (unlistenBatched) {
+      unlistenBatched();
+    }
+    set({ isListening: false, unlistenFn: null, unlistenBatchedFn: null });
   },
 
   subscribe: async (
@@ -203,7 +286,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     keyExpr: string,
     encoding: EncodingType | string = 'json',
     colorTag?: string,
-    profileId?: string
+    profileId?: string,
+    options?: SubscribeOptions
   ) => {
     set({ error: null });
     const targetProfileId =
@@ -212,7 +296,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     try {
       if (sessionId) {
-        await subscribeKey(sessionId, subId, keyExpr);
+        await subscribeKey(sessionId, subId, keyExpr, options);
       }
 
       const colorIndex = get().subscriptions.length % COLOR_PALETTE.length;
@@ -379,6 +463,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       encoding?: EncodingType | string;
       colorTag?: string;
       active?: boolean;
+      allowedOrigin?: string;
     },
     activeSessionId?: string
   ) => {
@@ -391,26 +476,30 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const newEncoding = (updates.encoding !== undefined ? updates.encoding : sub.encoding) as EncodingType;
       const newColorTag = updates.colorTag !== undefined ? updates.colorTag : sub.colorTag;
       const newActive = updates.active !== undefined ? updates.active : sub.active;
+      const newAllowedOrigin = updates.allowedOrigin !== undefined ? updates.allowedOrigin : sub.allowedOrigin;
 
       const keyChanged = newKeyExpr !== sub.keyExpr;
+      const originChanged = newAllowedOrigin !== sub.allowedOrigin;
       const targetSessionId = activeSessionId || sub.sessionId;
+
+      const subOptions = newAllowedOrigin && newAllowedOrigin !== 'any' ? { allowed_origin: newAllowedOrigin } : undefined;
 
       // If active session is connected, handle dynamic resubscription
       if (targetSessionId) {
-        if (sub.active && keyChanged) {
+        if (sub.active && (keyChanged || originChanged)) {
           try {
             await unsubscribeKey(targetSessionId, subId);
           } catch {
             // Ignore
           }
           if (newActive) {
-            await subscribeKey(targetSessionId, subId, newKeyExpr);
+            await subscribeKey(targetSessionId, subId, newKeyExpr, subOptions);
             if (!get().isListening) {
               await get().initListener();
             }
           }
         } else if (!sub.active && newActive) {
-          await subscribeKey(targetSessionId, subId, newKeyExpr);
+          await subscribeKey(targetSessionId, subId, newKeyExpr, subOptions);
           if (!get().isListening) {
             await get().initListener();
           }
@@ -429,6 +518,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         encoding: newEncoding,
         colorTag: newColorTag,
         active: newActive,
+        allowedOrigin: newAllowedOrigin,
         sessionId: targetSessionId || sub.sessionId,
       };
 
@@ -519,7 +609,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
     encoding: EncodingType | string = 'json',
     kind: PutKind | string = 'put',
     profileId?: string,
-    options?: { protoTypeName?: string }
+    options?: { protoTypeName?: string; qos?: PublishOptions }
   ) => {
     set({ error: null });
     try {
@@ -537,7 +627,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         bytesToSend = payload;
       }
 
-      await publishSample(sessionId, keyExpr, bytesToSend, encoding, kind);
+      await publishSample(sessionId, keyExpr, bytesToSend, encoding, kind, options?.qos);
 
       const normalizedPayload =
         bytesToSend instanceof Uint8Array ? Array.from(bytesToSend) : bytesToSend;
@@ -566,6 +656,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         kind,
         timestamp: Date.now(),
         senderZid: activeSession?.zid || undefined,
+        priority: options?.qos?.priority || undefined,
+        express: options?.qos?.express || undefined,
+        attachment: options?.qos?.attachment || undefined,
       };
 
       get().addMessage(item);
@@ -584,6 +677,42 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         newMessages.splice(0, newMessages.length - state.maxMessages);
       }
       return { messages: newMessages };
+    });
+  },
+
+  addMessagesBatch: (msgs: MessageItem[]) => {
+    if (!msgs || msgs.length === 0) return;
+    set((state) => {
+      // Tally message counts per subscription
+      const countMap = new Map<string, number>();
+      for (const msg of msgs) {
+        if (msg.subId) {
+          countMap.set(msg.subId, (countMap.get(msg.subId) || 0) + 1);
+        } else {
+          const key = `${msg.sessionId}:${msg.keyExpr}`;
+          countMap.set(key, (countMap.get(key) || 0) + 1);
+        }
+      }
+
+      const updatedSubs = state.subscriptions.map((sub) => {
+        const byId = countMap.get(sub.id) || 0;
+        const byKey = countMap.get(`${sub.sessionId}:${sub.keyExpr}`) || 0;
+        const added = byId || byKey;
+        if (added > 0) {
+          return { ...sub, count: sub.count + added };
+        }
+        return sub;
+      });
+
+      let merged = [...state.messages, ...msgs];
+      if (merged.length > state.maxMessages) {
+        merged = merged.slice(merged.length - state.maxMessages);
+      }
+
+      return {
+        messages: merged,
+        subscriptions: updatedSubs,
+      };
     });
   },
 

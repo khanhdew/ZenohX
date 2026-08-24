@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use uuid::Uuid;
-use super::types::ZenohSample;
+use super::types::{PublishOptions, SubscribeOptions, ZenohSample};
 
 /// Tracks an active Zenoh subscription task and metadata.
 pub struct ActiveSubscriber {
@@ -32,6 +32,35 @@ pub fn parse_encoding(encoding: &str) -> zenoh::bytes::Encoding {
     }
 }
 
+/// Parses string priority into a Zenoh `Priority`.
+pub fn parse_priority(priority: Option<&str>) -> zenoh::qos::Priority {
+    match priority.map(|s| s.to_lowercase().trim().to_string()).as_deref() {
+        Some("realtime") | Some("real_time") => zenoh::qos::Priority::RealTime,
+        Some("interactive_high") | Some("interactivehigh") => zenoh::qos::Priority::InteractiveHigh,
+        Some("interactive_low") | Some("interactivelow") => zenoh::qos::Priority::InteractiveLow,
+        Some("data_high") | Some("datahigh") => zenoh::qos::Priority::DataHigh,
+        Some("data_low") | Some("datalow") => zenoh::qos::Priority::DataLow,
+        Some("background") => zenoh::qos::Priority::Background,
+        _ => zenoh::qos::Priority::Data,
+    }
+}
+
+/// Parses string congestion control into a Zenoh `CongestionControl`.
+pub fn parse_congestion_control(cc: Option<&str>) -> zenoh::qos::CongestionControl {
+    match cc.map(|s| s.to_lowercase().trim().to_string()).as_deref() {
+        Some("block") => zenoh::qos::CongestionControl::Block,
+        _ => zenoh::qos::CongestionControl::Drop,
+    }
+}
+
+/// Parses string reliability into a Zenoh `Reliability`.
+pub fn parse_reliability(rel: Option<&str>) -> zenoh::qos::Reliability {
+    match rel.map(|s| s.to_lowercase().trim().to_string()).as_deref() {
+        Some("reliable") => zenoh::qos::Reliability::Reliable,
+        _ => zenoh::qos::Reliability::BestEffort,
+    }
+}
+
 /// Converts a native Zenoh `Sample` into our serializable `ZenohSample` representation.
 pub fn extract_sample(
     session_id: Uuid,
@@ -53,6 +82,10 @@ pub fn extract_sample(
         (chrono::Utc::now().timestamp_millis(), None)
     };
 
+    let attachment = sample.attachment().map(|a| a.to_bytes().to_vec());
+    let express = Some(sample.express());
+    let priority = Some(format!("{:?}", sample.priority()).to_lowercase());
+
     ZenohSample {
         session_id,
         sub_id,
@@ -62,16 +95,31 @@ pub fn extract_sample(
         kind,
         timestamp,
         source_id,
+        priority,
+        express,
+        attachment,
     }
 }
 
-/// Publishes a payload with the specified encoding and operation kind (put or delete).
+/// Publishes a payload with the specified encoding, operation kind (put or delete), and QoS options.
 pub async fn publish_sample(
     session: &zenoh::Session,
     key_expr: &str,
     payload: Vec<u8>,
     encoding: &str,
     kind: &str,
+) -> Result<(), String> {
+    publish_sample_with_options(session, key_expr, payload, encoding, kind, None).await
+}
+
+/// Advanced publisher supporting QoS priorities, congestion control, attachments, and express mode.
+pub async fn publish_sample_with_options(
+    session: &zenoh::Session,
+    key_expr: &str,
+    payload: Vec<u8>,
+    encoding: &str,
+    kind: &str,
+    options: Option<PublishOptions>,
 ) -> Result<(), String> {
     let kind_lower = kind.to_lowercase();
     match kind_lower.as_str() {
@@ -83,9 +131,26 @@ pub async fn publish_sample(
         }
         _ => {
             let zenoh_encoding = parse_encoding(encoding);
-            session
+            let mut builder = session
                 .put(key_expr, payload)
-                .encoding(zenoh_encoding)
+                .encoding(zenoh_encoding);
+
+            if let Some(opts) = options {
+                if let Some(pri) = &opts.priority {
+                    builder = builder.priority(parse_priority(Some(pri)));
+                }
+                if let Some(cc) = &opts.congestion_control {
+                    builder = builder.congestion_control(parse_congestion_control(Some(cc)));
+                }
+                if let Some(exp) = opts.express {
+                    builder = builder.express(exp);
+                }
+                if let Some(att) = opts.attachment {
+                    builder = builder.attachment(att);
+                }
+            }
+
+            builder
                 .await
                 .map_err(|e| format!("failed to publish sample on '{key_expr}': {e}"))?;
         }
@@ -104,8 +169,39 @@ pub async fn subscribe_with_callback<F>(
 where
     F: Fn(ZenohSample) + Send + Sync + 'static,
 {
-    let subscriber = session
-        .declare_subscriber(key_expr)
+    subscribe_with_callback_and_options(session, session_id, sub_id, key_expr, None, callback).await
+}
+
+/// Parses string locality into a Zenoh `Locality`.
+pub fn parse_locality(origin: Option<&str>) -> zenoh::sample::Locality {
+    match origin.map(|s| s.to_lowercase().trim().to_string()).as_deref() {
+        Some("session_local") | Some("local") => zenoh::sample::Locality::SessionLocal,
+        Some("remote") => zenoh::sample::Locality::Remote,
+        _ => zenoh::sample::Locality::Any,
+    }
+}
+
+/// Declares a subscriber on the Zenoh session with configurable allowed origin locality.
+pub async fn subscribe_with_callback_and_options<F>(
+    session: &zenoh::Session,
+    session_id: Uuid,
+    sub_id: Uuid,
+    key_expr: &str,
+    options: Option<SubscribeOptions>,
+    callback: F,
+) -> Result<ActiveSubscriber, String>
+where
+    F: Fn(ZenohSample) + Send + Sync + 'static,
+{
+    let mut builder = session.declare_subscriber(key_expr);
+
+    if let Some(opts) = options {
+        if let Some(origin) = &opts.allowed_origin {
+            builder = builder.allowed_origin(parse_locality(Some(origin)));
+        }
+    }
+
+    let subscriber = builder
         .await
         .map_err(|e| format!("failed to declare subscriber for '{key_expr}': {e}"))?;
 

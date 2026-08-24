@@ -80,15 +80,26 @@ export async function getAllSessions(): Promise<SessionInfo[]> {
 // ============================================================================
 
 /**
- * Publishes a data sample or delete signal to a Zenoh key expression.
+ * Publishes a data sample or delete signal to a Zenoh key expression with optional QoS.
  */
 export async function publishSample(
   sessionId: string,
   keyExpr: string,
   payload: number[] | Uint8Array,
   encoding: EncodingType | string = 'json',
-  kind: PutKind | string = 'put'
+  kind: PutKind | string = 'put',
+  options?: PublishOptions | null
 ): Promise<void> {
+  if (options && Object.keys(options).length > 0) {
+    return invoke<void>('publish_sample_advanced', {
+      sessionId,
+      keyExpr,
+      payload: normalizePayload(payload),
+      encoding,
+      kind,
+      options,
+    });
+  }
   return invoke<void>('publish_sample', {
     sessionId,
     keyExpr,
@@ -99,14 +110,18 @@ export async function publishSample(
 }
 
 /**
- * Declares a subscriber on the specified session.
- * Incoming samples will be streamed to `zenohx://sample` event.
+ * Declares a subscriber on the specified session with optional reliability/origin options.
+ * Incoming samples will be streamed to `zenohx://samples-batched` and `zenohx://sample` events.
  */
 export async function subscribeKey(
   sessionId: string,
   subId: string,
-  keyExpr: string
+  keyExpr: string,
+  options?: SubscribeOptions | null
 ): Promise<void> {
+  if (options && Object.keys(options).length > 0) {
+    return invoke<void>('subscribe_advanced', { sessionId, subId, keyExpr, options });
+  }
   return invoke<void>('subscribe', { sessionId, subId, keyExpr });
 }
 
@@ -118,6 +133,24 @@ export async function unsubscribeKey(
   subId: string
 ): Promise<void> {
   return invoke<void>('unsubscribe', { sessionId, subId });
+}
+
+/**
+ * Starts a background stream generator in Rust.
+ */
+export async function startStreamGenerator(
+  config: StreamGeneratorConfig
+): Promise<void> {
+  return invoke<void>('start_stream_generator', { config });
+}
+
+/**
+ * Stops an active background stream generator in Rust.
+ */
+export async function stopStreamGenerator(
+  generatorId: string
+): Promise<void> {
+  return invoke<void>('stop_stream_generator', { generatorId });
 }
 
 // ============================================================================
@@ -352,6 +385,17 @@ export async function onZenohSample(
   callback: (sample: ZenohSample) => void
 ): Promise<UnlistenFn> {
   return listen<ZenohSample>('zenohx://sample', (event) => {
+    callback(event.payload);
+  });
+}
+
+/**
+ * Subscribes to high-throughput batched Zenoh samples (frame-rate aligned).
+ */
+export async function onZenohSamplesBatched(
+  callback: (samples: ZenohSample[]) => void
+): Promise<UnlistenFn> {
+  return listen<ZenohSample[]>('zenohx://samples-batched', (event) => {
     callback(event.payload);
   });
 }

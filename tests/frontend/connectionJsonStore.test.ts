@@ -105,6 +105,40 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.equal(useConnectionJsonStore.getState().selectedProfileId, 'prof-client-123');
   });
 
+  it('syncs live JSON5 configuration and resolves real bound IP and port for active sessions', () => {
+    const store = useConnectionJsonStore.getState();
+
+    const routerFormConfig = {
+      profile_id: 'prof-router-1',
+      mode: 'router' as const,
+      connect_locators: [],
+      listen_locators: ['tcp/0.0.0.0:0'],
+      scout_multicast: true,
+      scout_gossip: true,
+    };
+
+    const liveSession: SessionInfo = {
+      id: 'sess-123',
+      zid: 'abcdef0123456789abcdef0123456789',
+      mode: 'router',
+      bound_locators: ['tcp/192.168.1.105:43821', 'ws/192.168.1.105:8080'],
+      listen_locators: ['tcp/0.0.0.0:0'],
+      connect_locators: [],
+      peers: [],
+      routers: [],
+      transports: [],
+    };
+
+    const json = store.syncEditFormJson(routerFormConfig, liveSession);
+    const parsed = JSON.parse(json);
+
+    assert.equal(parsed.mode, 'router');
+    assert.deepEqual(parsed.listen?.endpoints, [
+      'tcp/192.168.1.105:43821',
+      'ws/192.168.1.105:8080',
+    ]);
+  });
+
   it('parses raw Zenoh JSON configuration into structured profile fields', () => {
     const store = useConnectionJsonStore.getState();
 

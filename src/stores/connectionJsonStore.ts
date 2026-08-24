@@ -24,7 +24,8 @@ export interface ConnectionJsonState {
 
   /** Syncs and computes live JSON5 configuration from active form inputs / SessionConfig */
   syncEditFormJson: (
-    config: Partial<SessionConfig> | Partial<ConnectionProfile> | Record<string, any>
+    config: Partial<SessionConfig> | Partial<ConnectionProfile> | Record<string, any>,
+    activeSession?: SessionInfo | null
   ) => string;
 
   /** Sets custom raw JSON override for a given profile */
@@ -87,8 +88,19 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
     return jsonStr;
   },
 
-  syncEditFormJson: (config) => {
-    const jsonStr = generateZenohJson5(config);
+  syncEditFormJson: (config, activeSession) => {
+    const resolvedConfig = { ...config };
+    const bound = activeSession?.bound_locators;
+    if (bound && bound.length > 0) {
+      const configuredLocs = Array.isArray(config.listen_locators) ? config.listen_locators : [];
+      const hasWildcardOrZero = configuredLocs.some(
+        (l) => typeof l === 'string' && (l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]'))
+      );
+      if (hasWildcardOrZero || configuredLocs.length === 0) {
+        resolvedConfig.listen_locators = bound;
+      }
+    }
+    const jsonStr = generateZenohJson5(resolvedConfig);
     set({
       selectedProfileId: (config as any)?.profile_id || (config as any)?.id || null,
       activeEditFormJson: jsonStr,

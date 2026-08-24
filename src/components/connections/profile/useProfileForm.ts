@@ -491,16 +491,27 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         clientKey,
         tlsOnly,
       });
-      const activeZid = profile?.id
-        ? useConnectionStore.getState().activeSessions[profile.id]?.zid
-        : (profile as any)?.zid;
+      const activeSession = profile?.id
+        ? useConnectionStore.getState().activeSessions[profile.id]
+        : null;
+      const activeZid = activeSession?.zid || (profile as any)?.zid;
+
+      const configuredPeerLocs = listenLocators.map((l) => l.trim()).filter(Boolean);
+      const isEphemeralOrWildcardPeer = configuredPeerLocs.some(
+        (l) => l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]')
+      );
+      const resolvedPeerListenLocs =
+        activeSession?.bound_locators && activeSession.bound_locators.length > 0 && isEphemeralOrWildcardPeer
+          ? activeSession.bound_locators
+          : configuredPeerLocs;
+
       return {
         profile_id: profile?.id,
         id: activeZid || profile?.id,
         zid: activeZid,
         mode: 'peer',
         connect_locators: connectLocators.map((l) => l.trim()).filter(Boolean),
-        listen_locators: listenLocators.map((l) => l.trim()).filter(Boolean),
+        listen_locators: resolvedPeerListenLocs,
         scout_multicast: scoutMulticast,
         scout_gossip: scoutGossip,
         reconnect_retry: reconnectRetryConfig,
@@ -512,6 +523,19 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       const listenLocs = routerListenEndpoints
         .map((ep) => buildLocator(ep.protocol, ep.host.trim() || (ep.protocol === 'unix' ? '/tmp/zenoh.sock' : '0.0.0.0'), ep.port.trim()))
         .filter(Boolean);
+      const activeSession = profile?.id
+        ? useConnectionStore.getState().activeSessions[profile.id]
+        : null;
+      const activeZid = activeSession?.zid || (profile as any)?.zid;
+
+      const isEphemeralOrWildcardRouter = listenLocs.some(
+        (l) => l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]')
+      );
+      const resolvedRouterListenLocs =
+        activeSession?.bound_locators && activeSession.bound_locators.length > 0 && isEphemeralOrWildcardRouter
+          ? activeSession.bound_locators
+          : (listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447']);
+
       const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls' || ep.protocol === 'wss');
       const tlsConfig = resolveTlsConfig({
         enableTls: hasTlsEndpoint || enableTls || useCustomTls,
@@ -521,16 +545,14 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         clientKey,
         tlsOnly,
       });
-      const activeZid = profile?.id
-        ? useConnectionStore.getState().activeSessions[profile.id]?.zid
-        : (profile as any)?.zid;
+
       return {
         profile_id: profile?.id,
         id: activeZid || profile?.id,
         zid: activeZid,
         mode: 'router',
         connect_locators: routerConnectLocators.map((l) => l.trim()).filter(Boolean),
-        listen_locators: listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'],
+        listen_locators: resolvedRouterListenLocs,
         scout_multicast: routerScoutMulticast,
         scout_gossip: routerScoutGossip,
         reconnect_retry: reconnectRetryConfig,
@@ -711,8 +733,11 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const syncEditFormJson = useConnectionJsonStore((s) => s.syncEditFormJson);
   const parseJsonToProfile = useConnectionJsonStore((s) => s.parseJsonToProfile);
 
+  const activeSession = profile?.id
+    ? useConnectionStore.getState().activeSessions[profile.id]
+    : null;
   const currentSessionConfig = buildCurrentSessionConfig();
-  const generatedConfigJson = syncEditFormJson(currentSessionConfig);
+  const generatedConfigJson = syncEditFormJson(currentSessionConfig, activeSession);
 
   const applyJsonToForm = (jsonString: string): boolean => {
     const parsed = parseJsonToProfile(jsonString);

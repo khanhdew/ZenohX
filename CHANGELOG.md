@@ -12,6 +12,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.5.0] - 2026-08-24
+
+### 🚀 Added & Enhanced
+- **zenoh:** implement direct rust introspection, router mesh reconnection & topology telemetry
+- **pubsub:** implement high-throughput batched ingestion, QoS controls, traffic generator & subscriber locality
+- **backend:** add gossip discovery and reconnect retry DTOs
+- **backend:** dynamically resolve ephemeral ports via session locators
+- **frontend:** expand transport protocol parser to 7 protocols including WebSockets and Unix sockets
+- **ui:** redesign role selector and multi-transport endpoint builder
+- **ui:** add mesh routing controls and live json5 inspection
+- **ui:** display runtime bound locators with 1-click copy badge
+- **topology:** synchronize JSON5 configuration with live node state and add JSON5 inspector preview
+- **store:** create connectionJsonStore for live JSON5 sync across node details and edit connection page
+
+### 🐛 Fixed
+- **ui:** disable TLS encryption by default on new connection profiles
+- **ui:** show only zid on connection sidebar cards without locators
+- **ui:** remove locator badges from workspace bars and display clean zid
+- resolve advertised locators to real host IPs and eliminate 0.0.0.0:0
+- persist resolved node info to stored profile without creating duplicate connections
+- **ui:** hot-reload active session on profile save and sync configured upstreams to UI detail
+- **ui:** remove duplicated fields between preset forms and advanced settings
+- preserve configured ephemeral listen locators and accurately map router profiles in topology editor
+- **store:** propagate full scout_gossip, reconnect_retry and live ZID to session config and JSON5 preview
+- **store:** resolve real bound IP and port in JSON5 preview for active sessions with wildcard or ephemeral endpoints
+- **topology:** auto-purge scouted nodes on delete and allow direct node removal without scout
+- **pubsub:** deduplicate self-publication loopback samples and eliminate redundant single sample IPC events
+- **messaging:** resolve untimestamped messages, duplicate subscriber eviction, loadHistory session deduplication, and timestamp scale formatting
+
+### 🔧 Maintenance
+- **spec:** add node lifecycle and topology control design spec
+- **plan:** add node lifecycle and topology control implementation plan
+- verify all node lifecycle and multi-transport test suites pass
+
+---
 ## [v0.4.0] - 2026-08-24
 
 ### 🚀 Added & Enhanced

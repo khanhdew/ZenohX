@@ -7,11 +7,9 @@ import {
   ShieldCheck,
   HardDrive,
   Shield,
-  RefreshCw,
 } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
-import { Switch } from '../../ui/switch';
 import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS } from '../../../lib/tls';
 
 export interface ClientConfigFormProps {
@@ -23,10 +21,6 @@ export interface ClientConfigFormProps {
   setClientPort: (val: string) => void;
   clientProtocol: TransportProtocol;
   setClientProtocol: (val: TransportProtocol) => void;
-  tlsOnly?: boolean;
-  setTlsOnly?: (val: boolean) => void;
-  enableReconnectRetry?: boolean;
-  setEnableReconnectRetry?: (val: boolean) => void;
   username: string;
   setUsername: (val: string) => void;
   password: string;
@@ -64,10 +58,6 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
   setClientPort,
   clientProtocol,
   setClientProtocol,
-  tlsOnly = false,
-  setTlsOnly,
-  enableReconnectRetry = true,
-  setEnableReconnectRetry,
   username,
   setUsername,
   password,
@@ -244,47 +234,7 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
             </div>
           </div>
         )}
-
-        {(clientProtocol === 'tls' || clientProtocol === 'wss') && (
-          <div className="mt-3 p-3 rounded-lg border bg-muted/20 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-xs font-semibold flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-                  Strict TLS-Only Mode
-                </Label>
-                <p className="text-[10px] text-muted-foreground">
-                  Refuse unencrypted fallback connections; enforce encrypted transport.
-                </p>
-              </div>
-              {setTlsOnly && (
-                <Switch checked={tlsOnly} onCheckedChange={setTlsOnly} />
-              )}
-            </div>
-          </div>
-        )}
       </div>
-
-      {/* Exponential Reconnection Strategy */}
-      {setEnableReconnectRetry && (
-        <div className="rounded-lg border p-3 bg-muted/10 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-semibold flex items-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5 text-sky-500" />
-                Automatic Reconnection Retry
-              </Label>
-              <p className="text-[10px] text-muted-foreground">
-                Automatically attempt exponential backoff reconnection if the upstream link drops.
-              </p>
-            </div>
-            <Switch
-              checked={enableReconnectRetry}
-              onCheckedChange={setEnableReconnectRetry}
-            />
-          </div>
-        </div>
-      )}
 
       {/* User Authentication */}
       <div className="space-y-2 pt-2 border-t">

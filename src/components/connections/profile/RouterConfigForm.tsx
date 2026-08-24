@@ -11,12 +11,9 @@ import {
   Plus,
   Trash2,
   Shuffle,
-  RadioTower,
-  Network,
 } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
-import { Switch } from '../../ui/switch';
 import { Button } from '../../ui/button';
 import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS, getRandomRouterPort } from '../../../lib/tls';
 
@@ -34,8 +31,8 @@ export interface RouterConfigFormProps {
   addListenEndpoint: () => void;
   updateListenEndpoint: (id: string, updates: Partial<RouterListenEndpoint>) => void;
   removeListenEndpoint: (id: string) => void;
-  routerScoutMulticast: boolean;
-  setRouterScoutMulticast: (val: boolean) => void;
+  routerScoutMulticast?: boolean;
+  setRouterScoutMulticast?: (val: boolean) => void;
   routerScoutGossip?: boolean;
   setRouterScoutGossip?: (val: boolean) => void;
   routerConnectLocators: string[];
@@ -72,10 +69,6 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
   addListenEndpoint,
   updateListenEndpoint,
   removeListenEndpoint,
-  routerScoutMulticast,
-  setRouterScoutMulticast,
-  routerScoutGossip = true,
-  setRouterScoutGossip,
   routerConnectLocators,
   addRouterConnectLocator,
   updateRouterConnectLocator,
@@ -316,43 +309,6 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
             );
           })}
         </div>
-      </div>
-
-      {/* Multicast & Gossip Discovery Responder Card */}
-      <div className="rounded-lg border p-3 bg-muted/10 space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label className="text-xs font-semibold flex items-center gap-1.5">
-              <RadioTower className="w-3.5 h-3.5 text-indigo-500" />
-              Multicast Discovery Responder
-            </Label>
-            <p className="text-[10px] text-muted-foreground">
-              Answer LAN scout probes (<code className="font-mono text-[10px]">224.0.0.224:7446</code>) so clients & peers can auto-discover this router.
-            </p>
-          </div>
-          <Switch
-            checked={routerScoutMulticast}
-            onCheckedChange={setRouterScoutMulticast}
-          />
-        </div>
-
-        {setRouterScoutGossip && (
-          <div className="flex items-center justify-between pt-2 border-t">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium flex items-center gap-1.5">
-                <Network className="w-3.5 h-3.5 text-indigo-400" />
-                Gossip Scouting Protocol
-              </Label>
-              <p className="text-[10px] text-muted-foreground">
-                Propagate routing topology information across interconnected routers and peers.
-              </p>
-            </div>
-            <Switch
-              checked={routerScoutGossip}
-              onCheckedChange={setRouterScoutGossip}
-            />
-          </div>
-        )}
       </div>
 
       {/* Upstream Router Connect Locators */}

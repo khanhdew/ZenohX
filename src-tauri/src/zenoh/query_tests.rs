@@ -11,21 +11,24 @@ mod tests {
         let manager = SessionManager::new();
         let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
         let q_id = Uuid::new_v4();
+        let test_key = format!("roundtrip/rpc/{}", Uuid::new_v4().simple());
 
         // Declare a mock Queryable
         manager
-            .declare_queryable(&session_id, q_id, "demo/rpc/**", |query| async move {
+            .declare_queryable(&session_id, q_id, &test_key, move |query| async move {
                 query
-                    .reply("demo/rpc/info", b"{\"status\": \"ok\"}".to_vec())
+                    .reply(&query.key_expr, b"{\"status\": \"ok\"}".to_vec())
                     .await
                     .unwrap();
             })
             .await
             .unwrap();
 
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
         // Execute Query
         let replies = manager
-            .query_get(&session_id, "demo/rpc/info", "all", 2000)
+            .query_get(&session_id, &test_key, "all", 3000)
             .await
             .unwrap();
         assert!(!replies.is_empty());
@@ -266,9 +269,13 @@ mod tests {
         let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
 
         let (tx, mut rx) = mpsc::channel::<InboundQuery>(10);
+        let prefix = format!("scatter_{}", Uuid::new_v4().simple());
 
-        // Declare 3 queryables on different subpaths
-        let keys = ["demo/service/node1", "demo/service/node2", "demo/service/node3"];
+        // Declare 3 queryables on unique subpaths
+        let k1 = format!("{prefix}/node1");
+        let k2 = format!("{prefix}/node2");
+        let k3 = format!("{prefix}/node3");
+        let keys = [k1.clone(), k2.clone(), k3.clone()];
         for key in &keys {
             let tx_clone = tx.clone();
             manager
@@ -279,11 +286,14 @@ mod tests {
                 .unwrap();
         }
 
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
         // Query with wildcard selector
         let mgr_clone = manager.clone();
+        let wildcard_query = format!("{prefix}/**");
         let query_handle = tokio::spawn(async move {
             mgr_clone
-                .query_get(&session_id, "demo/service/**", "all", 3000)
+                .query_get(&session_id, &wildcard_query, "all", 3000)
                 .await
         });
 
@@ -310,9 +320,9 @@ mod tests {
         assert_eq!(replies.len(), 3, "Expected 3 replies from 3 distinct queryables");
 
         let reply_keys: Vec<String> = replies.iter().map(|r| r.key_expr.clone()).collect();
-        assert!(reply_keys.contains(&"demo/service/node1".to_string()));
-        assert!(reply_keys.contains(&"demo/service/node2".to_string()));
-        assert!(reply_keys.contains(&"demo/service/node3".to_string()));
+        assert!(reply_keys.contains(&k1));
+        assert!(reply_keys.contains(&k2));
+        assert!(reply_keys.contains(&k3));
 
         manager.disconnect(&session_id).await.unwrap();
     }

@@ -21,6 +21,7 @@ import {
 import { useSettingsStore, type UpdateChannel } from '../../../stores/settingsStore';
 import { useUpdateStore } from '../../../stores/updateStore';
 import { APP_VERSION } from '../../../lib/version';
+import { MarkdownViewer } from '../../ui/MarkdownViewer';
 import zenohxIcon from '../../../assets/icon.png';
 
 export const UpdatesTab: React.FC = () => {
@@ -146,9 +147,7 @@ export const UpdatesTab: React.FC = () => {
             </div>
 
             {notes && (
-              <div className="p-2.5 rounded bg-background text-xs font-mono max-h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground border">
-                {notes}
-              </div>
+              <MarkdownViewer content={notes} maxHeight="max-h-48" />
             )}
 
             <div className="flex items-center justify-between gap-2 pt-1">
@@ -194,9 +193,7 @@ export const UpdatesTab: React.FC = () => {
             </div>
 
             {notes && (
-              <div className="p-2.5 rounded bg-background text-xs font-mono max-h-32 overflow-y-auto whitespace-pre-wrap text-muted-foreground border">
-                {notes}
-              </div>
+              <MarkdownViewer content={notes} maxHeight="max-h-48" />
             )}
 
             <div className="flex items-center justify-end gap-2 pt-1">

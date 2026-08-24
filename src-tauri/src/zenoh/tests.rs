@@ -318,18 +318,21 @@ mod tests {
 
     #[test]
     fn test_unixpipe_stale_socket_cleanup() {
-        let socket_path = "/tmp/test_zenoh_stale_sock.sock";
+        let temp_dir = std::env::temp_dir();
+        let socket_path = temp_dir.join("test_zenoh_stale_sock.sock");
+        let socket_str = socket_path.to_string_lossy().to_string();
+
         // Create a dummy stale socket file
-        std::fs::write(socket_path, b"stale").expect("create stale socket file");
-        assert!(std::path::Path::new(socket_path).exists());
+        std::fs::write(&socket_path, b"stale").expect("create stale socket file");
+        assert!(socket_path.exists());
 
         let mut config = SessionConfig::default_peer();
-        config.listen_locators = vec![format!("unixpipe/{socket_path}")];
+        config.listen_locators = vec![format!("unixpipe/{}", socket_str.trim_start_matches('/'))];
 
         let res = config.to_zenoh_config();
         assert!(res.is_ok());
         // The stale socket file should have been cleaned up before binding
-        assert!(!std::path::Path::new(socket_path).exists());
+        assert!(!socket_path.exists());
     }
 
     #[test]

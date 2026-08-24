@@ -32,6 +32,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node ./tests/run-tests.mjs",
+    "clean": "rm -rf dist && cargo clean --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri",
     "release:new": "bash scripts/release.sh"
   },

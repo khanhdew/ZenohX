@@ -165,10 +165,16 @@ impl SessionConfig {
         // For Unix domain socket endpoints (e.g. "unixpipe//tmp/zenoh.sock"), clean up stale socket files
         for loc in &self.listen_locators {
             if let Some(path) = loc.strip_prefix("unixpipe/") {
-                let clean_path = path.trim_start_matches('/');
-                let full_path = format!("/{clean_path}");
-                if std::path::Path::new(&full_path).exists() {
-                    let _ = std::fs::remove_file(&full_path);
+                let direct_path = std::path::Path::new(path);
+                if direct_path.exists() {
+                    let _ = std::fs::remove_file(direct_path);
+                } else {
+                    let clean_path = path.trim_start_matches('/');
+                    let full_path = format!("/{clean_path}");
+                    let alt_path = std::path::Path::new(&full_path);
+                    if alt_path.exists() {
+                        let _ = std::fs::remove_file(alt_path);
+                    }
                 }
             }
         }

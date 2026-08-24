@@ -59,6 +59,15 @@ function generateId(): string {
   });
 }
 
+interface OutgoingPubRecord {
+  sessionId: string;
+  keyExpr: string;
+  length: number;
+  timestamp: number;
+}
+
+const recentOutgoingPubs: OutgoingPubRecord[] = [];
+
 export interface MessageState {
   subscriptions: SubscriptionItem[];
   messages: MessageItem[];
@@ -219,11 +228,38 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       const unlistenBatched = await onZenohSamplesBatched((samples: ZenohSample[]) => {
         if (!samples || samples.length === 0) return;
 
+        const now = Date.now();
+        while (recentOutgoingPubs.length > 0 && now - recentOutgoingPubs[0].timestamp > 4000) {
+          recentOutgoingPubs.shift();
+        }
+
         const state = get();
         const newItems: MessageItem[] = [];
 
         for (const sample of samples) {
           const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
+          const activeSession = useConnectionStore.getState().getActiveSession(sample.session_id);
+          const localZid = activeSession?.zid?.toLowerCase();
+          const sourceZid = sample.source_id?.toLowerCase();
+
+          // Check if this sample is an echo/loopback of our own publication on the same session
+          const isSelfZid = Boolean(localZid && sourceZid && localZid === sourceZid);
+          const isSelfPublished =
+            isSelfZid ||
+            recentOutgoingPubs.some(
+              (p) =>
+                p.sessionId === sample.session_id &&
+                p.keyExpr === sample.key_expr &&
+                p.length === (sample.payload?.length || 0) &&
+                Math.abs(now - p.timestamp) < 2000
+            );
+
+          if (isSelfPublished) {
+            // This message was already added as 'outgoing' by publish();
+            // Skip adding duplicate 'incoming' loopback message.
+            continue;
+          }
+
           const item: MessageItem = {
             id: generateId(),
             sessionId: sample.session_id,
@@ -251,6 +287,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             bytes: sample.payload?.length || 0,
           });
         }
+
+        if (newItems.length === 0) return;
 
         if (state.isPaused) {
           set((s) => ({
@@ -644,6 +682,18 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       });
 
       const activeSession = useConnectionStore.getState().getActiveSession(sessionId);
+      const pubTimestamp = Date.now();
+
+      recentOutgoingPubs.push({
+        sessionId,
+        keyExpr,
+        length: normalizedPayload.length,
+        timestamp: pubTimestamp,
+      });
+      if (recentOutgoingPubs.length > 200) {
+        recentOutgoingPubs.shift();
+      }
+
       const item: MessageItem = {
         id: generateId(),
         sessionId,
@@ -653,7 +703,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         payload: normalizedPayload,
         encoding,
         kind,
-        timestamp: Date.now(),
+        timestamp: pubTimestamp,
         senderZid: activeSession?.zid || undefined,
         priority: options?.qos?.priority || undefined,
         express: options?.qos?.express || undefined,

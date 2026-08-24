@@ -160,9 +160,6 @@ fn flush_sample_buffer(
 
     let _ = db.insert_messages_batch(&stored_list);
     let _ = app_handle.emit("zenohx://samples-batched", &buffer);
-    for sample in buffer.iter() {
-        let _ = app_handle.emit("zenohx://sample", sample);
-    }
     buffer.clear();
 }
 

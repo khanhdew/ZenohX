@@ -232,6 +232,65 @@ describe('Pub/Sub Workspace Store Integration', () => {
     assert.equal(msgs[0].express, true);
   });
 
+  test('publish deduplicates self loopback samples so publish only creates 1 message item', async () => {
+    let capturedHandler: ((event: { payload: unknown }) => void) | null = null;
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'publish_sample_advanced' || cmd === 'publish_sample') {
+        return undefined;
+      }
+      return undefined;
+    };
+
+    // Mock tauri event listener
+    // @ts-expect-error Mocking tauri event plugin
+    globalThis.window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener: () => {},
+    };
+    // @ts-expect-error Mocking tauri internals
+    globalThis.window.__TAURI_INTERNALS__.invoke = async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === 'plugin:event|listen') {
+        capturedHandler = args?.handler as (event: { payload: unknown }) => void;
+        return 1;
+      }
+      return mockInvokeHandler(cmd, args);
+    };
+
+    await useMessageStore.getState().initListener();
+
+    // 1. Publish sample
+    await useMessageStore.getState().publish(
+      'sess-self-1',
+      'demo/test/topic',
+      '{"val": 42}',
+      'json',
+      'put'
+    );
+
+    assert.equal(useMessageStore.getState().messages.length, 1);
+    assert.equal(useMessageStore.getState().messages[0].direction, 'outgoing');
+
+    // 2. Simulate Zenoh delivering loopback sample to local subscriber
+    if (capturedHandler) {
+      capturedHandler({
+        payload: [
+          {
+            session_id: 'sess-self-1',
+            key_expr: 'demo/test/topic',
+            payload: Array.from(Buffer.from('{"val": 42}')),
+            encoding: 'json',
+            kind: 'put',
+            timestamp: Date.now(),
+          },
+        ],
+      });
+    }
+
+    // 3. Verify messages count is STILL 1 (not duplicated as a second incoming message)
+    const msgsAfter = useMessageStore.getState().messages;
+    assert.equal(msgsAfter.length, 1);
+    assert.equal(msgsAfter[0].direction, 'outgoing');
+  });
+
   test('addMessagesBatch processes batched samples and updates subscription counts in single pass', () => {
     useMessageStore.setState({
       subscriptions: [

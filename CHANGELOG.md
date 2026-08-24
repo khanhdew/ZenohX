@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.5.1] - 2026-08-25
+
+### 🚀 Added & Enhanced
+- **updates:** add markdown compiler support for changelogs, cross-platform unixpipe test fix, clean script, and demo screenshot
+
+### 🐛 Fixed
+- **topology:** persist custom node names and support IPv6 locators
+- **pubsub:** prevent subscriptions from disappearing on reload and preserve QoS origin options
+
+### ⚡ Changed & Refactored
+- **icons:** add 18% transparent padding safe area to app icons across all platforms
+
+---
 ## [v0.5.0] - 2026-08-24
 
 ### 🚀 Added & Enhanced

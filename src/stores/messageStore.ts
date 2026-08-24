@@ -653,9 +653,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         );
         let isActive = false;
 
+        const existingOrigin = existing?.allowedOrigin;
+        const subOptions =
+          existingOrigin && existingOrigin !== 'any' ? { allowed_origin: existingOrigin } : undefined;
+
         if (activeSessionId && preset.auto_subscribe) {
           try {
-            await subscribeKey(activeSessionId, preset.id, preset.key_expr);
+            await subscribeKey(activeSessionId, preset.id, preset.key_expr, subOptions);
             isActive = true;
           } catch {
             isActive = false;
@@ -663,7 +667,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
         } else if (activeSessionId && existing?.active) {
           if (existing.sessionId !== activeSessionId) {
             try {
-              await subscribeKey(activeSessionId, preset.id, preset.key_expr);
+              await subscribeKey(activeSessionId, preset.id, preset.key_expr, subOptions);
               isActive = true;
             } catch {
               isActive = false;
@@ -688,6 +692,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
             COLOR_PALETTE[loadedSubs.length % COLOR_PALETTE.length],
           count: existing?.count || 0,
           active: isActive,
+          allowedOrigin: existingOrigin,
           createdAt: existing?.createdAt || Date.now(),
         });
       }
@@ -697,9 +702,9 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       }
 
       set((state) => {
-        // Preserve all subscriptions belonging to other profiles
+        // Preserve all subscriptions belonging to other profiles or unassigned profiles
         const otherSubs = state.subscriptions.filter(
-          (s) => s.profileId && s.profileId !== profileId
+          (s) => !s.profileId || s.profileId !== profileId
         );
         // Also preserve any in-memory subscriptions for this profile not in presets yet
         const inMemoryUnsaved = state.subscriptions.filter(

@@ -118,10 +118,12 @@ export const SubscriptionList: React.FC<SubscriptionListProps> = ({
   const sessionSubscriptions = useMemo(() => {
     return subscriptions.filter((s) => {
       if (currentProfileId) {
-        return s.profileId === currentProfileId;
+        if (s.profileId === currentProfileId) return true;
+        if (!s.profileId && activeSessionId && s.sessionId === activeSessionId) return true;
+        return false;
       }
       if (activeSessionId) {
-        return s.sessionId === activeSessionId;
+        return s.sessionId === activeSessionId || !s.sessionId;
       }
       return true;
     });

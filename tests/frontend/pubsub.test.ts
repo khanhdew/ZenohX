@@ -759,6 +759,84 @@ describe('Pub/Sub Workspace Store Integration', () => {
     assert.equal(msgs[0].sessionId, 'sess-active-1', 'Should preserve active sessionId');
     assert.equal(msgs[0].id, '42', 'Should update to SQLite persistent ID');
   });
+
+  test('loadSubscriptions preserves unassigned profile subscriptions and allowedOrigin', async () => {
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'load_subscription_presets') {
+        return [
+          {
+            id: 'preset-p1',
+            profile_id: 'prof-target',
+            key_expr: 'sensor/temp',
+            default_encoding: 'json',
+            auto_subscribe: true,
+            color_tag: '#3b82f6',
+          },
+        ];
+      }
+      if (cmd === 'subscribe' || cmd === 'subscribe_advanced') return undefined;
+      return undefined;
+    };
+
+    // Store contains:
+    // 1. Subscription for another profile
+    // 2. Subscription with no profileId (unassigned / ad-hoc)
+    // 3. Existing subscription matching the preset but with allowedOrigin set
+    useMessageStore.setState({
+      subscriptions: [
+        {
+          id: 'sub-other',
+          sessionId: 'sess-other',
+          profileId: 'prof-other',
+          keyExpr: 'other/**',
+          encoding: 'json',
+          colorTag: '#ef4444',
+          count: 0,
+          active: true,
+          createdAt: 100,
+        },
+        {
+          id: 'sub-unassigned',
+          sessionId: 'sess-adhoc',
+          profileId: '',
+          keyExpr: 'adhoc/**',
+          encoding: 'text',
+          colorTag: '#10b981',
+          count: 5,
+          active: true,
+          createdAt: 200,
+        },
+        {
+          id: 'preset-p1',
+          sessionId: 'sess-active',
+          profileId: 'prof-target',
+          keyExpr: 'sensor/temp',
+          encoding: 'json',
+          colorTag: '#3b82f6',
+          count: 10,
+          active: true,
+          allowedOrigin: 'session_local',
+          createdAt: 300,
+        },
+      ],
+    });
+
+    await useMessageStore.getState().loadSubscriptions('prof-target', 'sess-active');
+
+    const subs = useMessageStore.getState().subscriptions;
+    assert.equal(subs.length, 3, 'All 3 subscriptions should be preserved');
+
+    const unassigned = subs.find((s) => s.id === 'sub-unassigned');
+    assert.ok(unassigned, 'Unassigned subscription (profileId: "") must not disappear');
+    assert.equal(unassigned?.keyExpr, 'adhoc/**');
+
+    const other = subs.find((s) => s.id === 'sub-other');
+    assert.ok(other, 'Other profile subscription must not disappear');
+
+    const target = subs.find((s) => s.id === 'preset-p1');
+    assert.ok(target, 'Target profile subscription must exist');
+    assert.equal(target?.allowedOrigin, 'session_local', 'allowedOrigin must be retained after loadSubscriptions');
+  });
 });
 
 

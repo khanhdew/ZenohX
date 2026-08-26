@@ -58,14 +58,37 @@ pub async fn connect_node_by_zid(
         })
         .ok_or_else(|| format!("node configuration for '{zid}' not found in database"))?;
 
-    let user_auth = profile.user_auth.and_then(|v| serde_json::from_value(v).ok());
-    let tls_config = profile.tls_config.and_then(|v| serde_json::from_value(v).ok());
+    let user_auth = profile.user_auth.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
+    let tls_config = profile.tls_config.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
+
+    let is_router = profile.mode == "router";
+    let sanitized_listen = if is_router {
+        let clean: Vec<String> = profile
+            .listen_locators
+            .iter()
+            .map(|l| {
+                if l.ends_with(":0") || l == "tcp/0.0.0.0:0" {
+                    "tcp/0.0.0.0:7447".to_string()
+                } else {
+                    l.clone()
+                }
+            })
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        if clean.is_empty() {
+            vec!["tcp/0.0.0.0:7447".to_string()]
+        } else {
+            clean
+        }
+    } else {
+        profile.listen_locators.clone()
+    };
 
     let config = SessionConfig {
         profile_id: Some(profile.id.clone()),
         mode: profile.mode.clone(),
         connect_locators: profile.connect_locators.clone(),
-        listen_locators: profile.listen_locators.clone(),
+        listen_locators: sanitized_listen.clone(),
         scout_multicast: profile.scout_multicast,
         scout_gossip: true,
         reconnect_retry: None,
@@ -74,7 +97,7 @@ pub async fn connect_node_by_zid(
         custom_config: profile.custom_config.clone(),
     };
 
-    let json5 = config.generate_json5(Some(&profile.id), &profile.listen_locators);
+    let json5 = config.generate_json5(Some(&profile.id), &config.listen_locators);
     println!("\n================ [DEBUG: LOADED JSON5 CONFIG] ================");
     println!("Requested ZID / ID: {}", zid);
     println!("Resolved Profile: {} (ID: {})", profile.name, profile.id);
@@ -83,7 +106,16 @@ pub async fn connect_node_by_zid(
     println!("==============================================================\n");
 
     let session_id = state.session_manager.connect(config).await?;
-    state.session_manager.get_session_info(&session_id).await
+    let session_info = state.session_manager.get_session_info(&session_id).await?;
+
+    // Update the database profile with live/sanitized connection information
+    if is_router && (profile.listen_locators != sanitized_listen || profile.listen_locators.is_empty()) {
+        let mut updated_profile = profile.clone();
+        updated_profile.listen_locators = sanitized_listen;
+        let _ = state.db.save_profile(&updated_profile);
+    }
+
+    Ok(session_info)
 }
 
 /// Disconnects and terminates an active Zenoh session.

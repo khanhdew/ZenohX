@@ -96,7 +96,15 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
 
   // Sync topology data is handled in App.tsx to ensure global state consistency
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId) || null;
+  const selectedNode =
+    nodes.find(
+      (n) =>
+        n.id === selectedNodeId ||
+        n.zid === selectedNodeId ||
+        (selectedNodeId && n.zid && n.zid.toLowerCase() === selectedNodeId.toLowerCase()) ||
+        (n.profileId && n.profileId === selectedNodeId) ||
+        (selectedNodeId && selectedNodeId.startsWith('profile-') && n.profileId === selectedNodeId.slice(8))
+    ) || null;
 
   const handleTriggerScout = async () => {
     try {
@@ -120,6 +128,9 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
     const nodeRole: ConnectionMode =
       node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
+    const isRouter = nodeRole === 'router';
+    const cleanLocators = (node.locators || []).filter((l) => !l.endsWith(':0') && !l.includes(':0/'));
+    const defaultRouterListen = cleanLocators.length > 0 ? cleanLocators : ['tcp/0.0.0.0:7447'];
 
     const newProf: ConnectionProfile = {
       id: newProfId,
@@ -130,7 +141,9 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
           ? (primaryLoc ? [primaryLoc] : (node.locators || []))
           : (node.connectLocators || []),
       listen_locators:
-        nodeRole !== 'client'
+        isRouter
+          ? defaultRouterListen
+          : nodeRole === 'peer'
           ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLoc ? [primaryLoc] : []))
           : [],
       scout_multicast: true,
@@ -159,6 +172,9 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
       const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
       const nodeRole: ConnectionMode =
         node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
+      const isRouter = nodeRole === 'router';
+      const cleanLocators = (node.locators || []).filter((l) => !l.endsWith(':0') && !l.includes(':0/'));
+      const defaultRouterListen = cleanLocators.length > 0 ? cleanLocators : ['tcp/0.0.0.0:7447'];
 
       const newProf: ConnectionProfile = {
         id: newProfId,
@@ -169,7 +185,9 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
             ? (primaryLocator ? [primaryLocator] : (node.locators || []))
             : (node.connectLocators || []),
         listen_locators:
-          nodeRole !== 'client'
+          isRouter
+            ? defaultRouterListen
+            : nodeRole === 'peer'
             ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLocator ? [primaryLocator] : []))
             : [],
         scout_multicast: true,

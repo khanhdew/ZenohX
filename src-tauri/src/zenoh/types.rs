@@ -238,6 +238,13 @@ impl SessionConfig {
             config
                 .insert_json5("listen/endpoints", &json)
                 .map_err(|e| format!("failed to set listen endpoints: {e}"))?;
+        } else if mode_str == "router" {
+            let default_router_listen = vec!["tcp/0.0.0.0:7447".to_string()];
+            let json = serde_json::to_string(&default_router_listen)
+                .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
+            config
+                .insert_json5("listen/endpoints", &json)
+                .map_err(|e| format!("failed to set router listen endpoints: {e}"))?;
         } else if self.tls_config.is_some() && mode_str == "peer" {
             // When TLS is configured on a peer without explicit listen locator, listen on dynamic port
             let default_tls_listen = vec!["tls/0.0.0.0:0".to_string()];
@@ -356,6 +363,160 @@ impl SessionConfig {
 
         Ok(config)
     }
+
+    /// Generates a clean, canonical JSON5/JSON configuration string for this session/node.
+    pub fn generate_json5(&self, live_zid: Option<&str>, live_bound: &[String]) -> String {
+        let mut map = serde_json::Map::new();
+        let mode = self.mode.to_lowercase();
+        map.insert("mode".to_string(), serde_json::Value::String(mode.clone()));
+
+        if let Some(z) = live_zid {
+            let clean = z.replace('-', "").to_lowercase();
+            if !clean.is_empty() {
+                map.insert("id".to_string(), serde_json::Value::String(clean));
+            }
+        }
+
+        if !self.connect_locators.is_empty() {
+            let mut conn_obj = serde_json::Map::new();
+            let endpoints: Vec<serde_json::Value> = self
+                .connect_locators
+                .iter()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| serde_json::Value::String(s.trim().to_string()))
+                .collect();
+            conn_obj.insert("endpoints".to_string(), serde_json::Value::Array(endpoints));
+
+            let (timeout_ms, period_init, period_max, factor) = if let Some(r) = &self.reconnect_retry {
+                (r.timeout_ms, r.period_init_ms, r.period_max_ms, r.factor)
+            } else {
+                (0, 1000, 4000, 2)
+            };
+            conn_obj.insert("timeout_ms".to_string(), serde_json::json!(timeout_ms));
+            conn_obj.insert("exit_on_failure".to_string(), serde_json::json!(false));
+            let mut retry_obj = serde_json::Map::new();
+            retry_obj.insert("period_init_ms".to_string(), serde_json::json!(period_init));
+            retry_obj.insert("period_max_ms".to_string(), serde_json::json!(period_max));
+            retry_obj.insert("period_increase_factor".to_string(), serde_json::json!(factor));
+            conn_obj.insert("retry".to_string(), serde_json::Value::Object(retry_obj));
+            map.insert("connect".to_string(), serde_json::Value::Object(conn_obj));
+        }
+
+        // Listen endpoints:
+        // - For router: always strictly use self.listen_locators (static as configured)
+        // - For peer: use live_bound if available, else self.listen_locators
+        // - For client: no listen endpoints
+        if mode != "client" {
+            let listen_endpoints: Vec<String> = if mode == "router" {
+                if !self.listen_locators.is_empty() {
+                    self.listen_locators
+                        .iter()
+                        .map(|l| {
+                            let clean = l.trim();
+                            if clean.ends_with(":0") || clean == "tcp/0.0.0.0:0" {
+                                "tcp/0.0.0.0:7447".to_string()
+                            } else {
+                                clean.to_string()
+                            }
+                        })
+                        .collect()
+                } else {
+                    vec!["tcp/0.0.0.0:7447".to_string()]
+                }
+            } else if !live_bound.is_empty() {
+                live_bound.to_vec()
+            } else {
+                self.listen_locators.clone()
+            };
+
+            if !listen_endpoints.is_empty() {
+                let mut listen_obj = serde_json::Map::new();
+                let eps: Vec<serde_json::Value> = listen_endpoints
+                    .iter()
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| serde_json::Value::String(s.trim().to_string()))
+                    .collect();
+                listen_obj.insert("endpoints".to_string(), serde_json::Value::Array(eps));
+                map.insert("listen".to_string(), serde_json::Value::Object(listen_obj));
+            }
+        }
+
+        let mut scouting_obj = serde_json::Map::new();
+        let mut multicast_obj = serde_json::Map::new();
+        multicast_obj.insert("enabled".to_string(), serde_json::json!(self.scout_multicast));
+        scouting_obj.insert("multicast".to_string(), serde_json::Value::Object(multicast_obj));
+
+        let mut gossip_obj = serde_json::Map::new();
+        gossip_obj.insert("enabled".to_string(), serde_json::json!(self.scout_gossip));
+        scouting_obj.insert("gossip".to_string(), serde_json::Value::Object(gossip_obj));
+        map.insert("scouting".to_string(), serde_json::Value::Object(scouting_obj));
+
+        if let Some(auth) = &self.user_auth {
+            if let Some(user) = &auth.username {
+                let mut transport_obj = serde_json::Map::new();
+                let mut auth_obj = serde_json::Map::new();
+                let mut usrpwd_obj = serde_json::Map::new();
+                usrpwd_obj.insert("user".to_string(), serde_json::json!(user));
+                if let Some(pass) = &auth.password {
+                    usrpwd_obj.insert("password".to_string(), serde_json::json!(pass));
+                }
+                auth_obj.insert("usrpwd".to_string(), serde_json::Value::Object(usrpwd_obj));
+                transport_obj.insert("auth".to_string(), serde_json::Value::Object(auth_obj));
+                map.insert("transport".to_string(), serde_json::Value::Object(transport_obj));
+            }
+        }
+
+        if let Some(tls) = &self.tls_config {
+            if tls.ca_cert.is_some() || tls.client_cert.is_some() || tls.client_key.is_some() {
+                let mut transport_obj = match map.remove("transport") {
+                    Some(serde_json::Value::Object(obj)) => obj,
+                    _ => serde_json::Map::new(),
+                };
+                let mut link_obj = serde_json::Map::new();
+                let mut tls_obj = serde_json::Map::new();
+                if let Some(ca) = &tls.ca_cert {
+                    tls_obj.insert("root_ca_certificate".to_string(), serde_json::json!(ca));
+                }
+                if let Some(cert) = &tls.client_cert {
+                    tls_obj.insert("connect_certificate".to_string(), serde_json::json!(cert));
+                    tls_obj.insert("listen_certificate".to_string(), serde_json::json!(cert));
+                }
+                if let Some(key) = &tls.client_key {
+                    tls_obj.insert("connect_private_key".to_string(), serde_json::json!(key));
+                    tls_obj.insert("listen_private_key".to_string(), serde_json::json!(key));
+                }
+                link_obj.insert("tls".to_string(), serde_json::Value::Object(tls_obj));
+                transport_obj.insert("link".to_string(), serde_json::Value::Object(link_obj));
+                map.insert("transport".to_string(), serde_json::Value::Object(transport_obj));
+            }
+        }
+
+        if let Some(custom) = &self.custom_config {
+            if let Some(obj) = custom.as_object() {
+                for (k, v) in obj {
+                    if !map.contains_key(k) {
+                        map.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+
+        serde_json::to_string_pretty(&serde_json::Value::Object(map))
+            .unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+/// Result of querying a node's authoritative configuration from Rust.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeConfigurationResult {
+    pub zid: String,
+    pub profile_id: Option<String>,
+    pub mode: String,
+    pub status: String,
+    pub locators: Vec<String>,
+    pub connect_locators: Vec<String>,
+    pub json5: String,
+    pub is_local: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

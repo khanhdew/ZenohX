@@ -403,18 +403,16 @@ impl SessionConfig {
         }
 
         // Listen endpoints:
-        // - If live_bound is provided (node is connected), use live_bound (authoritative resolved IP:port)
-        // - Otherwise use self.listen_locators (or default router port if empty)
+        // - For router: if live_bound is provided, use live_bound (authoritative resolved IP:port), else self.listen_locators, else default router port
+        // - For peer: use self.listen_locators or default to ["tcp/0.0.0.0:0"]
         // - For client: no listen endpoints
-        if mode != "client" {
+        if mode == "router" {
             let listen_endpoints: Vec<String> = if !live_bound.is_empty() {
                 live_bound.to_vec()
             } else if !self.listen_locators.is_empty() {
                 self.listen_locators.clone()
-            } else if mode == "router" {
-                vec!["tcp/0.0.0.0:7447".to_string()]
             } else {
-                vec![]
+                vec!["tcp/0.0.0.0:7447".to_string()]
             };
 
             if !listen_endpoints.is_empty() {
@@ -427,6 +425,21 @@ impl SessionConfig {
                 listen_obj.insert("endpoints".to_string(), serde_json::Value::Array(eps));
                 map.insert("listen".to_string(), serde_json::Value::Object(listen_obj));
             }
+        } else if mode == "peer" {
+            let listen_endpoints: Vec<String> = if !self.listen_locators.is_empty() {
+                self.listen_locators.clone()
+            } else {
+                vec!["tcp/0.0.0.0:0".to_string()]
+            };
+
+            let mut listen_obj = serde_json::Map::new();
+            let eps: Vec<serde_json::Value> = listen_endpoints
+                .iter()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| serde_json::Value::String(s.trim().to_string()))
+                .collect();
+            listen_obj.insert("endpoints".to_string(), serde_json::Value::Array(eps));
+            map.insert("listen".to_string(), serde_json::Value::Object(listen_obj));
         }
 
         let mut scouting_obj = serde_json::Map::new();

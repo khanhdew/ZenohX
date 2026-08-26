@@ -87,10 +87,20 @@ pub async fn connect_node_by_zid(
     let session_info = state.session_manager.get_session_info(&session_id).await?;
 
     // Authoritative Post-Connect Update:
-    // Take real bound IP, port, and locators from the connected Zenoh node and save to database
+    // - For router: Take real bound IP, port, and locators from the connected Zenoh node and save to database.
+    // - For peer: Preserve/save listen as 0.0.0.0:0 (ephemeral dynamic port).
+    // - For client: Save listen as empty (client does not listen).
     let mut updated_profile = profile.clone();
-    if !session_info.bound_locators.is_empty() {
-        updated_profile.listen_locators = session_info.bound_locators.clone();
+    if profile.mode == "router" {
+        if !session_info.bound_locators.is_empty() {
+            updated_profile.listen_locators = session_info.bound_locators.clone();
+        }
+    } else if profile.mode == "peer" {
+        if updated_profile.listen_locators.is_empty() {
+            updated_profile.listen_locators = vec!["tcp/0.0.0.0:0".to_string()];
+        }
+    } else {
+        updated_profile.listen_locators = vec![];
     }
     let _ = state.db.save_profile(&updated_profile);
 
@@ -111,7 +121,9 @@ pub async fn connect_node_by_zid(
     println!("\n================ [DEBUG: CONNECTED & SAVED TO DB JSON5 CONFIG] ================");
     println!("Node ZID: {}", session_info.zid);
     println!("Profile Name: {} (ID: {})", updated_profile.name, updated_profile.id);
+    println!("Mode: {}", updated_profile.mode);
     println!("Live Bound Endpoints (IP & Port): {:?}", session_info.bound_locators);
+    println!("Saved Profile Listen Locators: {:?}", updated_profile.listen_locators);
     println!("Authoritative Saved JSON5:\n{}", live_json5);
     println!("================================================================================\n");
 

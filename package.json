@@ -31,7 +31,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node ./tests/run-tests.mjs",
+    "test": "npm run test:types && npm run test:unit",
+    "test:unit": "node ./tests/run-tests.mjs",
+    "test:types": "tsc --noEmit",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:all": "npm run test:types && npm run test:unit && npm run test:rust",
     "clean": "rm -rf dist && cargo clean --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri",
     "release:new": "bash scripts/release.sh"

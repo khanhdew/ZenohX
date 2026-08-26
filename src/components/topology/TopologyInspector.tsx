@@ -57,7 +57,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
   const [copiedLocator, setCopiedLocator] = useState<string | null>(null);
   const [copiedZid, setCopiedZid] = useState(false);
   const [copiedJson5, setCopiedJson5] = useState(false);
-  const [showJson5, setShowJson5] = useState(false);
+  const [showJson5, setShowJson5] = useState(true);
   const [isEditingName, setIsEditingName] = useState(false);
   const [customNameInput, setCustomNameInput] = useState('');
 
@@ -83,13 +83,17 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
     (node?.label) ||
     '';
 
-  // Sync Node JSON5 config when node changes
+  const fetchNodeConfiguration = useConnectionJsonStore((s) => s.fetchNodeConfiguration);
+
+  // Reload Node JSON5 configuration directly from Rust backend whenever node is clicked / changes
   React.useEffect(() => {
-    if (liveNode) {
+    if (liveNode?.zid) {
+      fetchNodeConfiguration(liveNode.zid).catch(() => {});
+    } else if (liveNode) {
       const activeSession = existingProfile ? activeSessions[existingProfile.id] : null;
       syncNodeJson(liveNode, existingProfile, activeSession);
     }
-  }, [liveNode, existingProfile, activeSessions, syncNodeJson]);
+  }, [liveNode?.id, liveNode?.zid, existingProfile, activeSessions, fetchNodeConfiguration, syncNodeJson]);
 
   // Reset editing mode when switching to a different node
   React.useEffect(() => {
@@ -502,12 +506,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                   <span className="flex items-center gap-1">
                     <Share2 className="w-3 h-3 text-emerald-500" />
-                    Connected Peers ({node.connectedPeers?.length || 0})
+                    Connected Peers ({liveNode.connectedPeers?.length || 0})
                   </span>
                 </div>
-                {node.connectedPeers && node.connectedPeers.length > 0 ? (
+                {liveNode.connectedPeers && liveNode.connectedPeers.length > 0 ? (
                   <div className="space-y-1">
-                    {node.connectedPeers.map((pZid, idx) => (
+                    {liveNode.connectedPeers.map((pZid, idx) => (
                       <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
                         <span className="truncate" title={pZid}>{pZid}</span>
                         <Badge variant="outline" className="text-[8px] px-1 py-0 bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
@@ -522,16 +526,16 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
               </div>
 
               {/* Live Physical Links & Deep Telemetry */}
-              {node.links && node.links.length > 0 && (
+              {liveNode.links && liveNode.links.length > 0 && (
                 <div className="p-2 rounded-md bg-muted/40 border space-y-2">
                   <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                     <span className="flex items-center gap-1">
                       <Zap className="w-3 h-3 text-amber-500" />
-                      Physical Links & Telemetry ({node.links.length})
+                      Physical Links & Telemetry ({liveNode.links.length})
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    {node.links.map((link, idx) => (
+                    {liveNode.links.map((link, idx) => (
                       <div key={idx} className="p-2 rounded bg-background/80 border space-y-1.5 text-[11px]">
                         <div className="flex items-center justify-between">
                           <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono bg-primary/10 text-primary">
@@ -586,7 +590,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         )}
 
         {/* Live Session Metrics */}
-        {node.status === 'connected' && (node.uptimeSeconds !== undefined || node.activeSubscribers !== undefined) && (
+        {liveNode.status === 'connected' && (liveNode.uptimeSeconds !== undefined || liveNode.activeSubscribers !== undefined) && (
           <div className="space-y-1.5 pt-1 border-t border-border/50">
             <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
               <Activity className="w-3 h-3 text-primary" />
@@ -599,10 +603,10 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                   Uptime
                 </div>
                 <div className="font-semibold text-foreground mt-0.5 font-mono">
-                  {node.uptimeSeconds !== undefined ? (
-                    node.uptimeSeconds < 60 ? `${node.uptimeSeconds}s` :
-                    node.uptimeSeconds < 3600 ? `${Math.floor(node.uptimeSeconds / 60)}m ${node.uptimeSeconds % 60}s` :
-                    `${Math.floor(node.uptimeSeconds / 3600)}h ${Math.floor((node.uptimeSeconds % 3600) / 60)}m`
+                  {liveNode.uptimeSeconds !== undefined ? (
+                    liveNode.uptimeSeconds < 60 ? `${liveNode.uptimeSeconds}s` :
+                    liveNode.uptimeSeconds < 3600 ? `${Math.floor(liveNode.uptimeSeconds / 60)}m ${liveNode.uptimeSeconds % 60}s` :
+                    `${Math.floor(liveNode.uptimeSeconds / 3600)}h ${Math.floor((liveNode.uptimeSeconds % 3600) / 60)}m`
                   ) : '0s'}
                 </div>
               </div>
@@ -612,7 +616,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                   Subscribers
                 </div>
                 <div className="font-semibold text-foreground mt-0.5 font-mono">
-                  {node.activeSubscribers ?? 0}
+                  {liveNode.activeSubscribers ?? 0}
                 </div>
               </div>
               <div className="p-2 rounded-md bg-muted/40 border text-[11px] col-span-2">
@@ -620,7 +624,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                   Active Queryables
                 </div>
                 <div className="font-semibold text-foreground mt-0.5 font-mono">
-                  {node.activeQueryables ?? 0} declared
+                  {liveNode.activeQueryables ?? 0} declared
                 </div>
               </div>
             </div>

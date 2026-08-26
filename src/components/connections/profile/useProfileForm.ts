@@ -453,6 +453,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       ? (profile?.reconnect_retry || DEFAULT_RECONNECT_RETRY_CONFIG)
       : null;
 
+    const hasCustomCertFields = Boolean(caCert.trim() || clientCert.trim() || clientKey.trim());
+
     if (preset === 'client') {
       const parsed = parseLocator(clientLocator.trim());
       const locator = parsed
@@ -462,8 +464,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         : clientLocator.trim();
       const isEncrypted = parsed?.protocol === 'tls' || parsed?.protocol === 'wss';
       const tlsConfig = resolveTlsConfig({
-        enableTls: isEncrypted || enableTls || useCustomTls,
-        useCustomTls,
+        enableTls: isEncrypted || enableTls || useCustomTls || hasCustomCertFields,
+        useCustomTls: useCustomTls || hasCustomCertFields,
         caCert,
         clientCert,
         clientKey,
@@ -488,8 +490,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       };
     } else if (preset === 'peer') {
       const tlsConfig = resolveTlsConfig({
-        enableTls,
-        useCustomTls,
+        enableTls: enableTls || useCustomTls || hasCustomCertFields,
+        useCustomTls: useCustomTls || hasCustomCertFields,
         caCert,
         clientCert,
         clientKey,
@@ -529,8 +531,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
 
       const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls' || ep.protocol === 'wss');
       const tlsConfig = resolveTlsConfig({
-        enableTls: hasTlsEndpoint || enableTls || useCustomTls,
-        useCustomTls,
+        enableTls: hasTlsEndpoint || enableTls || useCustomTls || hasCustomCertFields,
+        useCustomTls: useCustomTls || hasCustomCertFields,
         caCert,
         clientCert,
         clientKey,

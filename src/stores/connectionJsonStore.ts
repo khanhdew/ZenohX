@@ -14,6 +14,7 @@
 
 import { create } from 'zustand';
 import { generateZenohJson5 } from '../lib/tls';
+import { getNodeConfiguration } from '../lib/tauri';
 import type { TopologyNode } from '../types/topology';
 import type { ConnectionProfile, SessionConfig, SessionInfo } from '../types/zenoh';
 
@@ -28,6 +29,9 @@ export interface ConnectionJsonState {
   activeEditFormJson: string;
   /** Custom JSON overrides mapped by profile ID */
   customOverrides: Record<string, string>;
+
+  /** Fetches authoritative live JSON5 configuration directly from the Rust backend for any ZID */
+  fetchNodeConfiguration: (zid: string) => Promise<string>;
 
   /** Syncs and computes live JSON5 configuration from an inspected TopologyNode */
   syncNodeJson: (
@@ -52,12 +56,34 @@ export interface ConnectionJsonState {
   clearActive: () => void;
 }
 
-export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
+export const useConnectionJsonStore = create<ConnectionJsonState>((set, get) => ({
   selectedNodeZid: null,
   selectedProfileId: null,
   activeNodeJson: '',
   activeEditFormJson: '',
   customOverrides: {},
+
+  fetchNodeConfiguration: async (zid: string) => {
+    if (!zid || typeof zid !== 'string' || !zid.trim()) {
+      set({ selectedNodeZid: null, activeNodeJson: '' });
+      return '';
+    }
+    const cleanZid = zid.trim();
+    set({ selectedNodeZid: cleanZid });
+    try {
+      const res = await getNodeConfiguration(cleanZid);
+      if (res && res.json5) {
+        set({
+          selectedNodeZid: res.zid || cleanZid,
+          activeNodeJson: res.json5,
+        });
+        return res.json5;
+      }
+    } catch {
+      // In web/mock fallback environment
+    }
+    return get().activeNodeJson;
+  },
 
   syncNodeJson: (node, matchingProfile, activeSession) => {
     if (!node) {
@@ -113,7 +139,8 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
   syncEditFormJson: (config, activeSession) => {
     const resolvedConfig = { ...config };
     const bound = activeSession?.bound_locators;
-    if (bound && bound.length > 0 && resolvedConfig.mode === 'router') {
+    // Only peer mode can be dynamic (e.g. dynamic port 0 / bound locators)
+    if (bound && bound.length > 0 && resolvedConfig.mode === 'peer') {
       const configuredLocs = Array.isArray(config.listen_locators) ? config.listen_locators : [];
       const hasWildcardOrZero = configuredLocs.some(
         (l) => typeof l === 'string' && (l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]'))

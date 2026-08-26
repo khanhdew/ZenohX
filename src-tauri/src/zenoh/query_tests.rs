@@ -91,16 +91,17 @@ mod tests {
         let manager = SessionManager::new();
         let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
         let q_id = Uuid::new_v4();
+        let key_expr = format!("service/error_test/{}", Uuid::new_v4());
 
         manager
-            .declare_queryable(&session_id, q_id, "service/error_test", |query| async move {
+            .declare_queryable(&session_id, q_id, &key_expr, |query| async move {
                 query.reply_err("internal service failure").await.unwrap();
             })
             .await
             .unwrap();
 
         let replies = manager
-            .query_get(&session_id, "service/error_test", "all", 2000)
+            .query_get(&session_id, &key_expr, "all", 2000)
             .await
             .unwrap();
 

@@ -24,13 +24,12 @@ import {
   HardDrive,
   Plus,
   Trash2,
-  Shuffle,
 } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { SimpleTooltip } from '../../ui/tooltip';
-import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS, getRandomRouterPort } from '../../../lib/tls';
+import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS } from '../../../lib/tls';
 
 export interface RouterListenEndpoint {
   id: string;
@@ -256,25 +255,15 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                           className="h-8 text-xs font-mono bg-background"
                         />
                       </div>
-                      <div className="w-28 relative flex items-center">
+                      <div className="w-24">
                         <Input
                           value={ep.port}
                           onChange={(e) =>
                             updateListenEndpoint(ep.id, { port: e.target.value })
                           }
                           placeholder="7447"
-                          className="h-8 text-xs font-mono bg-background text-center pr-7"
+                          className="h-8 text-xs font-mono bg-background text-center"
                         />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateListenEndpoint(ep.id, { port: getRandomRouterPort() })
-                          }
-                          className="absolute right-1 text-muted-foreground hover:text-foreground p-1"
-                          title="Generate random free port"
-                        >
-                          <Shuffle className="w-3 h-3" />
-                        </button>
                       </div>
                     </div>
 

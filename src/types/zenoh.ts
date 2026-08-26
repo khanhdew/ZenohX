@@ -266,6 +266,20 @@ export interface ScoutedNode {
 }
 
 /**
+ * Authoritative node configuration returned directly from the Rust backend.
+ */
+export interface NodeConfigurationResult {
+  zid: string;
+  profile_id?: string | null;
+  mode: string;
+  status: string;
+  locators: string[];
+  connect_locators: string[];
+  json5: string;
+  is_local: boolean;
+}
+
+/**
  * Real-time streaming sample received from a subscriber.
  */
 export interface ZenohSample {

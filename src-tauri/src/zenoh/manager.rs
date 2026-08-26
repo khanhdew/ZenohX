@@ -20,7 +20,7 @@ use super::query::{
 };
 use super::scout::scout_nodes;
 use super::types::{
-    AdminSpaceEntry, InboundQuery, PublishOptions, ReplySample, ScoutedNode, SessionConfig,
+    AdminSpaceEntry, InboundQuery, NodeConfigurationResult, PublishOptions, ReplySample, ScoutedNode, SessionConfig,
     SessionInfo, SessionLinkInfo, SessionStatusEvent, StreamGeneratorConfig, SubscribeOptions,
     ZenohSample,
 };
@@ -768,6 +768,135 @@ impl SessionManager {
         result
     }
 
+    /// Retrieves full authoritative node configuration (JSON5) by ZID.
+    pub async fn get_node_configuration(&self, zid: &str) -> Result<NodeConfigurationResult, String> {
+        let raw_id = zid
+            .strip_prefix("profile-")
+            .or_else(|| zid.strip_prefix("scouted-"))
+            .or_else(|| zid.strip_prefix("admin-"))
+            .unwrap_or(zid);
+        let clean_zid = raw_id.replace('-', "").to_lowercase();
+        let original_trimmed = zid.trim();
+
+        // 1. Check if zid belongs to an active local session
+        let local_match = {
+            let lock = self.sessions.read().await;
+            lock.values().find_map(|ctx| {
+                let session_zid_raw = ctx.session.zid().to_string();
+                let session_zid = session_zid_raw.replace('-', "").to_lowercase();
+                let ctx_pid = ctx.profile_id.as_deref().unwrap_or("");
+                let clean_pid = ctx_pid.replace('-', "").to_lowercase();
+
+                let matches_session_zid = session_zid == clean_zid
+                    || (!clean_zid.is_empty() && (session_zid.contains(&clean_zid) || clean_zid.contains(&session_zid)));
+                let matches_profile_id = ctx_pid == original_trimmed
+                    || ctx_pid == raw_id
+                    || (!clean_pid.is_empty() && clean_pid == clean_zid);
+
+                if matches_session_zid || matches_profile_id {
+                    Some((ctx.id, ctx.profile_id.clone(), ctx.config.clone(), ctx.session.clone(), session_zid_raw))
+                } else {
+                    None
+                }
+            })
+        };
+
+        if let Some((_id, profile_id, config, session, real_zid)) = local_match {
+            let mut raw_listen: Vec<String> = Vec::new();
+            for loc in session.info().locators().await {
+                raw_listen.push(loc.to_string());
+            }
+            let real_listen = resolve_bound_locators(raw_listen);
+            let json5 = config.generate_json5(Some(&real_zid), &real_listen);
+
+            let locators = if config.mode.to_lowercase() == "router" {
+                if !config.listen_locators.is_empty() {
+                    config.listen_locators.clone()
+                } else {
+                    vec!["tcp/0.0.0.0:7447".to_string()]
+                }
+            } else {
+                real_listen
+            };
+
+            return Ok(NodeConfigurationResult {
+                zid: real_zid,
+                profile_id,
+                mode: config.mode,
+                status: "connected".to_string(),
+                locators,
+                connect_locators: config.connect_locators,
+                json5,
+                is_local: true,
+            });
+        }
+
+        // 2. Query active sessions' admin space or scout to find remote router/peer node
+        let remote_admin_entries = {
+            let session_id = {
+                let lock = self.sessions.read().await;
+                lock.keys().next().copied()
+            };
+
+            if let Some(id) = session_id {
+                let selector = format!("@/{clean_zid}/**");
+                self.query_admin_space(&id, Some(&selector), 1500).await.unwrap_or_default()
+            } else {
+                Vec::new()
+            }
+        };
+
+        // Extract remote locators from admin space
+        let mut remote_locs = Vec::new();
+        let mut remote_mode = "router".to_string();
+        for entry in &remote_admin_entries {
+            if entry.key_expr.contains("/session/info") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                    if let Some(what) = v.get("whatami").and_then(|v| v.as_str()) {
+                        remote_mode = what.to_lowercase();
+                    }
+                }
+            } else if entry.key_expr.contains("/listen") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                    if let Some(src) = v.get("src").and_then(|v| v.as_str()) {
+                        if !src.ends_with(":0") && !src.contains("127.0.0.1") {
+                            remote_locs.push(src.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        remote_locs.sort();
+        remote_locs.dedup();
+
+        let remote_config = SessionConfig {
+            profile_id: None,
+            mode: remote_mode.clone(),
+            connect_locators: vec![],
+            listen_locators: remote_locs.clone(),
+            scout_multicast: true,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+
+        let json5 = remote_config.generate_json5(Some(&clean_zid), &remote_locs);
+
+        Ok(NodeConfigurationResult {
+            zid: clean_zid,
+            profile_id: None,
+            mode: remote_mode,
+            status: "remote".to_string(),
+            locators: remote_locs,
+            connect_locators: vec![],
+            json5,
+            is_local: false,
+        })
+    }
+
     /// Scans the local network for Zenoh routers and peers via multicast.
     pub async fn scout_locators(&self, timeout_ms: u64) -> Result<Vec<ScoutedNode>, String> {
         scout_nodes(timeout_ms).await
@@ -804,24 +933,32 @@ impl SessionManager {
 
             let payload_json = String::from_utf8(r.payload).unwrap_or_default();
 
-            // Extract ZID accurately from non-reserved path segments or payload JSON
+            // Extract ZID accurately from the first path segment (root ZID) or payload JSON
             let mut zid = None;
-            for part in &parts {
-                let p_lower = part.to_lowercase();
-                if p_lower != "session"
-                    && p_lower != "link"
-                    && p_lower != "transport"
-                    && p_lower != "router"
-                    && p_lower != "subscriber"
-                    && p_lower != "publisher"
-                    && p_lower != "queryable"
-                    && p_lower != "admin"
-                    && p_lower != "info"
-                    && p_lower != "config"
-                    && p_lower.len() >= 8
+            if let Some(first) = parts.first() {
+                let first_lower = first.to_lowercase();
+                if first_lower != "session"
+                    && first_lower != "link"
+                    && first_lower != "links"
+                    && first_lower != "transport"
+                    && first_lower != "transports"
+                    && first_lower != "unicast"
+                    && first_lower != "multicast"
+                    && first_lower != "listen"
+                    && first_lower != "connect"
+                    && first_lower != "router"
+                    && first_lower != "subscriber"
+                    && first_lower != "publisher"
+                    && first_lower != "queryable"
+                    && first_lower != "admin"
+                    && first_lower != "info"
+                    && first_lower != "config"
+                    && first_lower != "stats"
+                    && !first_lower.contains('.')
+                    && !first_lower.contains(':')
+                    && first_lower.len() >= 8
                 {
-                    zid = Some(part.to_string());
-                    break;
+                    zid = Some(first.to_string());
                 }
             }
 

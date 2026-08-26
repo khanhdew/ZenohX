@@ -43,6 +43,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
   const selectedNodeId = useTopologyStore((s) => s.selectedNodeId);
   const hoveredNodeId = useTopologyStore((s) => s.hoveredNodeId);
   const searchQuery = useTopologyStore((s) => s.searchQuery);
+  const filterType = useTopologyStore((s) => s.filterType);
   const transform = useTopologyStore((s) => s.transform);
   const isSimulating = useTopologyStore((s) => s.isSimulating);
   const layoutMode = useTopologyStore((s) => s.layoutMode);
@@ -64,6 +65,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
   const draggedNodeRef = useRef<TopologyNode | null>(null);
+  const draggedNodeIdRef = useRef<string | null>(null);
   const animationTickRef = useRef(0);
 
   // Fit to screen handler
@@ -114,8 +116,8 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
             hasTraffic,
             activeLinkTraffic,
             customNodeLabels,
+            filterType,
           });
-
 
           ctx.restore();
         }
@@ -126,7 +128,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
 
     animationFrameId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [nodes, edges, transform, isSimulating, layoutMode, isDark, selectedNodeId, hoveredNodeId, searchQuery, customNodeLabels]);
+  }, [nodes, edges, transform, isSimulating, layoutMode, isDark, selectedNodeId, hoveredNodeId, searchQuery, filterType, customNodeLabels]);
 
   // Mouse & Pointer Handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -148,6 +150,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
     if (e.button === 0) {
       if (clickedNode) {
         draggedNodeRef.current = clickedNode;
+        draggedNodeIdRef.current = clickedNode.id;
         clickedNode.fx = clickedNode.x;
         clickedNode.fy = clickedNode.y;
         setSelectedNodeId(clickedNode.id);
@@ -170,18 +173,22 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
-    if (draggedNodeRef.current) {
-      const worldPos = screenToWorld(
-        mouseX,
-        mouseY,
-        transform,
-        containerRef.current.clientWidth,
-        containerRef.current.clientHeight
-      );
-      draggedNodeRef.current.fx = worldPos.x;
-      draggedNodeRef.current.fy = worldPos.y;
-      draggedNodeRef.current.x = worldPos.x;
-      draggedNodeRef.current.y = worldPos.y;
+    if (draggedNodeIdRef.current) {
+      const activeNode =
+        nodes.find((n) => n.id === draggedNodeIdRef.current) || draggedNodeRef.current;
+      if (activeNode) {
+        const worldPos = screenToWorld(
+          mouseX,
+          mouseY,
+          transform,
+          containerRef.current.clientWidth,
+          containerRef.current.clientHeight
+        );
+        activeNode.fx = worldPos.x;
+        activeNode.fy = worldPos.y;
+        activeNode.x = worldPos.x;
+        activeNode.y = worldPos.y;
+      }
       return;
     }
 
@@ -209,10 +216,15 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
   };
 
   const handleMouseUp = () => {
-    if (draggedNodeRef.current) {
-      draggedNodeRef.current.fx = null;
-      draggedNodeRef.current.fy = null;
+    if (draggedNodeIdRef.current) {
+      const activeNode =
+        nodes.find((n) => n.id === draggedNodeIdRef.current) || draggedNodeRef.current;
+      if (activeNode) {
+        activeNode.fx = null;
+        activeNode.fy = null;
+      }
       draggedNodeRef.current = null;
+      draggedNodeIdRef.current = null;
     }
     isPanningRef.current = false;
   };
@@ -229,9 +241,14 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
 
     if (newK === transform.k) return;
 
+    const cx = containerRef.current.clientWidth / 2;
+    const cy = containerRef.current.clientHeight / 2;
+    const dx = mouseX - cx;
+    const dy = mouseY - cy;
+
     const scaleRatio = newK / transform.k;
-    const newX = mouseX - (mouseX - transform.x) * scaleRatio;
-    const newY = mouseY - (mouseY - transform.y) * scaleRatio;
+    const newX = dx - (dx - transform.x) * scaleRatio;
+    const newY = dy - (dy - transform.y) * scaleRatio;
 
     setTransform((prev) => ({
       ...prev,

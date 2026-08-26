@@ -29,27 +29,107 @@ import { filterRealLocators } from '../tls';
 const RESERVED_ADMIN_PATH_TOKENS = new Set([
   'session',
   'link',
+  'links',
+  'linkstate',
+  'linkstates',
+  'link_state',
+  'link_states',
+  'link-state',
+  'link-states',
+  'route',
+  'routes',
+  'routing',
+  'neighbor',
+  'neighbors',
+  'topology',
+  'discovery',
+  'scout',
   'transport',
+  'transports',
+  'unicast',
+  'multicast',
+  'listen',
+  'listener',
+  'listeners',
+  'connect',
+  'connector',
+  'connectors',
   'router',
+  'routers',
+  'peer',
+  'peers',
+  'client',
+  'clients',
   'subscriber',
+  'subscribers',
   'publisher',
+  'publishers',
   'queryable',
+  'queryables',
   'admin',
   'info',
   'config',
   'stats',
+  'status',
   'log',
+  'logs',
+  'plugin',
+  'plugins',
+  'storage',
+  'storages',
+  'bridge',
+  'bridges',
+  'interfaces',
+  'interface',
+  'tcp',
+  'tls',
+  'quic',
+  'udp',
+  'ws',
+  'wss',
+  'unix',
+  'unixpipe',
+  'serial',
+  'bluetooth',
+  'can',
+  'raw',
+  'auth',
+  'usrpwd',
+  'tls_config',
+  'default',
+  'local',
+  'remote',
   'other',
+  'version',
+  'id',
+  'zid',
+  'whatami',
 ]);
 
 /**
- * Validates if a string is likely a Zenoh ZID (e.g. hex or UUID of at least 8 chars) and not a path keyword.
+ * Validates if a string is likely a Zenoh ZID (e.g. hex or UUID or test identifier) and not a path keyword or port.
  */
 export function isLikelyZid(token?: string): boolean {
   if (!token || typeof token !== 'string') return false;
   const clean = token.trim().toLowerCase();
   if (RESERVED_ADMIN_PATH_TOKENS.has(clean)) return false;
-  return /^[0-9a-fA-F-]{8,}$/.test(clean);
+  if (
+    clean.includes('linkstate') ||
+    clean.includes('link_state') ||
+    clean.includes('link-state')
+  ) {
+    return false;
+  }
+  // Reject pure numbers (ports, indices like 7447, 8080, 0, 1)
+  if (/^\d+$/.test(clean)) return false;
+  // Reject IP addresses / hostnames with dots, colons, or slashes
+  if (clean.includes('.') || clean.includes(':') || clean.includes('/')) return false;
+  // Match standard hex ZID (8 to 64 chars hex), UUIDs, or test ZID identifiers
+  return (
+    /^[0-9a-f]{8,64}$/.test(clean) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(clean) ||
+    /^(zid|router|peer|client|node|prof|local|remote)[-_a-z0-9]+$/.test(clean)
+  );
 }
 
 /**
@@ -73,6 +153,19 @@ function normalizeNodeType(role?: string): 'router' | 'peer' | 'client' {
   if (clean.includes('peer')) return 'peer';
   if (clean.includes('client')) return 'client';
   return 'router';
+}
+
+/**
+ * Helper to expand 0.0.0.0 locators into real interface addresses if available.
+ */
+function expandBoundLocator(loc: string, interfaces?: string[]): string[] {
+  if (!loc) return [];
+  if (!loc.includes('0.0.0.0') || !interfaces || interfaces.length === 0) {
+    return [loc];
+  }
+  const realIps = interfaces.filter((i) => i && i !== '0.0.0.0' && i !== '127.0.0.1');
+  if (realIps.length === 0) return [loc];
+  return realIps.map((ip) => loc.replace('0.0.0.0', ip));
 }
 
 /**
@@ -105,37 +198,27 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
     const payloadStr = entry.payloadJson || '';
     const payloadObj = safeJsonParse<Record<string, unknown>>(payloadStr);
 
-    // Extract ZID safely
     const cleanKey = key.replace(/^@\/?/, '');
     const parts = cleanKey.split('/');
 
-    let targetZid = isLikelyZid(entry.zid) ? entry.zid : undefined;
-
-    if (!targetZid) {
-      for (const p of parts) {
-        if (isLikelyZid(p)) {
-          targetZid = p;
-          break;
-        }
-      }
-    }
-
-    if (!targetZid && payloadObj && typeof payloadObj.zid === 'string' && isLikelyZid(payloadObj.zid)) {
+    // 1. Identify the hosting root ZID (parts[0] in standard @/<zid>/... admin keys)
+    let targetZid: string | undefined;
+    if (parts.length > 0 && isLikelyZid(parts[0])) {
+      targetZid = parts[0];
+    } else if (entry.zid && isLikelyZid(entry.zid)) {
+      targetZid = entry.zid;
+    } else if (payloadObj && typeof payloadObj.zid === 'string' && isLikelyZid(payloadObj.zid)) {
       targetZid = payloadObj.zid;
     }
 
+    // 2. Handle Router Neighbor Linkages (@/<zid>/router/<neighbor_zid>)
     if (category === 'router' || key.includes('/router/')) {
-      // Look for neighbor router ZIDs in the path
-      const validZidsInPath = parts.filter((p: string) => isLikelyZid(p));
-      if (validZidsInPath.length >= 2) {
-        const nodeA = getOrCreateNode(validZidsInPath[0], 'router');
-        const nodeB = getOrCreateNode(validZidsInPath[1], 'router');
-        if (!nodeA.neighbors.includes(nodeB.zid)) nodeA.neighbors.push(nodeB.zid);
-        if (!nodeB.neighbors.includes(nodeA.zid)) nodeB.neighbors.push(nodeA.zid);
-      } else if (validZidsInPath.length === 1 && targetZid) {
-        const neighborZid = validZidsInPath[0];
-        if (neighborZid !== targetZid) {
-          const nodeA = getOrCreateNode(targetZid, 'router');
+      const routerIndex = parts.findIndex((p) => p.toLowerCase() === 'router');
+      if (routerIndex !== -1 && routerIndex + 1 < parts.length) {
+        const rootZid = parts[0];
+        const neighborZid = parts[routerIndex + 1];
+        if (isLikelyZid(rootZid) && isLikelyZid(neighborZid) && rootZid.toLowerCase() !== neighborZid.toLowerCase()) {
+          const nodeA = getOrCreateNode(rootZid, 'router');
           const nodeB = getOrCreateNode(neighborZid, 'router');
           if (!nodeA.neighbors.includes(nodeB.zid)) nodeA.neighbors.push(nodeB.zid);
           if (!nodeB.neighbors.includes(nodeA.zid)) nodeB.neighbors.push(nodeA.zid);
@@ -145,12 +228,13 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
     }
 
     if (!targetZid) {
-      // Cannot attribute to a specific verified ZID, ignore to prevent creating fake nodes
+      // Cannot attribute to a verified root ZID, ignore to prevent creating fake nodes
       continue;
     }
 
     const node = getOrCreateNode(targetZid);
 
+    // 3. Handle Session Info (@/<zid>/session/info)
     if (category === 'info' || key.includes('/session/info') || key.includes('/info')) {
       if (payloadObj) {
         if (payloadObj.whatami && typeof payloadObj.whatami === 'string') {
@@ -165,7 +249,51 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
         }
         node.rawInfo = payloadObj;
       }
-    } else if (category === 'link' || key.includes('/session/link')) {
+    }
+    // 4. Handle Transports / Listen Endpoints (@/<zid>/session/transport/unicast/listen/...)
+    else if (
+      category === 'transport' ||
+      key.includes('/session/transport') ||
+      key.includes('/transport/')
+    ) {
+      if (payloadObj) {
+        const rawLocators: string[] = [];
+        if (typeof payloadObj.locator === 'string' && payloadObj.locator) {
+          rawLocators.push(payloadObj.locator);
+        }
+        if (Array.isArray(payloadObj.locators)) {
+          payloadObj.locators.forEach((l) => {
+            if (typeof l === 'string' && l) rawLocators.push(l);
+          });
+        }
+
+        // If key path contains listen endpoint locator (e.g. .../listen/tcp/0.0.0.0/7447)
+        if (rawLocators.length === 0 && key.includes('/listen/')) {
+          const listenIdx = parts.findIndex((p) => p.toLowerCase() === 'listen');
+          if (listenIdx !== -1 && listenIdx + 3 < parts.length) {
+            const proto = parts[listenIdx + 1];
+            const host = parts[listenIdx + 2];
+            const port = parts[listenIdx + 3];
+            if (proto && host && port) {
+              rawLocators.push(`${proto}/${host}:${port}`);
+            }
+          }
+        }
+
+        const interfaces = Array.isArray(payloadObj.interfaces)
+          ? payloadObj.interfaces.filter((i): i is string => typeof i === 'string')
+          : [];
+
+        const expandedLocators = rawLocators.flatMap((loc) => expandBoundLocator(loc, interfaces));
+        if (expandedLocators.length > 0) {
+          node.locators = filterRealLocators(
+            Array.from(new Set([...node.locators, ...expandedLocators]))
+          );
+        }
+      }
+    }
+    // 5. Handle Links (@/<zid>/session/link/...)
+    else if (category === 'link' || key.includes('/session/link')) {
       if (payloadObj) {
         const src = typeof payloadObj.src === 'string' ? payloadObj.src : '';
         const dst = typeof payloadObj.dst === 'string' ? payloadObj.dst : '';
@@ -174,28 +302,48 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
         const interfaces = Array.isArray(payloadObj.interfaces)
           ? payloadObj.interfaces.filter((i): i is string => typeof i === 'string')
           : [];
+        const remoteZid =
+          typeof payloadObj.zid === 'string' && isLikelyZid(payloadObj.zid)
+            ? payloadObj.zid.toLowerCase()
+            : undefined;
 
-        // Add link to node
-        const linkInfo: SessionLinkInfo = {
-          zid: targetZid,
-          whatami: node.whatami,
-          src,
-          dst,
-          is_streamed: Boolean(isStreamed),
-          mtu,
-          interfaces,
-        };
-        node.links.push(linkInfo);
+        const isListenSocket = key.includes('/listen');
 
-        if (dst) {
-          links.push({
-            sourceZid: targetZid,
-            srcLocator: src,
-            dstLocator: dst,
-            isStreamed,
+        if (isListenSocket) {
+          // Listen socket - extract local listen locator for the router node
+          if (src) {
+            const expanded = expandBoundLocator(src, interfaces);
+            node.locators = filterRealLocators(
+              Array.from(new Set([...node.locators, ...expanded]))
+            );
+          }
+        } else {
+          // Active connection link to an external peer or router
+          const linkInfo: SessionLinkInfo = {
+            zid: remoteZid || targetZid,
+            whatami:
+              typeof payloadObj.whatami === 'string'
+                ? normalizeNodeType(payloadObj.whatami)
+                : node.whatami,
+            src,
+            dst,
+            is_streamed: Boolean(isStreamed),
             mtu,
             interfaces,
-          });
+          };
+          node.links.push(linkInfo);
+
+          if (dst) {
+            links.push({
+              sourceZid: targetZid,
+              targetZid: remoteZid,
+              srcLocator: src,
+              dstLocator: dst,
+              isStreamed,
+              mtu,
+              interfaces,
+            });
+          }
         }
       }
     }

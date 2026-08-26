@@ -17,6 +17,8 @@ import {
   Copy,
   Settings,
   Trash2,
+  Play,
+  BookmarkPlus,
 } from 'lucide-react';
 import type { TopologyNode } from '../../types/topology';
 import { useConnectionStore } from '../../stores/connectionStore';
@@ -36,6 +38,8 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
   node,
   position,
   onClose,
+  onConnect,
+  onSaveProfile,
   onCopyZid,
 }) => {
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -64,6 +68,34 @@ export const TopologyContextMenu: React.FC<TopologyContextMenuProps> = ({
       </div>
 
       <div className="h-px bg-border my-1" />
+
+      {onConnect && (
+        <button
+          type="button"
+          onClick={() => {
+            onConnect(node);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+        >
+          <Play className="w-3.5 h-3.5 text-emerald-500" />
+          <span>{node.status === 'connected' ? 'Disconnect Session' : 'Connect Node...'}</span>
+        </button>
+      )}
+
+      {onSaveProfile && !existingProfile && node.scope === 'remote' && (
+        <button
+          type="button"
+          onClick={() => {
+            onSaveProfile(node);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-sm text-left hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
+        >
+          <BookmarkPlus className="w-3.5 h-3.5 text-blue-500" />
+          <span>Save as Profile</span>
+        </button>
+      )}
 
       <button
         type="button"

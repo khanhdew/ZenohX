@@ -25,6 +25,7 @@ export interface RenderOptions {
   hasTraffic?: boolean;
   activeLinkTraffic?: Record<string, LinkTrafficFlash>;
   customNodeLabels?: Record<string, string>;
+  filterType?: string;
 }
 
 export interface NodeRoleStyle {
@@ -227,6 +228,17 @@ export function drawNodeRoleIcon(
   ctx.restore();
 }
 
+export function isNodeMatchingFilter(node: TopologyNode, filterType?: string): boolean {
+  if (!filterType || filterType === 'all') return true;
+  if (filterType === 'local') return node.scope === 'local';
+  if (filterType === 'remote') return node.scope === 'remote';
+  if (filterType === 'router') return node.type === 'router';
+  if (filterType === 'peer') return node.type === 'peer';
+  if (filterType === 'client') return node.type === 'client';
+  if (filterType === 'connected') return node.status === 'connected';
+  return true;
+}
+
 export function renderTopologyCanvas(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -245,14 +257,16 @@ export function renderTopologyCanvas(
     hasTraffic,
     activeLinkTraffic,
     customNodeLabels = {},
+    filterType = 'all',
   } = options;
 
   ctx.save();
   ctx.clearRect(0, 0, width, height);
 
-  // Background Grid dots
+  // Background Grid dots with LOD scaling to prevent massive draw calls when zoomed out
   const bgDotColor = isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.07)';
-  const gridSize = 32 * transform.k;
+  let gridSize = 32 * transform.k;
+  while (gridSize < 24) gridSize *= 2;
   const offsetX = (width / 2 + transform.x) % gridSize;
   const offsetY = (height / 2 + transform.y) % gridSize;
 
@@ -278,6 +292,13 @@ export function renderTopologyCanvas(
     const target = nodeMap.get(edge.target);
     if (!source || !target) continue;
 
+    const sourceMatches = isNodeMatchingFilter(source, filterType);
+    const targetMatches = isNodeMatchingFilter(target, filterType);
+    const edgeAlpha = sourceMatches && targetMatches ? 1.0 : 0.15;
+
+    ctx.save();
+    ctx.globalAlpha = edgeAlpha;
+
     const isConnected = edge.status === 'active';
     const isHovered = source.id === hoveredNodeId || target.id === hoveredNodeId;
     const isSelected = source.id === selectedNodeId || target.id === selectedNodeId;
@@ -288,6 +309,18 @@ export function renderTopologyCanvas(
     ctx.beginPath();
     ctx.moveTo(source.x, source.y);
     ctx.lineTo(target.x, target.y);
+
+    if (isLiveTransmitting) {
+      ctx.strokeStyle = isDark ? '#60a5fa' : '#2563eb'; // Glowing Blue
+      ctx.lineWidth = isSelected || isHovered ? 3.5 : 2.5;
+    } else if (isConnected) {
+      ctx.strokeStyle = isDark ? '#3b82f6' : '#2563eb'; // Blue-500
+      ctx.lineWidth = isSelected || isHovered ? 3 : 2;
+    } else {
+      ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)';
+      ctx.lineWidth = 1.5;
+    }
+    ctx.stroke();
 
     if (isLiveTransmitting) {
       ctx.strokeStyle = isDark ? '#60a5fa' : '#2563eb'; // Glowing Blue
@@ -375,8 +408,8 @@ export function renderTopologyCanvas(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(protocolText, midX, midY);
+    ctx.restore();
   }
-
 
   // 2. Render Nodes
   const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -399,7 +432,14 @@ export function renderTopologyCanvas(
       hasQuery &&
       (node.zid.toLowerCase().includes(normalizedQuery) ||
         displayLabel.toLowerCase().includes(normalizedQuery) ||
-        node.locators.some((l) => l.toLowerCase().includes(normalizedQuery)));
+        node.locators.some((l) => l.toLowerCase().includes(normalizedQuery)) ||
+        (node.connectLocators && node.connectLocators.some((l) => l.toLowerCase().includes(normalizedQuery))));
+
+    const matchesFilter = isNodeMatchingFilter(node, filterType);
+    const nodeAlpha = matchesFilter ? 1.0 : 0.2;
+
+    ctx.save();
+    ctx.globalAlpha = nodeAlpha;
 
     // Node Outer Glow / Selection Ring
     if (isSelected || matchesSearch) {
@@ -488,7 +528,10 @@ export function renderTopologyCanvas(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(scopeTagText, node.x, tagY + tagH / 2);
+
+    ctx.restore();
   }
 
   ctx.restore();
 }
+

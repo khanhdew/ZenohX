@@ -529,14 +529,19 @@ export function isLinkLocalLocator(locator: string): boolean {
  */
 export function isExcludedLocator(locator: string): boolean {
   if (!locator || typeof locator !== 'string') return true;
-  const lower = locator.toLowerCase();
+  const lower = locator.toLowerCase().trim();
 
   // Unix domain sockets are local IPC endpoints - keep them
   if (lower.startsWith('unix/') || lower.startsWith('unixpipe/')) {
     return false;
   }
 
-  // 1. Loopback addresses (IPv6 [::1] and IPv4 127.0.0.1 / localhost)
+  // 1. Dynamic port 0 placeholder (e.g. tcp/0.0.0.0:0, tcp/127.0.0.1:0)
+  if (lower.endsWith(':0') || lower.includes(':0/')) {
+    return true;
+  }
+
+  // 2. Loopback addresses (IPv6 [::1] and IPv4 127.0.0.1 / localhost)
   if (
     lower.includes('[::1]') ||
     lower.includes('/127.0.0.1') ||
@@ -546,7 +551,7 @@ export function isExcludedLocator(locator: string): boolean {
     return true;
   }
 
-  // 2. Link-local IPv6 fe80::/10 and IPv4 169.254.0.0/16
+  // 3. Link-local IPv6 fe80::/10 and IPv4 169.254.0.0/16
   if (isLinkLocalLocator(locator)) {
     return true;
   }
@@ -563,26 +568,48 @@ export function filterLinkLocalLocators(locators: string[]): string[] {
 }
 
 /**
+ * Extracts port number from locator string. Returns null if not present or unix socket.
+ */
+export function extractLocatorPort(locator: string): number | null {
+  if (!locator || typeof locator !== 'string') return null;
+  const clean = locator.trim();
+  if (clean.startsWith('unix/') || clean.startsWith('unixpipe/')) return null;
+  const lastColon = clean.lastIndexOf(':');
+  if (lastColon === -1) return null;
+  const portStr = clean.slice(lastColon + 1).split('/')[0];
+  const port = parseInt(portStr, 10);
+  return isNaN(port) ? null : port;
+}
+
+/**
+ * Checks if a locator uses an ephemeral outbound dynamic socket port (e.g. 32768-65535).
+ */
+export function isEphemeralPortLocator(locator: string): boolean {
+  const port = extractLocatorPort(locator);
+  if (port === null) return false;
+  return port >= 32768 && port <= 65535;
+}
+
+/**
  * Filters locators to strictly preserve real reachable IPv4 and real IPv6 addresses (and unix sockets),
- * dropping loopback ([::1], 127.0.0.1) and link-local (fe80::, 169.254.) addresses.
+ * dropping loopback ([::1], 127.0.0.1), port 0 (:0), and link-local (fe80::, 169.254.) addresses.
  */
 export function filterRealLocators(locators: string[]): string[] {
   if (!Array.isArray(locators)) return [];
-  const clean = locators.filter(
+  return locators.filter(
     (loc) => typeof loc === 'string' && loc.trim().length > 0 && !isExcludedLocator(loc)
   );
+}
 
-  // Fallback if all addresses were loopback on an offline machine
-  if (clean.length === 0) {
-    return filterLinkLocalLocators(locators);
-  }
-
-  return clean;
+export function cleanLocators(locators?: string[]): string[] {
+  if (!Array.isArray(locators)) return [];
+  return locators
+    .filter((loc) => typeof loc === 'string' && loc.trim().length > 0)
+    .map((loc) => loc.trim());
 }
 
 /**
  * Generates a clean, valid Zenoh JSON5 configuration string corresponding to the active SessionConfig or ConnectionProfile.
- * Strictly preserves real IPv4 & real IPv6 endpoints, excluding link-local and loopback IPs.
  */
 export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<string, any>): string {
   const mode = (config.mode || 'peer').toLowerCase();
@@ -598,9 +625,7 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
     }
   }
 
-  const connectLocs = Array.isArray(config.connect_locators)
-    ? filterRealLocators(config.connect_locators)
-    : [];
+  const connectLocs = cleanLocators(config.connect_locators);
 
   if (connectLocs.length > 0) {
     const reconnect = (config as any).reconnect_retry;
@@ -616,9 +641,7 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
     };
   }
 
-  const listenLocs = Array.isArray(config.listen_locators)
-    ? filterRealLocators(config.listen_locators)
-    : [];
+  const listenLocs = filterRealLocators(config.listen_locators || []);
 
   if (listenLocs.length > 0) {
     result.listen = {
@@ -706,7 +729,7 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
     result.listen.endpoints = filterRealLocators(result.listen.endpoints);
   }
   if (result.connect && Array.isArray(result.connect.endpoints)) {
-    result.connect.endpoints = filterRealLocators(result.connect.endpoints);
+    result.connect.endpoints = cleanLocators(result.connect.endpoints);
   }
 
   return JSON.stringify(result, null, 2);

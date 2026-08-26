@@ -26,6 +26,7 @@ import { applyRadialLayout, type ViewTransform } from '../lib/topology/forceEngi
 import { parseAdminSpaceEntries } from '../lib/topology/adminSpaceParser';
 import { queryAdminSpace } from '../lib/tauri';
 import { useConnectionStore } from './connectionStore';
+import { useConnectionJsonStore } from './connectionJsonStore';
 
 export type TopologyFilterType =
   | 'all'
@@ -89,9 +90,9 @@ export const useTopologyStore = create<TopologyState>()(
 
   const setNodeLabelFn = (zidOrId: string, label: string) => {
     const trimmed = label.trim();
+    const baseZid = zidOrId.replace(/^(scouted-|profile-|admin-|remote-upstream-|link-)/, '');
     set((state) => {
       const updatedLabels = { ...state.customNodeLabels };
-      const baseZid = zidOrId.startsWith('scouted-') ? zidOrId.replace('scouted-', '') : zidOrId;
       if (trimmed) {
         updatedLabels[zidOrId] = trimmed;
         updatedLabels[zidOrId.toLowerCase()] = trimmed;
@@ -106,37 +107,36 @@ export const useTopologyStore = create<TopologyState>()(
         delete updatedLabels[`scouted-${baseZid}`];
       }
 
-      const updatedNodes = state.nodes.map((n) => {
-        if (
-          n.zid === zidOrId ||
-          n.id === zidOrId ||
-          n.zid.toLowerCase() === zidOrId.toLowerCase() ||
-          n.zid === baseZid ||
-          n.zid.toLowerCase() === baseZid.toLowerCase() ||
-          n.id === `scouted-${baseZid}`
-        ) {
-          return { ...n, label: trimmed || n.label };
-        }
-        return n;
-      });
-
       return {
         customNodeLabels: updatedLabels,
-        nodes: updatedNodes,
       };
+    });
+
+    const { profiles, activeSessions, scoutedNodes } = useConnectionStore.getState();
+    get().syncFromContext({
+      scoutedNodes,
+      activeSessions,
+      profiles,
     });
   };
 
   const removeNodeLabelFn = (zidOrId: string) => {
+    const baseZid = zidOrId.replace(/^(scouted-|profile-|admin-|remote-upstream-|link-)/, '');
     set((state) => {
       const updatedLabels = { ...state.customNodeLabels };
-      const baseZid = zidOrId.startsWith('scouted-') ? zidOrId.replace('scouted-', '') : zidOrId;
       delete updatedLabels[zidOrId];
       delete updatedLabels[zidOrId.toLowerCase()];
       delete updatedLabels[baseZid];
       delete updatedLabels[baseZid.toLowerCase()];
       delete updatedLabels[`scouted-${baseZid}`];
       return { customNodeLabels: updatedLabels };
+    });
+
+    const { profiles, activeSessions, scoutedNodes } = useConnectionStore.getState();
+    get().syncFromContext({
+      scoutedNodes,
+      activeSessions,
+      profiles,
     });
   };
 
@@ -193,7 +193,19 @@ export const useTopologyStore = create<TopologyState>()(
       if (!get().adminDiscoveryEnabled) return;
       const activeSessions = useConnectionStore.getState().activeSessions;
       const sessionList = Object.values(activeSessions);
-      if (sessionList.length === 0) return;
+      if (sessionList.length === 0) {
+        if (get().adminData !== null) {
+          set({ adminData: null });
+          const { profiles, scoutedNodes } = useConnectionStore.getState();
+          get().syncFromContext({
+            scoutedNodes,
+            activeSessions: {},
+            profiles,
+            adminData: undefined,
+          });
+        }
+        return;
+      }
 
       try {
         const allEntries: import('../types/topology').AdminSpaceEntry[] = [];
@@ -231,7 +243,15 @@ export const useTopologyStore = create<TopologyState>()(
     removeNodeName: removeNodeLabelFn,
 
 
-  setSelectedNodeId: (selectedNodeId) => set({ selectedNodeId }),
+  setSelectedNodeId: (selectedNodeId) => {
+    set({ selectedNodeId });
+    if (selectedNodeId) {
+      const node = get().nodes.find((n) => n.id === selectedNodeId);
+      if (node?.zid) {
+        useConnectionJsonStore.getState().fetchNodeConfiguration(node.zid).catch(() => {});
+      }
+    }
+  },
   setHoveredNodeId: (hoveredNodeId) => set({ hoveredNodeId }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setFilterType: (filterType) => set({ filterType }),

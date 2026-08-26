@@ -67,6 +67,64 @@ mod tests {
         let _ = manager.disconnect(&session_id).await;
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_zenoh_tls_router_and_client_connection() {
+        let manager = Arc::new(SessionManager::new());
+
+        // 1. Router with Server Cert & Key
+        let router_config = SessionConfig {
+            profile_id: Some("tls-router-1".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tls/127.0.0.1:7446".to_string()],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: Some(TlsConfig {
+                ca_cert: Some("/tmp/zenohx-tls-test/ca.crt".to_string()),
+                client_cert: Some("/tmp/zenohx-tls-test/server.crt".to_string()),
+                client_key: Some("/tmp/zenohx-tls-test/server.key".to_string()),
+                tls_only: Some(true),
+            }),
+            custom_config: None,
+        };
+
+        let router_session_id = manager.connect(router_config).await.expect("Router connect failed");
+        let router_info = manager.get_session_info(&router_session_id).await.expect("Router info failed");
+        println!("Router connected with bound locators: {:?}", router_info.bound_locators);
+
+        // 2. Client with Root CA
+        let client_config = SessionConfig {
+            profile_id: Some("tls-client-1".to_string()),
+            mode: "client".to_string(),
+            connect_locators: vec!["tls/127.0.0.1:7446".to_string()],
+            listen_locators: vec![],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: Some(TlsConfig {
+                ca_cert: Some("/tmp/zenohx-tls-test/ca.crt".to_string()),
+                client_cert: None,
+                client_key: None,
+                tls_only: Some(true),
+            }),
+            custom_config: None,
+        };
+
+        let client_session_id = manager.connect(client_config).await;
+        println!("Client connect result: {:?}", client_session_id);
+        assert!(client_session_id.is_ok(), "Client connect with Root CA failed: {:?}", client_session_id.err());
+
+        let client_id = client_session_id.unwrap();
+        let client_info = manager.get_session_info(&client_id).await.expect("Client info failed");
+        println!("Client info: {:?}", client_info);
+
+        let _ = manager.disconnect(&client_id).await;
+        let _ = manager.disconnect(&router_session_id).await;
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_connect_from_db_profile_with_prefix_and_auth() {
         let db = Database::new_in_memory().expect("failed to init in-memory db");

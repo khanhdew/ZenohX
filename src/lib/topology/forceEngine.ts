@@ -72,7 +72,8 @@ export function stepPhysicsSimulation(
 ): void {
   const nodeMap = new Map<string, TopologyNode>(nodes.map((n) => [n.id, n]));
 
-  // 1. Center Gravity / Centering force towards (0,0)
+  // 1. Center Gravity / Centering force towards (0,0) with scaling for large node counts
+  const centerStrength = (0.015 / Math.max(1, Math.sqrt(nodes.length / 4))) * alpha;
   for (const node of nodes) {
     if (node.fx !== null && node.fy !== null) {
       node.x = node.fx;
@@ -81,7 +82,6 @@ export function stepPhysicsSimulation(
       node.vy = 0;
       continue;
     }
-    const centerStrength = 0.015 * alpha;
     node.vx -= node.x * centerStrength;
     node.vy -= node.y * centerStrength;
   }
@@ -91,13 +91,17 @@ export function stepPhysicsSimulation(
     const n1 = nodes[i];
     for (let j = i + 1; j < nodes.length; j++) {
       const n2 = nodes[j];
-      const dx = n2.x - n1.x || (Math.random() - 0.5) * 2;
-      const dy = n2.y - n1.y || (Math.random() - 0.5) * 2;
+      const rawDx = n2.x - n1.x;
+      const rawDy = n2.y - n1.y;
+      const angle = (i * 2.39996 + j) % (Math.PI * 2);
+      const dx = rawDx === 0 ? Math.cos(angle) : rawDx;
+      const dy = rawDy === 0 ? Math.sin(angle) : rawDy;
       const distSq = Math.max(100, dx * dx + dy * dy);
       const dist = Math.sqrt(distSq);
 
       const minDesiredDist = n1.radius + n2.radius + 80;
-      const force = (minDesiredDist * minDesiredDist * 120 * alpha) / distSq;
+      const rawForce = (minDesiredDist * minDesiredDist * 60 * alpha) / distSq;
+      const force = Math.min(rawForce, 25);
 
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -114,6 +118,7 @@ export function stepPhysicsSimulation(
   }
 
   // 3. Link Spring Force
+  const desiredLinkDist = Math.max(150, 100 + Math.sqrt(nodes.length) * 10);
   for (const edge of edges) {
     const source = nodeMap.get(edge.source);
     const target = nodeMap.get(edge.target);
@@ -122,12 +127,12 @@ export function stepPhysicsSimulation(
     const dx = target.x - source.x || 1;
     const dy = target.y - source.y || 1;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const desiredDist = 160;
-    const springStrength = 0.08 * alpha;
-    const displacement = dist - desiredDist;
+    const springStrength = 0.06 * alpha;
+    const displacement = dist - desiredLinkDist;
 
-    const fx = (dx / dist) * displacement * springStrength;
-    const fy = (dy / dist) * displacement * springStrength;
+    const forceMagnitude = Math.min(Math.max(displacement * springStrength, -15), 15);
+    const fx = (dx / dist) * forceMagnitude;
+    const fy = (dy / dist) * forceMagnitude;
 
     if (source.fx === null) {
       source.vx += fx;
@@ -140,7 +145,7 @@ export function stepPhysicsSimulation(
   }
 
   // 4. Velocity damping and position integration
-  const damping = 0.85;
+  const damping = 0.88;
   for (const node of nodes) {
     if (node.fx !== null && node.fy !== null) {
       node.x = node.fx;
@@ -154,7 +159,7 @@ export function stepPhysicsSimulation(
 
     // Cap velocity
     const speed = Math.hypot(node.vx, node.vy);
-    const maxSpeed = 25;
+    const maxSpeed = 15;
     if (speed > maxSpeed) {
       node.vx = (node.vx / speed) * maxSpeed;
       node.vy = (node.vy / speed) * maxSpeed;
@@ -162,6 +167,45 @@ export function stepPhysicsSimulation(
 
     node.x += node.vx;
     node.y += node.vy;
+  }
+
+  // 5. Hard Circle-Circle Collision & Overlap Resolution Pass
+  const clearance = 24; // Extra padding between nodes to ensure labels and icons do not overlap
+  for (let iter = 0; iter < 3; iter++) {
+    for (let i = 0; i < nodes.length; i++) {
+      const n1 = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const n2 = nodes[j];
+        let dx = n2.x - n1.x;
+        let dy = n2.y - n1.y;
+        let dist = Math.hypot(dx, dy);
+        const minDist = n1.radius + n2.radius + clearance;
+        if (dist < minDist) {
+          if (dist === 0) {
+            const angle = ((i * 3 + j) * Math.PI) / 4;
+            dx = Math.cos(angle);
+            dy = Math.sin(angle);
+            dist = 0.001;
+          }
+          const overlap = (minDist - dist) * 0.5;
+          const nx = (dx / dist) * overlap;
+          const ny = (dy / dist) * overlap;
+
+          if (n1.fx === null && n2.fx === null) {
+            n1.x -= nx;
+            n1.y -= ny;
+            n2.x += nx;
+            n2.y += ny;
+          } else if (n1.fx === null) {
+            n1.x -= nx * 2;
+            n1.y -= ny * 2;
+          } else if (n2.fx === null) {
+            n2.x += nx * 2;
+            n2.y += ny * 2;
+          }
+        }
+      }
+    }
   }
 }
 
@@ -171,6 +215,11 @@ export function applyRadialLayout(nodes: TopologyNode[]): void {
   const routers = nodes.filter((n) => n.type === 'router');
   const peers = nodes.filter((n) => n.type === 'peer');
   const clients = nodes.filter((n) => n.type === 'client');
+
+  const minArc = 90; // minimum perimeter arc length per node
+  const rRadius = Math.max(170, (routers.length * minArc) / (2 * Math.PI));
+  const pRadius = Math.max(rRadius + 90, 260, (peers.length * minArc) / (2 * Math.PI));
+  const cRadius = Math.max(pRadius + 70, 330, (clients.length * minArc) / (2 * Math.PI));
 
   const placeRing = (group: TopologyNode[], radius: number) => {
     group.forEach((node, idx) => {
@@ -182,7 +231,7 @@ export function applyRadialLayout(nodes: TopologyNode[]): void {
     });
   };
 
-  placeRing(routers, 170);
-  placeRing(peers, 260);
-  placeRing(clients, 330);
+  placeRing(routers, rRadius);
+  placeRing(peers, pRadius);
+  placeRing(clients, cRadius);
 }

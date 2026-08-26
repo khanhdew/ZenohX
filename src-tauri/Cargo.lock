@@ -498,9 +498,9 @@ dependencies = [
 
 [[package]]
 name = "combine"
-version = "4.6.7"
+version = "4.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
+checksum = "cfc320937d09e6de266b31b9afb480f197d7a861be86be7cb2ea7e5d1bfffc5e"
 dependencies = [
  "bytes",
  "memchr",
@@ -2663,7 +2663,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "rand 0.8.7",
+ "rand 0.8.8",
  "smallvec",
  "zeroize",
 ]
@@ -3498,9 +3498,9 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
-version = "0.8.7"
+version = "0.8.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22f6172bdec972074665ed81ed53b71da00bfc44b65a753cfde883ec4c702a1a"
+checksum = "e058c7de0b26af77780c769414d6257830bb240f3c38477dbc2c16e5f54d6d4c"
 dependencies = [
  "libc",
  "rand_chacha",
@@ -5485,7 +5485,7 @@ dependencies = [
  "http",
  "httparse",
  "log",
- "rand 0.8.7",
+ "rand 0.8.8",
  "sha1",
  "thiserror 1.0.69",
  "utf-8",
@@ -5528,7 +5528,7 @@ dependencies = [
  "humantime",
  "lazy_static",
  "log",
- "rand 0.8.7",
+ "rand 0.8.8",
  "serde",
  "spin 0.10.1",
 ]
@@ -6599,7 +6599,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "phf",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rustc_version",
  "serde",
  "serde_json",
@@ -6643,7 +6643,7 @@ version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b792ce46854f252af31869030224c2da6bd9d72a1cd2812e29b457444a07b1"
 dependencies = [
- "rand 0.8.7",
+ "rand 0.8.8",
  "tracing",
  "uhlc",
  "zenoh-buffers",
@@ -6705,7 +6705,7 @@ checksum = "1b496e8c984260c4d80ce58b42956081dc8656f0b875766e5ae0f8e39510fdee"
 dependencies = [
  "aes",
  "hmac",
- "rand 0.8.7",
+ "rand 0.8.8",
  "rand_chacha",
  "sha3",
  "zenoh-result",
@@ -6720,7 +6720,7 @@ dependencies = [
  "getrandom 0.2.17",
  "hashbrown 0.16.1",
  "keyed-set",
- "rand 0.8.7",
+ "rand 0.8.8",
  "schemars 1.2.2",
  "serde",
  "token-cell",
@@ -6965,7 +6965,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5505e2569421d3cb6792d4b3d9a6589d04add3bf34c0a7c37c03c2573b79ad"
 dependencies = [
  "const_format",
- "rand 0.8.7",
+ "rand 0.8.8",
  "serde",
  "uhlc",
  "zenoh-buffers",
@@ -7039,7 +7039,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "lz4_flex",
- "rand 0.8.7",
+ "rand 0.8.8",
  "ringbuffer-spsc",
  "rsa",
  "serde",
@@ -7091,7 +7091,7 @@ dependencies = [
 
 [[package]]
 name = "zenohx"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "chrono",
  "ciborium",

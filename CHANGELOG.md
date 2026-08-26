@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.5.2] - 2026-08-26
+
+### 🐛 Fixed
+- **pubsub:** ensure real-time message stream displays incoming samples without requiring tab switch
+
+### 🔧 Maintenance
+- add Apache-2.0 license headers and update gitignore
+
+---
 ## [v0.5.1] - 2026-08-25
 
 ### 🚀 Added & Enhanced

@@ -23,6 +23,12 @@ pub async fn connect_session(
     state: State<'_, AppState>,
     config: SessionConfig,
 ) -> Result<Uuid, String> {
+    let json5 = config.generate_json5(config.profile_id.as_deref(), &config.listen_locators);
+    println!("\n================ [DEBUG: CONNECT SESSION JSON5] ================");
+    println!("Profile ID: {:?}", config.profile_id);
+    println!("Mode: {}", config.mode);
+    println!("JSON5 Configuration:\n{}", json5);
+    println!("================================================================\n");
     state.session_manager.connect(config).await
 }
 
@@ -57,16 +63,24 @@ pub async fn connect_node_by_zid(
 
     let config = SessionConfig {
         profile_id: Some(profile.id.clone()),
-        mode: profile.mode,
-        connect_locators: profile.connect_locators,
-        listen_locators: profile.listen_locators,
+        mode: profile.mode.clone(),
+        connect_locators: profile.connect_locators.clone(),
+        listen_locators: profile.listen_locators.clone(),
         scout_multicast: profile.scout_multicast,
         scout_gossip: true,
         reconnect_retry: None,
         user_auth,
         tls_config,
-        custom_config: profile.custom_config,
+        custom_config: profile.custom_config.clone(),
     };
+
+    let json5 = config.generate_json5(Some(&profile.id), &profile.listen_locators);
+    println!("\n================ [DEBUG: LOADED JSON5 CONFIG] ================");
+    println!("Requested ZID / ID: {}", zid);
+    println!("Resolved Profile: {} (ID: {})", profile.name, profile.id);
+    println!("Mode: {}", profile.mode);
+    println!("JSON5 Configuration:\n{}", json5);
+    println!("==============================================================\n");
 
     let session_id = state.session_manager.connect(config).await?;
     state.session_manager.get_session_info(&session_id).await

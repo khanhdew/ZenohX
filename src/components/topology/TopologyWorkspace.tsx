@@ -20,7 +20,7 @@ import { TopologyCanvas } from './TopologyCanvas';
 import { TopologyInspector } from './TopologyInspector';
 import { TopologyContextMenu } from './TopologyContextMenu';
 import type { TopologyNode } from '../../types/topology';
-import type { ConnectionMode, ConnectionProfile } from '../../types/zenoh';
+import type { ConnectionProfile } from '../../types/zenoh';
 
 import { findMatchingProfile } from '../../lib/topology/topologyBuilder';
 
@@ -37,7 +37,6 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
 }) => {
   const scout = useConnectionStore((s) => s.scout);
   const connect = useConnectionStore((s) => s.connect);
-  const saveProfile = useConnectionStore((s) => s.saveProfile);
   const profiles = useConnectionStore((s) => s.profiles);
 
   const nodes = useTopologyStore((s) => s.nodes);
@@ -116,79 +115,16 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
 
   const handleOpenProfileEditorForNode = (node: TopologyNode) => {
     const existing = findMatchingProfile(profiles, node);
-    if (existing) {
-      if (onOpenProfileEditor) {
-        onOpenProfileEditor(existing);
-      }
-      return;
-    }
-
-    const now = Date.now();
-    const primaryLoc = (node.locators && node.locators[0]) || (node.connectLocators && node.connectLocators[0]) || '';
-    const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
-    const nodeRole: ConnectionMode =
-      node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
-    const newProf: ConnectionProfile = {
-      id: newProfId,
-      name: node.label,
-      mode: nodeRole,
-      connect_locators:
-        nodeRole === 'client'
-          ? (primaryLoc ? [primaryLoc] : (node.locators || []))
-          : (node.connectLocators || []),
-      listen_locators:
-        nodeRole !== 'client'
-          ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLoc ? [primaryLoc] : []))
-          : [],
-      scout_multicast: true,
-      scout_gossip: true,
-      user_auth: null,
-      tls_config: node.isTls ? {} : null,
-      custom_config: null,
-      created_at: now,
-      updated_at: now,
-    };
-    if (onOpenProfileEditor) {
-      onOpenProfileEditor(newProf);
+    if (existing && onOpenProfileEditor) {
+      onOpenProfileEditor(existing);
     }
   };
 
   const handleConnectNode = async (node: TopologyNode) => {
     try {
       const existing = findMatchingProfile(profiles, node);
-      if (existing) {
-        await connect(existing.id);
-        return;
-      }
-
-      const now = Date.now();
-      const primaryLocator = (node.locators && node.locators[0]) || (node.connectLocators && node.connectLocators[0]) || '';
-      const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
-      const nodeRole: ConnectionMode =
-        node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
-
-      const newProf: ConnectionProfile = {
-        id: newProfId,
-        name: node.label,
-        mode: nodeRole,
-        connect_locators:
-          nodeRole === 'client'
-            ? (primaryLocator ? [primaryLocator] : (node.locators || []))
-            : (node.connectLocators || []),
-        listen_locators:
-          nodeRole !== 'client'
-            ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLocator ? [primaryLocator] : []))
-            : [],
-        scout_multicast: true,
-        scout_gossip: true,
-        user_auth: null,
-        tls_config: node.isTls ? {} : null,
-        custom_config: null,
-        created_at: now,
-        updated_at: now,
-      };
-      await saveProfile(newProf);
-      await connect(newProf.id);
+      const targetId = existing?.id || node.profileId || node.zid || node.id;
+      await connect(targetId);
     } catch (err) {
       console.error('Topology connect error:', err);
     }

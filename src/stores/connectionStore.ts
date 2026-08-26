@@ -291,13 +291,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   connect: async (profileId: string) => {
-    const profile = get().profiles.find((p) => p.id === profileId);
-    if (!profile) {
-      const msg = `Profile ${profileId} not found in database.`;
-      set({ error: msg });
-      throw new Error(msg);
-    }
-
     if (get().connectingProfileIds[profileId]) {
       return get().activeSessions[profileId]?.id;
     }

@@ -26,19 +26,20 @@ import type {
   SessionStatusEvent,
 } from '../types/zenoh';
 import {
+  connectNodeByZid,
   connectSession,
   deleteProfile as deleteProfileIpc,
   disconnectSession,
   getAllSessions,
-  getSessionInfo,
   loadProfiles as loadProfilesIpc,
   onSessionStatus,
   saveProfile as saveProfileIpc,
   scoutNodes,
 } from '../lib/tauri';
 import { formatFriendlyError } from '../lib/errorUtils';
-import { generateZenohJson5 } from '../lib/tls';
 import { derivePersistentZid, isLocatorMatch } from '../lib/topology/topologyBuilder';
+import { useConnectionJsonStore } from './connectionJsonStore';
+import { useTopologyStore } from './topologyStore';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 export interface ConnectionState {
@@ -124,6 +125,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   selectProfile: (profileId: string | null) => {
     set({ selectedProfileId: profileId });
+    if (profileId) {
+      useTopologyStore.getState().setSelectedNodeId(`profile-${profileId}`);
+    }
   },
 
   saveProfile: async (profile: ConnectionProfile) => {
@@ -131,45 +135,23 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     try {
       const isCurrentlyConnected = get().isConnected(profile.id);
 
-      let resolvedProfile = profile;
-      try {
-        const liveJson5Str = generateZenohJson5({
-          id: profile.id,
-          mode: profile.mode,
-          connect_locators: profile.connect_locators,
-          listen_locators: profile.listen_locators,
-          scout_multicast: profile.scout_multicast,
-          scout_gossip: profile.scout_gossip,
-          reconnect_retry: profile.reconnect_retry,
-          user_auth: profile.user_auth,
-          tls_config: profile.tls_config,
-          custom_config: profile.custom_config,
-        });
-        resolvedProfile = {
-          ...profile,
-          custom_config: JSON.parse(liveJson5Str),
-        };
-      } catch {
-        // Keep existing
-      }
-
-      await saveProfileIpc(resolvedProfile);
+      await saveProfileIpc(profile);
       set((state) => {
-        const index = state.profiles.findIndex((p) => p.id === resolvedProfile.id);
+        const index = state.profiles.findIndex((p) => p.id === profile.id);
         const newProfiles =
           index >= 0
-            ? state.profiles.map((p) => (p.id === resolvedProfile.id ? resolvedProfile : p))
-            : [...state.profiles, resolvedProfile];
+            ? state.profiles.map((p) => (p.id === profile.id ? profile : p))
+            : [...state.profiles, profile];
         return {
           profiles: newProfiles,
-          selectedProfileId: state.selectedProfileId ?? resolvedProfile.id,
+          selectedProfileId: state.selectedProfileId ?? profile.id,
         };
       });
 
       // If profile was connected when saved, automatically reconnect the live Zenoh session so new upstreams / listeners take effect immediately
       if (isCurrentlyConnected) {
-        await get().disconnect(resolvedProfile.id);
-        await get().connect(resolvedProfile.id);
+        await get().disconnect(profile.id);
+        await get().connect(profile.id);
       }
     } catch (err) {
       console.error('Save profile failed:', err);
@@ -194,66 +176,34 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       error: null,
     }));
 
-    let sessionId: string | null = null;
-
     try {
-      const config: SessionConfig = {
-        profile_id: profile.id,
-        mode: profile.mode,
-        connect_locators: profile.connect_locators,
-        listen_locators: profile.listen_locators,
-        scout_multicast: profile.scout_multicast,
-        scout_gossip: profile.scout_gossip,
-        reconnect_retry: profile.reconnect_retry,
-        user_auth: profile.user_auth,
-        tls_config: profile.tls_config,
-        custom_config: profile.custom_config,
-      };
+      // 1. Persist profile to SQLite database first
+      await saveProfileIpc(profile);
 
-      // 1. Attempt connection first
-      sessionId = await connectSession(config);
-      const sessionInfo = await getSessionInfo(sessionId);
+      // 2. Connect using profile ID / ZID (backend loads authoritative DB config)
+      const sessionInfo = await connectNodeByZid(profile.id);
+      const sessionId = sessionInfo.id;
 
-      // Preserve profile configuration without locking dynamic/ephemeral ports to static values
-      const resolvedProfile: ConnectionProfile = { ...profile };
-      try {
-        const liveJson5Str = generateZenohJson5({
-          id: sessionInfo.zid || resolvedProfile.id,
-          zid: sessionInfo.zid,
-          mode: resolvedProfile.mode,
-          connect_locators: resolvedProfile.connect_locators,
-          listen_locators: resolvedProfile.listen_locators,
-          scout_multicast: resolvedProfile.scout_multicast,
-          scout_gossip: resolvedProfile.scout_gossip,
-          reconnect_retry: resolvedProfile.reconnect_retry,
-          user_auth: resolvedProfile.user_auth,
-          tls_config: resolvedProfile.tls_config,
-          custom_config: resolvedProfile.custom_config,
-        });
-        resolvedProfile.custom_config = JSON.parse(liveJson5Str);
-      } catch {
-        // Keep existing custom_config if parse fails
+      if (sessionInfo?.zid) {
+        useConnectionJsonStore.getState().fetchNodeConfiguration(sessionInfo.zid).catch(() => {});
       }
 
-      // 2. Persist profile ONLY after successful connection
-      await saveProfileIpc(resolvedProfile);
-
       set((state) => {
-        const index = state.profiles.findIndex((p) => p.id === resolvedProfile.id);
+        const index = state.profiles.findIndex((p) => p.id === profile.id);
         const newProfiles =
           index >= 0
-            ? state.profiles.map((p) => (p.id === resolvedProfile.id ? resolvedProfile : p))
-            : [...state.profiles, resolvedProfile];
+            ? state.profiles.map((p) => (p.id === profile.id ? profile : p))
+            : [...state.profiles, profile];
         return {
           profiles: newProfiles,
-          selectedProfileId: resolvedProfile.id,
-          activeSessions: { ...state.activeSessions, [resolvedProfile.id]: sessionInfo },
-          sessionToProfile: { ...state.sessionToProfile, [sessionId!]: resolvedProfile.id },
-          connectingProfileIds: { ...state.connectingProfileIds, [resolvedProfile.id]: false },
+          selectedProfileId: profile.id,
+          activeSessions: { ...state.activeSessions, [profile.id]: sessionInfo },
+          sessionToProfile: { ...state.sessionToProfile, [sessionId]: profile.id },
+          connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: false },
         };
       });
 
-      // Multi-stage background refresh to capture newly negotiated physical links
+      // Background link refreshes
       setTimeout(() => get().refreshSessions(), 150);
       setTimeout(() => get().refreshSessions(), 400);
       setTimeout(() => get().refreshSessions(), 1000);
@@ -261,14 +211,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
       return sessionId;
     } catch (err) {
-      if (sessionId) {
-        try {
-          await disconnectSession(sessionId);
-        } catch {
-          // Ignore disconnect error during cleanup
-        }
-      }
-
       const friendly = formatFriendlyError(err, 'Connection Failed').fullMessage;
       console.error('Session connection failed:', err);
       set((state) => ({
@@ -351,7 +293,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connect: async (profileId: string) => {
     const profile = get().profiles.find((p) => p.id === profileId);
     if (!profile) {
-      const msg = `Profile with id '${profileId}' not found.`;
+      const msg = `Profile ${profileId} not found in database.`;
       set({ error: msg });
       throw new Error(msg);
     }
@@ -366,21 +308,14 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     }));
 
     try {
-      const config: SessionConfig = {
-        profile_id: profile.id,
-        mode: profile.mode,
-        connect_locators: profile.connect_locators,
-        listen_locators: profile.listen_locators,
-        scout_multicast: profile.scout_multicast,
-        scout_gossip: profile.scout_gossip,
-        reconnect_retry: profile.reconnect_retry,
-        user_auth: profile.user_auth,
-        tls_config: profile.tls_config,
-        custom_config: profile.custom_config,
-      };
+      // Send only the profile ID / ZID to the backend; Rust loads configuration from SQLite
+      const sessionInfo = await connectNodeByZid(profileId);
+      const sessionId = sessionInfo.id;
 
-      const sessionId = await connectSession(config);
-      const sessionInfo = await getSessionInfo(sessionId);
+      if (sessionInfo?.zid) {
+        useConnectionJsonStore.getState().fetchNodeConfiguration(sessionInfo.zid).catch(() => {});
+      }
+      useTopologyStore.getState().setSelectedNodeId(`profile-${profileId}`);
 
       set((state) => ({
         activeSessions: { ...state.activeSessions, [profileId]: sessionInfo },
@@ -388,8 +323,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         connectingProfileIds: { ...state.connectingProfileIds, [profileId]: false },
       }));
 
-      // Background TCP link & router handshakes take 50-300ms to establish.
-      // Refresh session info shortly after connect to capture newly linked upstream routers and peers.
+      // Background TCP link & router handshakes
       setTimeout(() => {
         get().refreshSessions();
       }, 350);

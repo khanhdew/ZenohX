@@ -41,7 +41,9 @@ import type {
   PublishOptions,
   SubscribeOptions,
   StreamGeneratorConfig,
+  NodeConfigurationResult,
 } from '../types/zenoh';
+import type { AdminSpaceEntry } from '../types/topology';
 
 // ============================================================================
 // Helpers
@@ -54,6 +56,14 @@ function normalizePayload(payload: number[] | Uint8Array): number[] {
 // ============================================================================
 // Session & Discovery IPC Commands
 // ============================================================================
+
+/**
+ * Connects to a Zenoh network by looking up its configuration in SQLite by ZID or profile ID.
+ * @returns The live SessionInfo.
+ */
+export async function connectNodeByZid(zid: string): Promise<SessionInfo> {
+  return invoke<SessionInfo>('connect_node_by_zid', { zid });
+}
 
 /**
  * Connects to a Zenoh network with the provided configuration.
@@ -98,13 +108,20 @@ export async function getAllSessions(): Promise<SessionInfo[]> {
 export async function queryAdminSpace(
   sessionId: string,
   selector: string = '@/**',
-  timeoutMs: number = 2500
-): Promise<import('../types/topology').AdminSpaceEntry[]> {
-  return invoke<import('../types/topology').AdminSpaceEntry[]>('query_admin_space', {
+  timeoutMs: number = 3000
+): Promise<AdminSpaceEntry[]> {
+  return invoke<AdminSpaceEntry[]>('query_admin_space', {
     sessionId,
     selector,
     timeoutMs,
   });
+}
+
+/**
+ * Retrieves authoritative node configuration (JSON5) by ZID directly from the Rust backend.
+ */
+export async function getNodeConfiguration(zid: string): Promise<NodeConfigurationResult> {
+  return invoke<NodeConfigurationResult>('get_node_configuration', { zid });
 }
 
 // ============================================================================

@@ -23,12 +23,6 @@ pub async fn connect_session(
     state: State<'_, AppState>,
     config: SessionConfig,
 ) -> Result<Uuid, String> {
-    let json5 = config.generate_json5(config.profile_id.as_deref(), &config.listen_locators);
-    println!("\n================ [DEBUG: CONNECT SESSION JSON5] ================");
-    println!("Profile ID: {:?}", config.profile_id);
-    println!("Mode: {}", config.mode);
-    println!("JSON5 Configuration:\n{}", json5);
-    println!("================================================================\n");
     state.session_manager.connect(config).await
 }
 
@@ -69,19 +63,10 @@ pub async fn connect_node_by_zid(
         scout_multicast: profile.scout_multicast,
         scout_gossip: true,
         reconnect_retry: None,
-        user_auth: user_auth.clone(),
-        tls_config: tls_config.clone(),
+        user_auth,
+        tls_config,
         custom_config: profile.custom_config.clone(),
     };
-
-    let initial_json5 = config.generate_json5(Some(&profile.id), &config.listen_locators);
-    println!("\n================ [DEBUG: INITIAL LOADED CONFIG] ================");
-    println!("Requested ZID / ID: {}", zid);
-    println!("Resolved Profile: {} (ID: {})", profile.name, profile.id);
-    println!("Mode: {}", profile.mode);
-    println!("Input Listen Locators: {:?}", profile.listen_locators);
-    println!("Initial JSON5 Configuration:\n{}", initial_json5);
-    println!("=================================================================\n");
 
     let session_id = state.session_manager.connect(config).await?;
     let session_info = state.session_manager.get_session_info(&session_id).await?;
@@ -103,29 +88,6 @@ pub async fn connect_node_by_zid(
         updated_profile.listen_locators = vec![];
     }
     let _ = state.db.save_profile(&updated_profile);
-
-    let live_config = SessionConfig {
-        profile_id: Some(updated_profile.id.clone()),
-        mode: updated_profile.mode.clone(),
-        connect_locators: updated_profile.connect_locators.clone(),
-        listen_locators: updated_profile.listen_locators.clone(),
-        scout_multicast: updated_profile.scout_multicast,
-        scout_gossip: true,
-        reconnect_retry: None,
-        user_auth,
-        tls_config,
-        custom_config: updated_profile.custom_config.clone(),
-    };
-    let live_json5 = live_config.generate_json5(Some(&session_info.zid), &session_info.bound_locators);
-
-    println!("\n================ [DEBUG: CONNECTED & SAVED TO DB JSON5 CONFIG] ================");
-    println!("Node ZID: {}", session_info.zid);
-    println!("Profile Name: {} (ID: {})", updated_profile.name, updated_profile.id);
-    println!("Mode: {}", updated_profile.mode);
-    println!("Live Bound Endpoints (IP & Port): {:?}", session_info.bound_locators);
-    println!("Saved Profile Listen Locators: {:?}", updated_profile.listen_locators);
-    println!("Authoritative Saved JSON5:\n{}", live_json5);
-    println!("================================================================================\n");
 
     Ok(session_info)
 }

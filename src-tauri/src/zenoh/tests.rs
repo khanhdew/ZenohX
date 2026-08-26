@@ -122,6 +122,30 @@ mod tests {
         println!("Client info: {:?}", client_info);
 
         let _ = manager.disconnect(&client_id).await;
+
+        // 3. Peer connecting to TLS Router with Root CA (listening on dynamic TCP 0.0.0.0:0)
+        let peer_config = SessionConfig {
+            profile_id: Some("tls-peer-1".to_string()),
+            mode: "peer".to_string(),
+            connect_locators: vec!["tls/127.0.0.1:7446".to_string()],
+            listen_locators: vec!["tcp/0.0.0.0:0".to_string()],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: Some(TlsConfig {
+                ca_cert: Some("/tmp/zenohx-tls-test/ca.crt".to_string()),
+                client_cert: None,
+                client_key: None,
+                tls_only: None,
+            }),
+            custom_config: None,
+        };
+        let peer_session_id = manager.connect(peer_config).await;
+        assert!(peer_session_id.is_ok(), "Peer connect to TLS Router failed: {:?}", peer_session_id.err());
+        let peer_id = peer_session_id.unwrap();
+        let _ = manager.disconnect(&peer_id).await;
+
         let _ = manager.disconnect(&router_session_id).await;
     }
 

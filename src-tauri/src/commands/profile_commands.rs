@@ -22,28 +22,6 @@ pub async fn save_profile(
     state: State<'_, AppState>,
     profile: ConnectionProfile,
 ) -> Result<(), String> {
-    let user_auth = profile.user_auth.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
-    let tls_config = profile.tls_config.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
-    let config = crate::zenoh::types::SessionConfig {
-        profile_id: Some(profile.id.clone()),
-        mode: profile.mode.clone(),
-        connect_locators: profile.connect_locators.clone(),
-        listen_locators: profile.listen_locators.clone(),
-        scout_multicast: profile.scout_multicast,
-        scout_gossip: true,
-        reconnect_retry: None,
-        user_auth,
-        tls_config,
-        custom_config: profile.custom_config.clone(),
-    };
-    let json5 = config.generate_json5(Some(&profile.id), &profile.listen_locators);
-    println!("\n================ [DEBUG: SAVED JSON5 CONFIG] ================");
-    println!("Profile ID: {}", profile.id);
-    println!("Profile Name: {}", profile.name);
-    println!("Mode: {}", profile.mode);
-    println!("JSON5:\n{}", json5);
-    println!("==============================================================\n");
-
     state
         .db
         .save_profile(&profile)

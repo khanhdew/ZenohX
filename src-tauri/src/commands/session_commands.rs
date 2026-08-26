@@ -61,59 +61,59 @@ pub async fn connect_node_by_zid(
     let user_auth = profile.user_auth.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
     let tls_config = profile.tls_config.as_ref().and_then(|v| serde_json::from_value(v.clone()).ok());
 
-    let is_router = profile.mode == "router";
-    let sanitized_listen = if is_router {
-        let clean: Vec<String> = profile
-            .listen_locators
-            .iter()
-            .map(|l| {
-                if l.ends_with(":0") || l == "tcp/0.0.0.0:0" {
-                    "tcp/0.0.0.0:7447".to_string()
-                } else {
-                    l.clone()
-                }
-            })
-            .filter(|l| !l.trim().is_empty())
-            .collect();
-        if clean.is_empty() {
-            vec!["tcp/0.0.0.0:7447".to_string()]
-        } else {
-            clean
-        }
-    } else {
-        profile.listen_locators.clone()
-    };
-
     let config = SessionConfig {
         profile_id: Some(profile.id.clone()),
         mode: profile.mode.clone(),
         connect_locators: profile.connect_locators.clone(),
-        listen_locators: sanitized_listen.clone(),
+        listen_locators: profile.listen_locators.clone(),
         scout_multicast: profile.scout_multicast,
         scout_gossip: true,
         reconnect_retry: None,
-        user_auth,
-        tls_config,
+        user_auth: user_auth.clone(),
+        tls_config: tls_config.clone(),
         custom_config: profile.custom_config.clone(),
     };
 
-    let json5 = config.generate_json5(Some(&profile.id), &config.listen_locators);
-    println!("\n================ [DEBUG: LOADED JSON5 CONFIG] ================");
+    let initial_json5 = config.generate_json5(Some(&profile.id), &config.listen_locators);
+    println!("\n================ [DEBUG: INITIAL LOADED CONFIG] ================");
     println!("Requested ZID / ID: {}", zid);
     println!("Resolved Profile: {} (ID: {})", profile.name, profile.id);
     println!("Mode: {}", profile.mode);
-    println!("JSON5 Configuration:\n{}", json5);
-    println!("==============================================================\n");
+    println!("Input Listen Locators: {:?}", profile.listen_locators);
+    println!("Initial JSON5 Configuration:\n{}", initial_json5);
+    println!("=================================================================\n");
 
     let session_id = state.session_manager.connect(config).await?;
     let session_info = state.session_manager.get_session_info(&session_id).await?;
 
-    // Update the database profile with live/sanitized connection information
-    if is_router && (profile.listen_locators != sanitized_listen || profile.listen_locators.is_empty()) {
-        let mut updated_profile = profile.clone();
-        updated_profile.listen_locators = sanitized_listen;
-        let _ = state.db.save_profile(&updated_profile);
+    // Authoritative Post-Connect Update:
+    // Take real bound IP, port, and locators from the connected Zenoh node and save to database
+    let mut updated_profile = profile.clone();
+    if !session_info.bound_locators.is_empty() {
+        updated_profile.listen_locators = session_info.bound_locators.clone();
     }
+    let _ = state.db.save_profile(&updated_profile);
+
+    let live_config = SessionConfig {
+        profile_id: Some(updated_profile.id.clone()),
+        mode: updated_profile.mode.clone(),
+        connect_locators: updated_profile.connect_locators.clone(),
+        listen_locators: updated_profile.listen_locators.clone(),
+        scout_multicast: updated_profile.scout_multicast,
+        scout_gossip: true,
+        reconnect_retry: None,
+        user_auth,
+        tls_config,
+        custom_config: updated_profile.custom_config.clone(),
+    };
+    let live_json5 = live_config.generate_json5(Some(&session_info.zid), &session_info.bound_locators);
+
+    println!("\n================ [DEBUG: CONNECTED & SAVED TO DB JSON5 CONFIG] ================");
+    println!("Node ZID: {}", session_info.zid);
+    println!("Profile Name: {} (ID: {})", updated_profile.name, updated_profile.id);
+    println!("Live Bound Endpoints (IP & Port): {:?}", session_info.bound_locators);
+    println!("Authoritative Saved JSON5:\n{}", live_json5);
+    println!("================================================================================\n");
 
     Ok(session_info)
 }

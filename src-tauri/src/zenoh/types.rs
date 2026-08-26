@@ -403,30 +403,18 @@ impl SessionConfig {
         }
 
         // Listen endpoints:
-        // - For router: always strictly use self.listen_locators (static as configured)
-        // - For peer: use live_bound if available, else self.listen_locators
+        // - If live_bound is provided (node is connected), use live_bound (authoritative resolved IP:port)
+        // - Otherwise use self.listen_locators (or default router port if empty)
         // - For client: no listen endpoints
         if mode != "client" {
-            let listen_endpoints: Vec<String> = if mode == "router" {
-                if !self.listen_locators.is_empty() {
-                    self.listen_locators
-                        .iter()
-                        .map(|l| {
-                            let clean = l.trim();
-                            if clean.ends_with(":0") || clean == "tcp/0.0.0.0:0" {
-                                "tcp/0.0.0.0:7447".to_string()
-                            } else {
-                                clean.to_string()
-                            }
-                        })
-                        .collect()
-                } else {
-                    vec!["tcp/0.0.0.0:7447".to_string()]
-                }
-            } else if !live_bound.is_empty() {
+            let listen_endpoints: Vec<String> = if !live_bound.is_empty() {
                 live_bound.to_vec()
-            } else {
+            } else if !self.listen_locators.is_empty() {
                 self.listen_locators.clone()
+            } else if mode == "router" {
+                vec!["tcp/0.0.0.0:7447".to_string()]
+            } else {
+                vec![]
             };
 
             if !listen_endpoints.is_empty() {

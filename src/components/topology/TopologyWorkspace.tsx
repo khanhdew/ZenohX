@@ -128,10 +128,6 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
     const nodeRole: ConnectionMode =
       node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
-    const isRouter = nodeRole === 'router';
-    const cleanLocators = (node.locators || []).filter((l) => !l.endsWith(':0') && !l.includes(':0/'));
-    const defaultRouterListen = cleanLocators.length > 0 ? cleanLocators : ['tcp/0.0.0.0:7447'];
-
     const newProf: ConnectionProfile = {
       id: newProfId,
       name: node.label,
@@ -141,9 +137,7 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
           ? (primaryLoc ? [primaryLoc] : (node.locators || []))
           : (node.connectLocators || []),
       listen_locators:
-        isRouter
-          ? defaultRouterListen
-          : nodeRole === 'peer'
+        nodeRole !== 'client'
           ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLoc ? [primaryLoc] : []))
           : [],
       scout_multicast: true,
@@ -172,9 +166,6 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
       const newProfId = node.profileId || (node.zid ? `node-${node.zid.slice(0, 16)}` : `profile-${now}`);
       const nodeRole: ConnectionMode =
         node.type === 'router' ? 'router' : node.type === 'peer' ? 'peer' : 'client';
-      const isRouter = nodeRole === 'router';
-      const cleanLocators = (node.locators || []).filter((l) => !l.endsWith(':0') && !l.includes(':0/'));
-      const defaultRouterListen = cleanLocators.length > 0 ? cleanLocators : ['tcp/0.0.0.0:7447'];
 
       const newProf: ConnectionProfile = {
         id: newProfId,
@@ -185,9 +176,7 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
             ? (primaryLocator ? [primaryLocator] : (node.locators || []))
             : (node.connectLocators || []),
         listen_locators:
-          isRouter
-            ? defaultRouterListen
-            : nodeRole === 'peer'
+          nodeRole !== 'client'
             ? (node.locators && node.locators.length > 0 ? node.locators : (primaryLocator ? [primaryLocator] : []))
             : [],
         scout_multicast: true,

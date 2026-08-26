@@ -943,7 +943,6 @@ export function buildTopologyGraph({
         locators: admNode.locators,
       });
 
-      const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === aZid);
       const profMatch = findMatchingProfile(profiles, { zid: admNode.zid, locators: admNode.locators });
 
       if (!targetNode) {

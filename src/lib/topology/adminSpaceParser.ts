@@ -99,10 +99,10 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
   };
 
   for (const entry of entries) {
-    if (!entry.key_expr && !entry.keyExpr) continue;
-    const key = entry.keyExpr || entry.key_expr;
+    if (!entry.keyExpr) continue;
+    const key = entry.keyExpr;
     const category = entry.category || '';
-    const payloadStr = entry.payloadJson || entry.payload_json || '';
+    const payloadStr = entry.payloadJson || '';
     const payloadObj = safeJsonParse<Record<string, unknown>>(payloadStr);
 
     // Extract ZID safely
@@ -126,7 +126,7 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
 
     if (category === 'router' || key.includes('/router/')) {
       // Look for neighbor router ZIDs in the path
-      const validZidsInPath = parts.filter((p) => isLikelyZid(p));
+      const validZidsInPath = parts.filter((p: string) => isLikelyZid(p));
       if (validZidsInPath.length >= 2) {
         const nodeA = getOrCreateNode(validZidsInPath[0], 'router');
         const nodeB = getOrCreateNode(validZidsInPath[1], 'router');
@@ -181,7 +181,7 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
           whatami: node.whatami,
           src,
           dst,
-          is_streamed: isStreamed,
+          is_streamed: Boolean(isStreamed),
           mtu,
           interfaces,
         };

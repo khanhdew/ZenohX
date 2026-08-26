@@ -18,10 +18,7 @@ import {
   LayoutGrid,
   Sparkles,
   ChevronDown,
-  Laptop,
   Globe,
-  Server,
-  Share2,
 } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';

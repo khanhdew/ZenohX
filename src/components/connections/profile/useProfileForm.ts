@@ -25,7 +25,6 @@ import {
   detectProfilePreset,
   getSuggestedRouterPort,
   generateZenohJson5,
-  DEFAULT_TRANSPORT_PROTOCOL,
   type TransportProtocol,
   type ConnectionPreset,
 } from '../../../lib/tls';

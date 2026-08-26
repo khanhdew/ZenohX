@@ -37,7 +37,7 @@ import {
   scoutNodes,
 } from '../lib/tauri';
 import { formatFriendlyError } from '../lib/errorUtils';
-import { generateZenohJson5, filterRealLocators } from '../lib/tls';
+import { generateZenohJson5 } from '../lib/tls';
 import { derivePersistentZid, isLocatorMatch } from '../lib/topology/topologyBuilder';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
@@ -488,9 +488,6 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const currentMapping = get().sessionToProfile;
       const nextActive: Record<string, SessionInfo> = {};
       const nextSessionToProfile: Record<string, string> = { ...currentMapping };
-
-      let profilesUpdated = false;
-      const currentProfiles = [...get().profiles];
 
       for (const s of sessions) {
         const profileId = s.profile_id || currentMapping[s.id];

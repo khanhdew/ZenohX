@@ -2,8 +2,12 @@ target/
 dist/
 node_modules/
 .superpowers/
+docs/superpowers/
+*.repomix.*
+repomix.txt
 *.env
 *.db
 *.db-shm
 *.db-wal
 .codegraph/
+

@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 
+
+## [v0.5.3] - 2026-08-27
+
+### 🚀 Added & Enhanced
+- **backend:** add connect_node_by_zid command loading config from SQLite
+- take live bound IP and port from created node and persist to DB/JSON5
+- persist live bound endpoints only for router; retain 0.0.0.0:0 for peer and empty for client
+- **topology:** remove synthetic fallback node and link generation in favor of live Zenoh telemetry
+- **topology,tls:** rewrite topology builder from scratch and fix TLS client connection
+
+### 🐛 Fixed
+- **router:** prevent ephemeral port 0 for router listen endpoints and synchronize DB on connect
+
+### ⚡ Changed & Refactored
+- **ui:** send only zid/profileId to backend on connect
+- optimize DB profile lookup by id and standardize store IPC imports
+- **topology:** remove synthetic UI profile generation and delegate connect by zid to backend
+
+### 🔧 Maintenance
+- **backend:** add debug logging for saved and loaded JSON5 configurations
+
+---
 ## [v0.5.2] - 2026-08-26
 
 ### 🐛 Fixed

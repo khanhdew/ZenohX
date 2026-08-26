@@ -55,10 +55,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             connect_session,
+            connect_node_by_zid,
             disconnect_session,
             scout_locators,
             get_session_info,
             get_all_sessions,
+            get_node_configuration,
             query_admin_space,
             publish_sample,
             publish_sample_advanced,

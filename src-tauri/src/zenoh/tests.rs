@@ -14,8 +14,117 @@
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use crate::db::Database;
+    use crate::db::models::ConnectionProfile;
     use crate::zenoh::manager::*;
     use crate::zenoh::types::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_connect_from_db_profile() {
+        let db = Database::new_in_memory().expect("failed to init in-memory db");
+        db.init_tables().expect("failed to init tables");
+        let manager = Arc::new(SessionManager::new());
+
+        let profile = ConnectionProfile {
+            id: "test-db-node-1".to_string(),
+            name: "Test DB Router Node".to_string(),
+            mode: "peer".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/127.0.0.1:0".to_string()],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+            created_at: 1000,
+            updated_at: 1000,
+        };
+        db.save_profile(&profile).expect("failed to save profile");
+
+        // Convert profile to SessionConfig and connect
+        let loaded = db.get_profile_by_id("test-db-node-1").unwrap().unwrap();
+        let user_auth = loaded.user_auth.and_then(|v| serde_json::from_value(v).ok());
+        let tls_config = loaded.tls_config.and_then(|v| serde_json::from_value(v).ok());
+
+        let config = SessionConfig {
+            profile_id: Some(loaded.id.clone()),
+            mode: loaded.mode,
+            connect_locators: loaded.connect_locators,
+            listen_locators: loaded.listen_locators,
+            scout_multicast: loaded.scout_multicast,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth,
+            tls_config,
+            custom_config: loaded.custom_config,
+        };
+
+        let session_id = manager.connect(config).await.expect("connect failed");
+        let info = manager.get_session_info(&session_id).await.expect("info failed");
+        assert_eq!(info.profile_id.as_deref(), Some("test-db-node-1"));
+        assert!(!info.zid.is_empty());
+
+        let _ = manager.disconnect(&session_id).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_connect_from_db_profile_with_prefix_and_auth() {
+        let db = Database::new_in_memory().expect("failed to init in-memory db");
+        db.init_tables().expect("failed to init tables");
+        let manager = Arc::new(SessionManager::new());
+
+        let profile = ConnectionProfile {
+            id: "my-custom-node".to_string(),
+            name: "Custom Node".to_string(),
+            mode: "peer".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/127.0.0.1:0".to_string()],
+            scout_multicast: false,
+            user_auth: Some(serde_json::json!({
+                "username": "admin",
+                "password": "password123"
+            })),
+            tls_config: None,
+            custom_config: None,
+            created_at: 1000,
+            updated_at: 1000,
+        };
+        db.save_profile(&profile).expect("failed to save profile");
+
+        // Simulate lookup with "profile-" prefix
+        let zid = "profile-my-custom-node";
+        let raw_id = zid
+            .strip_prefix("profile-")
+            .or_else(|| zid.strip_prefix("scouted-"))
+            .or_else(|| zid.strip_prefix("admin-"))
+            .unwrap_or(zid);
+
+        let profiles = db.get_profiles().unwrap();
+        let matched = profiles.into_iter().find(|p| p.id == zid || p.id == *raw_id).unwrap();
+
+        let user_auth: Option<UserAuth> = matched.user_auth.and_then(|v| serde_json::from_value(v).ok());
+        assert!(user_auth.is_some());
+        assert_eq!(user_auth.as_ref().unwrap().username.as_deref(), Some("admin"));
+
+        let config = SessionConfig {
+            profile_id: Some(matched.id.clone()),
+            mode: matched.mode,
+            connect_locators: matched.connect_locators,
+            listen_locators: matched.listen_locators,
+            scout_multicast: matched.scout_multicast,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth,
+            tls_config: matched.tls_config.and_then(|v| serde_json::from_value(v).ok()),
+            custom_config: matched.custom_config,
+        };
+
+        let session_id = manager.connect(config).await.expect("connect failed");
+        let info = manager.get_session_info(&session_id).await.expect("info failed");
+        assert_eq!(info.profile_id.as_deref(), Some("my-custom-node"));
+
+        let _ = manager.disconnect(&session_id).await;
+    }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_session_manager_open_and_close() {

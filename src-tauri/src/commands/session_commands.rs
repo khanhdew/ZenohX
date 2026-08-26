@@ -39,14 +39,17 @@ pub async fn connect_node_by_zid(
         .or_else(|| zid.strip_prefix("admin-"))
         .unwrap_or(&zid);
 
-    let profiles = state
+    let profile = state
         .db
-        .get_profiles()
-        .map_err(|e| format!("failed to load profiles from database: {e}"))?;
-
-    let profile = profiles
-        .into_iter()
-        .find(|p| p.id == zid || p.id == *raw_id)
+        .get_profile_by_id(raw_id)
+        .map_err(|e| format!("failed to load profile from database: {e}"))?
+        .or_else(|| {
+            if raw_id != zid {
+                state.db.get_profile_by_id(&zid).ok().flatten()
+            } else {
+                None
+            }
+        })
         .ok_or_else(|| format!("node configuration for '{zid}' not found in database"))?;
 
     let user_auth = profile.user_auth.and_then(|v| serde_json::from_value(v).ok());
@@ -138,32 +141,43 @@ pub async fn get_node_configuration(
         .or_else(|| zid.strip_prefix("admin-"))
         .unwrap_or(&zid);
 
-    if let Ok(profiles) = state.db.get_profiles() {
-        if let Some(p) = profiles.into_iter().find(|p| p.id == zid || p.id == *raw_id) {
-            let config = crate::zenoh::types::SessionConfig {
-                profile_id: Some(p.id.clone()),
-                mode: p.mode.clone(),
-                connect_locators: p.connect_locators.clone(),
-                listen_locators: p.listen_locators.clone(),
-                scout_multicast: p.scout_multicast,
-                scout_gossip: true,
-                reconnect_retry: None,
-                user_auth: None,
-                tls_config: None,
-                custom_config: p.custom_config.clone(),
-            };
-            let json5 = config.generate_json5(Some(&p.id), &p.listen_locators);
-            return Ok(crate::zenoh::types::NodeConfigurationResult {
-                zid: p.id.clone(),
-                profile_id: Some(p.id),
-                mode: p.mode,
-                status: "disconnected".to_string(),
-                locators: p.listen_locators,
-                connect_locators: p.connect_locators,
-                json5,
-                is_local: true,
-            });
-        }
+    let profile = state
+        .db
+        .get_profile_by_id(raw_id)
+        .ok()
+        .flatten()
+        .or_else(|| {
+            if raw_id != zid {
+                state.db.get_profile_by_id(&zid).ok().flatten()
+            } else {
+                None
+            }
+        });
+
+    if let Some(p) = profile {
+        let config = crate::zenoh::types::SessionConfig {
+            profile_id: Some(p.id.clone()),
+            mode: p.mode.clone(),
+            connect_locators: p.connect_locators.clone(),
+            listen_locators: p.listen_locators.clone(),
+            scout_multicast: p.scout_multicast,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: p.custom_config.clone(),
+        };
+        let json5 = config.generate_json5(Some(&p.id), &p.listen_locators);
+        return Ok(crate::zenoh::types::NodeConfigurationResult {
+            zid: p.id.clone(),
+            profile_id: Some(p.id),
+            mode: p.mode,
+            status: "disconnected".to_string(),
+            locators: p.listen_locators,
+            connect_locators: p.connect_locators,
+            json5,
+            is_local: true,
+        });
     }
 
     // 3. Fallback to session manager scout / admin space

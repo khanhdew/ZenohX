@@ -35,7 +35,7 @@ import {
   onSessionStatus,
   saveProfile as saveProfileIpc,
   scoutNodes,
-} from '../lib/tauri';
+} from '../lib/ipc';
 import { formatFriendlyError } from '../lib/errorUtils';
 import { derivePersistentZid, isLocatorMatch } from '../lib/topology/topologyBuilder';
 import { useConnectionJsonStore } from './connectionJsonStore';

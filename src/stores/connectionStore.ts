@@ -38,6 +38,7 @@ import {
 } from '../lib/tauri';
 import { formatFriendlyError } from '../lib/errorUtils';
 import { generateZenohJson5, filterRealLocators } from '../lib/tls';
+import { derivePersistentZid, isLocatorMatch } from '../lib/topology/topologyBuilder';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 
 export interface ConnectionState {
@@ -213,18 +214,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       sessionId = await connectSession(config);
       const sessionInfo = await getSessionInfo(sessionId);
 
-      // If the profile had dynamic listen locators (empty or :0) and bound to real ports,
-      // update profile.listen_locators and custom_config with the actual bound locators before saving to SQLite!
+      // Preserve profile configuration without locking dynamic/ephemeral ports to static values
       const resolvedProfile: ConnectionProfile = { ...profile };
-      if (
-        sessionInfo?.bound_locators &&
-        sessionInfo.bound_locators.length > 0 &&
-        profile.mode !== 'client'
-      ) {
-        resolvedProfile.listen_locators = filterRealLocators(sessionInfo.bound_locators);
-      }
-
-      // Compile live JSON5 from the actual Zenoh session state to store with the node in SQLite
       try {
         const liveJson5Str = generateZenohJson5({
           id: sessionInfo.zid || resolvedProfile.id,
@@ -391,46 +382,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       const sessionId = await connectSession(config);
       const sessionInfo = await getSessionInfo(sessionId);
 
-      // If the profile had dynamic / empty listen locators and bound to real ports,
-      // compile the live JSON5 and persist with node into SQLite & state so reconnecting uses the exact same config & IP:Port
-      let updatedProfile = profile;
-      if (
-        sessionInfo?.bound_locators &&
-        sessionInfo.bound_locators.length > 0 &&
-        profile.mode !== 'client'
-      ) {
-        const liveListen = filterRealLocators(sessionInfo.bound_locators);
-        let liveConfigObj: Record<string, unknown> | null = profile.custom_config || null;
-        try {
-          const liveJson5Str = generateZenohJson5({
-            id: sessionInfo.zid || profile.id,
-            zid: sessionInfo.zid,
-            mode: profile.mode,
-            connect_locators: profile.connect_locators,
-            listen_locators: liveListen,
-            scout_multicast: profile.scout_multicast,
-            scout_gossip: profile.scout_gossip,
-            reconnect_retry: profile.reconnect_retry,
-            user_auth: profile.user_auth,
-            tls_config: profile.tls_config,
-            custom_config: profile.custom_config,
-          });
-          liveConfigObj = JSON.parse(liveJson5Str);
-        } catch {
-          // Keep existing
-        }
-
-        updatedProfile = {
-          ...profile,
-          listen_locators: liveListen,
-          custom_config: liveConfigObj,
-          updated_at: Date.now(),
-        };
-        await saveProfileIpc(updatedProfile).catch(() => {});
-      }
-
       set((state) => ({
-        profiles: state.profiles.map((p) => (p.id === profileId ? updatedProfile : p)),
         activeSessions: { ...state.activeSessions, [profileId]: sessionInfo },
         sessionToProfile: { ...state.sessionToProfile, [sessionId]: profileId },
         connectingProfileIds: { ...state.connectingProfileIds, [profileId]: false },
@@ -459,19 +411,52 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   disconnect: async (profileId: string) => {
     const sessionInfo = get().activeSessions[profileId];
-    if (!sessionInfo) return;
+    const disconnectingProfile = get().profiles.find((p) => p.id === profileId);
+    if (!sessionInfo && !disconnectingProfile) return;
 
     set({ error: null });
     try {
-      await disconnectSession(sessionInfo.id);
+      if (sessionInfo) {
+        await disconnectSession(sessionInfo.id);
+      }
       set((state) => {
         const nextActive = { ...state.activeSessions };
         delete nextActive[profileId];
         const nextSessionToProfile = { ...state.sessionToProfile };
-        delete nextSessionToProfile[sessionInfo.id];
+        if (sessionInfo?.id) {
+          delete nextSessionToProfile[sessionInfo.id];
+        }
+
+        // Immediately purge matching cached scoutedNodes so disconnected local node does not linger as ghost remote node
+        const sessionZid = sessionInfo?.zid?.toLowerCase();
+        const profileZid = profileId.toLowerCase();
+        const persistentZid = derivePersistentZid(profileId).toLowerCase();
+        const disconnectingLocs = (disconnectingProfile?.listen_locators || []).concat(
+          disconnectingProfile?.connect_locators || []
+        );
+
+        const newScouted = state.scoutedNodes.filter((sNode) => {
+          const sZid = sNode.zid.toLowerCase();
+          if (
+            (sessionZid && sZid === sessionZid) ||
+            sZid === profileZid ||
+            sZid === persistentZid
+          ) {
+            return false;
+          }
+          if (disconnectingLocs.length > 0 && disconnectingProfile?.mode !== 'client') {
+            const hasMatchingLoc = sNode.locators.some((loc) =>
+              disconnectingLocs.some((dLoc) => isLocatorMatch(loc, dLoc))
+            );
+            if (hasMatchingLoc) return false;
+          }
+          return true;
+        });
+
         return {
           activeSessions: nextActive,
           sessionToProfile: nextSessionToProfile,
+          scoutedNodes: newScouted,
         };
       });
     } catch (err) {
@@ -499,6 +484,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   refreshSessions: async () => {
     try {
       const sessions = await getAllSessions();
+      if (!Array.isArray(sessions)) return;
       const currentMapping = get().sessionToProfile;
       const nextActive: Record<string, SessionInfo> = {};
       const nextSessionToProfile: Record<string, string> = { ...currentMapping };
@@ -511,59 +497,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         if (profileId) {
           nextActive[profileId] = s;
           nextSessionToProfile[s.id] = profileId;
-
-          // Periodically sync live session JSON5 & bound locators from Zenoh lib into SQLite & store
-          const pIndex = currentProfiles.findIndex((p) => p.id === profileId);
-          if (pIndex !== -1) {
-            const profile = currentProfiles[pIndex];
-            const liveListenLocators = filterRealLocators(
-              s.bound_locators && s.bound_locators.length > 0 && profile.mode !== 'client'
-                ? s.bound_locators
-                : profile.listen_locators
-            );
-
-            let liveConfigObj: Record<string, unknown> | null = profile.custom_config || null;
-            try {
-              const liveJson5Str = generateZenohJson5({
-                id: s.zid || profile.id,
-                zid: s.zid,
-                mode: profile.mode,
-                connect_locators: profile.connect_locators,
-                listen_locators: liveListenLocators,
-                scout_multicast: profile.scout_multicast,
-                scout_gossip: profile.scout_gossip,
-                reconnect_retry: profile.reconnect_retry,
-                user_auth: profile.user_auth,
-                tls_config: profile.tls_config,
-                custom_config: profile.custom_config,
-              });
-              liveConfigObj = JSON.parse(liveJson5Str);
-            } catch {
-              // Keep existing
-            }
-
-            const isLocatorsDiff = JSON.stringify(profile.listen_locators) !== JSON.stringify(liveListenLocators);
-            const isConfigDiff = JSON.stringify(profile.custom_config) !== JSON.stringify(liveConfigObj);
-
-            if (isLocatorsDiff || isConfigDiff) {
-              const updatedProfile: ConnectionProfile = {
-                ...profile,
-                listen_locators: liveListenLocators,
-                custom_config: liveConfigObj,
-                updated_at: Date.now(),
-              };
-              currentProfiles[pIndex] = updatedProfile;
-              profilesUpdated = true;
-              await saveProfileIpc(updatedProfile).catch(() => {});
-            }
-          }
         }
       }
 
       set({
         activeSessions: nextActive,
         sessionToProfile: nextSessionToProfile,
-        ...(profilesUpdated ? { profiles: currentProfiles } : {}),
       });
     } catch (err) {
       console.error('Refresh sessions failed:', err);

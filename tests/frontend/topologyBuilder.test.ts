@@ -109,7 +109,7 @@ describe('Topology Data Builder', () => {
     assert.ok(peerNode);
     assert.equal(peerNode?.type, 'peer');
     assert.equal(peerNode?.isTls, false);
-    assert.equal(peerNode?.status, 'scouted');
+    assert.equal(peerNode?.status, 'connected');
 
     // Should create an active edge between router and peer
     assert.equal(edges.length, 1);
@@ -164,7 +164,7 @@ describe('Topology Data Builder', () => {
     assert.equal(updatedNode?.fy, 420);
   });
 
-  it('includes non-scouted active sessions in graph', () => {
+  it('includes non-scouted active sessions in graph and displays remote upstream router', () => {
     const profiles: ConnectionProfile[] = [
       {
         id: 'prof-cloud',
@@ -187,21 +187,30 @@ describe('Topology Data Builder', () => {
       },
     };
 
-    const { nodes } = buildTopologyGraph({
+    const { nodes, edges } = buildTopologyGraph({
       scoutedNodes: [],
       activeSessions,
       profiles,
       existingNodes: [],
     });
 
-    assert.equal(nodes.length, 1);
+    // Local client node + Remote upstream router node
+    assert.equal(nodes.length, 2);
     
-    const cloudNode = nodes.find((n) => n.id === 'profile-prof-cloud');
-    assert.ok(cloudNode);
-    assert.equal(cloudNode?.type, 'router');
-    assert.equal(cloudNode?.isTls, true);
-    assert.equal(cloudNode?.status, 'connected');
-    assert.equal(cloudNode?.label, 'Cloud Router');
+    const clientNode = nodes.find((n) => n.id === 'profile-prof-cloud');
+    assert.ok(clientNode);
+    assert.equal(clientNode?.type, 'client');
+    assert.equal(clientNode?.scope, 'local');
+    assert.equal(clientNode?.status, 'connected');
+
+    const remoteRouterNode = nodes.find((n) => n.scope === 'remote');
+    assert.ok(remoteRouterNode);
+    assert.equal(remoteRouterNode?.type, 'router');
+    assert.equal(remoteRouterNode?.isTls, true);
+    assert.equal(remoteRouterNode?.status, 'connected');
+
+    assert.equal(edges.length, 1);
+    assert.equal(edges[0].isEncrypted, true);
   });
 
   it('does not create speculative edges between unconnected scouted peers in strict mode', () => {
@@ -230,7 +239,7 @@ describe('Topology Data Builder', () => {
     assert.equal(edges.length, 0);
   });
 
-  it('filters out ZenohX own session from scout results and accurately models single local router', () => {
+  it('accurately models local client and connected scouted router', () => {
     const scoutedNodes: ScoutedNode[] = [
       {
         zid: 'router-local-zenohd-zid',
@@ -269,12 +278,19 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // Directly tracks the single local router without creating an extra client node
-    assert.equal(nodes.length, 1);
+    // Local client node and remote scouted router node
+    assert.equal(nodes.length, 2);
+    const clientNode = nodes.find((n) => n.scope === 'local');
+    assert.ok(clientNode);
+    assert.equal(clientNode?.type, 'client');
+
     const routerNode = nodes.find((n) => n.zid === 'router-local-zenohd-zid');
     assert.ok(routerNode);
     assert.equal(routerNode?.status, 'connected');
     assert.equal(routerNode?.type, 'router');
+    assert.equal(routerNode?.scope, 'remote');
+
+    assert.equal(edges.length, 1);
   });
 
 
@@ -593,13 +609,19 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    // 1 directly tracked upstream router node
-    assert.equal(nodes.length, 1);
+    // 1 local client node and 1 upstream router node
+    assert.equal(nodes.length, 2);
+
+    const clientNode = nodes.find((n) => n.zid === 'client-zid-12345678');
+    assert.ok(clientNode);
+    assert.equal(clientNode?.type, 'client');
+    assert.equal(clientNode?.scope, 'local');
 
     const routerNode = nodes.find((n) => n.zid === 'router-zid-87654321');
     assert.ok(routerNode);
     assert.equal(routerNode?.type, 'router');
     assert.equal(routerNode?.status, 'connected');
+    assert.equal(routerNode?.scope, 'remote');
     // Advertised locators must include the upstream router locators (from link/connect/scout)
     assert.ok(routerNode?.locators.includes('tcp/192.168.1.50:7447'));
     assert.ok(routerNode?.locators.includes('ws/192.168.1.50:8080'));
@@ -646,6 +668,168 @@ describe('Topology Data Builder', () => {
 
     assert.equal(nodes.length, 1);
     assert.equal(nodes[0].label, 'My Custom Edge Router');
+  });
+
+  it('does not turn disconnected local app profile into remote node when stale scout entry exists', () => {
+    const profile: ConnectionProfile = {
+      id: 'prof-local-router',
+      name: 'Local Gateway Router',
+      mode: 'router',
+      connect_locators: [],
+      listen_locators: ['tcp/127.0.0.1:7447'],
+      scout_multicast: true,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    const persistentZid = derivePersistentZid(profile.id);
+
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: persistentZid,
+        what: 'Router',
+        locators: ['tcp/127.0.0.1:7447'],
+      },
+      {
+        zid: 'external-scouted-router-1234',
+        what: 'Router',
+        locators: ['tcp/192.168.1.200:7447'],
+      },
+    ];
+
+    // When disconnected (activeSessions is empty):
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions: {},
+      profiles: [profile],
+      existingNodes: [],
+    });
+
+    // Only the external router is rendered as remote; the disconnected local app profile is excluded
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].zid, 'external-scouted-router-1234');
+    assert.equal(nodes[0].scope, 'remote');
+  });
+
+  it('synthesizes multi-hop remote routers and remote links from Admin Space data', () => {
+    const adminNodes = new Map();
+    adminNodes.set('cloud-router-1', {
+      zid: 'cloud-router-1',
+      whatami: 'router',
+      version: '1.7.2',
+      locators: ['tcp/172.66.1.1:7447'],
+      neighbors: ['cloud-router-2'],
+      links: [],
+    });
+    adminNodes.set('cloud-router-2', {
+      zid: 'cloud-router-2',
+      whatami: 'router',
+      version: '1.7.2',
+      locators: ['tcp/172.66.1.2:7447'],
+      neighbors: ['cloud-router-1'],
+      links: [],
+    });
+
+    const adminLinks = [
+      {
+        sourceZid: 'cloud-router-1',
+        targetZid: 'cloud-router-2',
+        srcLocator: 'tcp/172.66.1.1:7447',
+        dstLocator: 'tcp/172.66.1.2:7447',
+        isStreamed: true,
+      },
+    ];
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {},
+      profiles: [],
+      adminData: {
+        nodes: adminNodes,
+        links: adminLinks,
+      },
+    });
+
+    assert.equal(nodes.length, 2);
+    assert.ok(nodes.some((n) => n.zid === 'cloud-router-1' && n.scope === 'remote'));
+    assert.ok(nodes.some((n) => n.zid === 'cloud-router-2' && n.scope === 'remote'));
+    assert.equal(edges.length, 1);
+    assert.equal(edges[0].status, 'active');
+  });
+
+  it('unifies multiple locators (tcp, tls, udp) of a single remote router into ONE remote node', () => {
+    const profile: ConnectionProfile = {
+      id: 'local-client-1',
+      name: 'Client App',
+      mode: 'client',
+      connect_locators: [
+        'tcp/172.66.1.1:7447',
+        'tls/172.66.1.1:7446',
+        'udp/172.66.1.1:7447',
+      ],
+      listen_locators: [],
+      scout_multicast: true,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    const sessionInfo: ActiveSession = {
+      id: 'session-client-1',
+      profile_id: 'local-client-1',
+      mode: 'client',
+      zid: 'client-zid-1234',
+      listen_locators: [],
+      connect_locators: [
+        'tcp/172.66.1.1:7447',
+        'tls/172.66.1.1:7446',
+        'udp/172.66.1.1:7447',
+      ],
+      connected_routers: ['remote-router-zid-9999'],
+      connected_peers: [],
+      links: [
+        {
+          zid: 'remote-router-zid-9999',
+          whatami: 'router',
+          src: 'tcp/192.168.1.50:54321',
+          dst: 'tcp/172.66.1.1:7447',
+          is_streamed: true,
+        },
+      ],
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [
+        {
+          zid: 'remote-router-zid-9999',
+          what: 'Router',
+          locators: ['tcp/172.66.1.1:7447', 'tls/172.66.1.1:7446'],
+        },
+      ],
+      activeSessions: {
+        'local-client-1': sessionInfo,
+      },
+      profiles: [profile],
+    });
+
+    // Expect exactly 2 nodes: 1 Local Client and 1 Remote Router (NOT 4 separate routers for each locator)
+    assert.equal(nodes.length, 2);
+
+    const localNode = nodes.find((n) => n.scope === 'local');
+    const remoteRouter = nodes.find((n) => n.scope === 'remote');
+
+    assert.ok(localNode, 'Local client node must exist');
+    assert.ok(remoteRouter, 'Remote router node must exist');
+    assert.equal(remoteRouter.zid, 'remote-router-zid-9999');
+    assert.equal(remoteRouter.type, 'router');
+
+    // All locators must be aggregated inside the single remote router
+    assert.ok(remoteRouter.locators.includes('tcp/172.66.1.1:7447'));
+    assert.ok(remoteRouter.locators.includes('tls/172.66.1.1:7446'));
+
+    // There should be exactly 1 active edge connecting Local Client to Remote Router
+    assert.equal(edges.length, 1);
+    assert.equal(edges[0].source, localNode.id);
+    assert.equal(edges[0].target, remoteRouter.id);
   });
 });
 

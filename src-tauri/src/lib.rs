@@ -59,6 +59,7 @@ pub fn run() {
             scout_locators,
             get_session_info,
             get_all_sessions,
+            query_admin_space,
             publish_sample,
             publish_sample_advanced,
             subscribe,

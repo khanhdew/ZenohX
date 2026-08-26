@@ -509,4 +509,14 @@ pub struct SessionStatusEvent {
     pub timestamp: Option<i64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminSpaceEntry {
+    pub key_expr: String,
+    pub zid: Option<String>,
+    pub category: String,
+    pub payload_json: String,
+    pub timestamp: i64,
+}
+
 

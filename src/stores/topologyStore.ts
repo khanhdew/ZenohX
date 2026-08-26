@@ -19,11 +19,22 @@ import type {
   TopologyEdge,
   BuildTopologyOptions,
   LinkTrafficFlash,
+  AdminTopologyData,
 } from '../types/topology';
 import { buildTopologyGraph } from '../lib/topology/topologyBuilder';
 import { applyRadialLayout, type ViewTransform } from '../lib/topology/forceEngine';
+import { parseAdminSpaceEntries } from '../lib/topology/adminSpaceParser';
+import { queryAdminSpace } from '../lib/tauri';
+import { useConnectionStore } from './connectionStore';
 
-export type TopologyFilterType = 'all' | 'router' | 'peer' | 'connected';
+export type TopologyFilterType =
+  | 'all'
+  | 'local'
+  | 'remote'
+  | 'router'
+  | 'peer'
+  | 'client'
+  | 'connected';
 export type TopologyLayoutMode = 'force' | 'radial';
 
 export interface TopologyState {
@@ -39,9 +50,13 @@ export interface TopologyState {
   transform: ViewTransform;
   activeLinkTraffic: Record<string, LinkTrafficFlash>;
   customNodeLabels: Record<string, string>;
+  adminDiscoveryEnabled: boolean;
+  adminData: AdminTopologyData | null;
 
   // Actions
   syncFromContext: (opts: BuildTopologyOptions) => void;
+  setAdminDiscoveryEnabled: (enabled: boolean) => void;
+  fetchAdminTopology: () => Promise<void>;
   setNodeLabel: (zidOrId: string, label: string) => void;
   removeNodeLabel: (zidOrId: string) => void;
   setNodeName: (zidOrId: string, name: string) => void;
@@ -138,12 +153,16 @@ export const useTopologyStore = create<TopologyState>()(
     transform: { x: 0, y: 0, k: 1 },
     activeLinkTraffic: {},
     customNodeLabels: {},
+    adminDiscoveryEnabled: true,
+    adminData: null,
 
     syncFromContext: (opts) => {
       const existing = get().nodes;
       const customLabels = get().customNodeLabels;
+      const currentAdminData = opts.adminData !== undefined ? opts.adminData : (get().adminDiscoveryEnabled ? (get().adminData || undefined) : undefined);
       const { nodes, edges } = buildTopologyGraph({
         ...opts,
+        adminData: currentAdminData,
         customNodeLabels: customLabels,
         existingNodes: existing,
       });
@@ -153,6 +172,57 @@ export const useTopologyStore = create<TopologyState>()(
       }
 
       set({ nodes, edges });
+    },
+
+    setAdminDiscoveryEnabled: (adminDiscoveryEnabled: boolean) => {
+      set({ adminDiscoveryEnabled });
+      if (adminDiscoveryEnabled) {
+        get().fetchAdminTopology();
+      } else {
+        const { profiles, activeSessions, scoutedNodes } = useConnectionStore.getState();
+        get().syncFromContext({
+          profiles,
+          activeSessions,
+          scoutedNodes,
+          adminData: undefined,
+        });
+      }
+    },
+
+    fetchAdminTopology: async () => {
+      if (!get().adminDiscoveryEnabled) return;
+      const activeSessions = useConnectionStore.getState().activeSessions;
+      const sessionList = Object.values(activeSessions);
+      if (sessionList.length === 0) return;
+
+      try {
+        const allEntries: import('../types/topology').AdminSpaceEntry[] = [];
+        for (const s of sessionList) {
+          try {
+            const entries = await queryAdminSpace(s.id, '@/**', 2000);
+            if (Array.isArray(entries)) {
+              allEntries.push(...entries);
+            }
+          } catch {
+            // Ignore if admin query fails on particular session
+          }
+        }
+
+        if (allEntries.length > 0) {
+          const adminData = parseAdminSpaceEntries(allEntries);
+          set({ adminData });
+          const profiles = useConnectionStore.getState().profiles;
+          const scoutedNodes = useConnectionStore.getState().scoutedNodes;
+          get().syncFromContext({
+            scoutedNodes,
+            activeSessions,
+            profiles,
+            adminData,
+          });
+        }
+      } catch (err) {
+        console.error('Admin topology fetch error:', err);
+      }
     },
 
     setNodeLabel: setNodeLabelFn,
@@ -249,8 +319,11 @@ export const useTopologyStore = create<TopologyState>()(
   getFilteredNodes: () => {
     const { nodes, filterType } = get();
     if (filterType === 'all') return nodes;
+    if (filterType === 'local') return nodes.filter((n) => n.scope === 'local');
+    if (filterType === 'remote') return nodes.filter((n) => n.scope === 'remote');
     if (filterType === 'router') return nodes.filter((n) => n.type === 'router');
     if (filterType === 'peer') return nodes.filter((n) => n.type === 'peer');
+    if (filterType === 'client') return nodes.filter((n) => n.type === 'client');
     if (filterType === 'connected') return nodes.filter((n) => n.status === 'connected');
     return nodes;
   },

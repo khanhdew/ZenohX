@@ -72,10 +72,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false);
 
   // Client Mode Form State
-  const [clientName, setClientName] = useState<string>('Client Router');
-  const [clientHost, setClientHost] = useState<string>('127.0.0.1');
-  const [clientPort, setClientPort] = useState<string>('7447');
-  const [clientProtocol, setClientProtocol] = useState<TransportProtocol>(DEFAULT_TRANSPORT_PROTOCOL);
+  const [clientName, setClientName] = useState<string>('Edge Client');
+  const [clientLocator, setClientLocator] = useState<string>('tcp/127.0.0.1:7447');
   const [enableReconnectRetry, setEnableReconnectRetry] = useState<boolean>(true);
 
   // Peer Mode Form State
@@ -145,21 +143,10 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setClientKey(profile.tls_config?.client_key || '');
 
         // Populate client form if client mode
-        if (profile.connect_locators && profile.connect_locators.length === 1) {
-          const parsed = parseLocator(profile.connect_locators[0]);
-          if (parsed) {
-            setClientHost(parsed.host);
-            setClientPort(parsed.port);
-            setClientProtocol((parsed.protocol as TransportProtocol) || DEFAULT_TRANSPORT_PROTOCOL);
-          } else {
-            setClientHost('');
-            setClientPort('7447');
-            setClientProtocol(DEFAULT_TRANSPORT_PROTOCOL);
-          }
+        if (profile.connect_locators && profile.connect_locators.length > 0) {
+          setClientLocator(profile.connect_locators[0]);
         } else {
-          setClientHost('');
-          setClientPort('7447');
-          setClientProtocol(isTlsOn ? 'tls' : DEFAULT_TRANSPORT_PROTOCOL);
+          setClientLocator('tcp/127.0.0.1:7447');
         }
         setClientName(profile.name || 'Client Router');
 
@@ -205,10 +192,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setPreset('client');
         setShowAdvanced(false);
 
-        setClientName('Client Router');
-        setClientHost('127.0.0.1');
-        setClientPort('7447');
-        setClientProtocol(DEFAULT_TRANSPORT_PROTOCOL);
+        setClientName('Edge Client');
+        setClientLocator('tcp/127.0.0.1:7447');
         setEnableReconnectRetry(true);
 
         setPeerName('Local Peer');
@@ -327,24 +312,19 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setValidationError('Profile Name is required.');
         return false;
       }
-      if (clientProtocol === 'unix') {
-        if (!clientHost.trim()) {
-          setValidationError('Unix socket path is required (e.g. /tmp/zenoh.sock).');
-          return false;
-        }
-        if (!isValidUnixPath(clientHost)) {
-          setValidationError('Unix socket path must start with "/" (e.g. /tmp/zenoh.sock).');
-          return false;
-        }
-      } else {
-        if (!clientHost.trim()) {
-          setValidationError('Router Address is required (e.g. 127.0.0.1 or router.zenoh.io).');
-          return false;
-        }
-        if (!isValidPort(clientPort)) {
-          setValidationError('Port must be a valid integer between 0 and 65535.');
-          return false;
-        }
+      const trimmedLoc = clientLocator.trim();
+      if (!trimmedLoc) {
+        setValidationError('Upstream Router Locator is required (e.g. tcp/172.66.1.1:7447).');
+        return false;
+      }
+      const parsed = parseLocator(trimmedLoc);
+      if (!parsed) {
+        setValidationError('Invalid Zenoh locator format (e.g. tcp/172.66.1.1:7447).');
+        return false;
+      }
+      if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
+        setValidationError('Unix socket path must start with "/" (e.g. unixpipe//tmp/zenoh.sock).');
+        return false;
       }
     } else if (preset === 'peer') {
       if (!peerName.trim()) {
@@ -475,10 +455,15 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       : null;
 
     if (preset === 'client') {
-      const locator = buildLocator(clientProtocol, clientHost, clientPort);
-      const isEncrypted = clientProtocol === 'tls' || clientProtocol === 'wss';
+      const parsed = parseLocator(clientLocator.trim());
+      const locator = parsed
+        ? (parsed.protocol === 'unix'
+            ? `unixpipe/${parsed.host.startsWith('/') ? parsed.host : `/${parsed.host}`}`
+            : `${parsed.protocol}/${parsed.host}:${parsed.port || '7447'}`)
+        : clientLocator.trim();
+      const isEncrypted = parsed?.protocol === 'tls' || parsed?.protocol === 'wss';
       const tlsConfig = resolveTlsConfig({
-        enableTls: isEncrypted,
+        enableTls: isEncrypted || enableTls || useCustomTls,
         useCustomTls,
         caCert,
         clientCert,
@@ -517,13 +502,6 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       const activeZid = activeSession?.zid || (profile as any)?.zid;
 
       const configuredPeerLocs = listenLocators.map((l) => l.trim()).filter(Boolean);
-      const isEphemeralOrWildcardPeer = configuredPeerLocs.some(
-        (l) => l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]')
-      );
-      const resolvedPeerListenLocs =
-        activeSession?.bound_locators && activeSession.bound_locators.length > 0 && isEphemeralOrWildcardPeer
-          ? activeSession.bound_locators
-          : configuredPeerLocs;
 
       return {
         profile_id: profile?.id,
@@ -531,7 +509,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         zid: activeZid,
         mode: 'peer',
         connect_locators: connectLocators.map((l) => l.trim()).filter(Boolean),
-        listen_locators: resolvedPeerListenLocs,
+        listen_locators: configuredPeerLocs,
         scout_multicast: scoutMulticast,
         scout_gossip: scoutGossip,
         reconnect_retry: reconnectRetryConfig,
@@ -548,13 +526,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         : null;
       const activeZid = activeSession?.zid || (profile as any)?.zid;
 
-      const isEphemeralOrWildcardRouter = listenLocs.some(
-        (l) => l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]')
-      );
-      const resolvedRouterListenLocs =
-        activeSession?.bound_locators && activeSession.bound_locators.length > 0 && isEphemeralOrWildcardRouter
-          ? activeSession.bound_locators
-          : (listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447']);
+      const resolvedRouterListenLocs = listenLocs.length > 0 ? listenLocs : ['tcp/0.0.0.0:7447'];
 
       const hasTlsEndpoint = routerListenEndpoints.some((ep) => ep.protocol === 'tls' || ep.protocol === 'wss');
       const tlsConfig = resolveTlsConfig({
@@ -661,12 +633,17 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         finalMode = 'client';
         finalScoutMulticast = false;
         finalScoutGossip = false;
-        const locator = buildLocator(clientProtocol, clientHost, clientPort);
+        const parsed = parseLocator(clientLocator.trim());
+        const locator = parsed
+          ? (parsed.protocol === 'unix'
+              ? `unixpipe/${parsed.host.startsWith('/') ? parsed.host : `/${parsed.host}`}`
+              : `${parsed.protocol}/${parsed.host}:${parsed.port || '7447'}`)
+          : clientLocator.trim();
         finalConnectLocators = locator ? [locator] : [];
         finalListenLocators = [];
-        const isEncrypted = clientProtocol === 'tls' || clientProtocol === 'wss';
+        const isEncrypted = parsed?.protocol === 'tls' || parsed?.protocol === 'wss';
         finalTlsConfig = resolveTlsConfig({
-          enableTls: isEncrypted,
+          enableTls: isEncrypted || enableTls || useCustomTls,
           useCustomTls,
           caCert,
           clientCert,
@@ -715,18 +692,6 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
           customConfigObj = JSON.parse(customConfigText);
         } catch {
           // Handled by validate()
-        }
-      }
-
-      // If listen_locators is empty or dynamic :0, but the active session is currently bound to a real port,
-      // preserve the live bound endpoint so reconnecting doesn't allocate a new random ephemeral port!
-      const boundLocs = activeSession?.bound_locators;
-      if (boundLocs && boundLocs.length > 0 && finalMode !== 'client') {
-        const hasWildcardOrEmpty =
-          finalListenLocators.length === 0 ||
-          finalListenLocators.some((l) => l.endsWith(':0') || l.includes('0.0.0.0:0') || l.includes('[::]:0'));
-        if (hasWildcardOrEmpty) {
-          finalListenLocators = boundLocs;
         }
       }
 
@@ -811,12 +776,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     if (parsed.connect_locators && parsed.connect_locators.length > 0) {
       setConnectLocators(parsed.connect_locators);
       setRouterConnectLocators(parsed.connect_locators);
-      const parsedFirst = parseLocator(parsed.connect_locators[0]);
-      if (parsedFirst) {
-        setClientHost(parsedFirst.host);
-        setClientPort(parsedFirst.port);
-        setClientProtocol((parsedFirst.protocol as TransportProtocol) || DEFAULT_TRANSPORT_PROTOCOL);
-      }
+      setClientLocator(parsed.connect_locators[0]);
     }
     if (parsed.listen_locators && parsed.listen_locators.length > 0) {
       setListenLocators(parsed.listen_locators);
@@ -860,6 +820,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     return true;
   };
 
+  const parsedClient = parseLocator(clientLocator);
+
   return {
     isEditing,
     preset,
@@ -869,12 +831,8 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     applyJsonToForm,
     clientName,
     setClientName,
-    clientHost,
-    setClientHost,
-    clientPort,
-    setClientPort,
-    clientProtocol,
-    setClientProtocol,
+    clientLocator,
+    setClientLocator,
     enableReconnectRetry,
     setEnableReconnectRetry,
     peerName,
@@ -934,14 +892,38 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     handleTestConnection,
     handleSave,
     // Backward-compatibility aliases
+    clientHost: parsedClient?.host || '',
+    setClientHost: (h: string) => {
+      const p = parseLocator(clientLocator);
+      setClientLocator(`${p?.protocol || 'tcp'}/${h}:${p?.port || '7447'}`);
+    },
+    clientPort: parsedClient?.port || '7447',
+    setClientPort: (port: string) => {
+      const p = parseLocator(clientLocator);
+      setClientLocator(`${p?.protocol || 'tcp'}/${p?.host || '127.0.0.1'}:${port}`);
+    },
+    clientProtocol: (parsedClient?.protocol as TransportProtocol) || 'tcp',
+    setClientProtocol: (proto: TransportProtocol) => {
+      const p = parseLocator(clientLocator);
+      setClientLocator(`${proto}/${p?.host || '127.0.0.1'}:${p?.port || '7447'}`);
+    },
     cloudName: clientName,
     setCloudName: setClientName,
-    cloudHost: clientHost,
-    setCloudHost: setClientHost,
-    cloudPort: clientPort,
-    setCloudPort: setClientPort,
-    cloudProtocol: clientProtocol,
-    setCloudProtocol: setClientProtocol,
+    cloudHost: parsedClient?.host || '',
+    setCloudHost: (h: string) => {
+      const p = parseLocator(clientLocator);
+      setClientLocator(`${p?.protocol || 'tcp'}/${h}:${p?.port || '7447'}`);
+    },
+    cloudPort: parsedClient?.port || '7447',
+    setCloudPort: (port: string) => {
+      const p = parseLocator(clientLocator);
+      setClientLocator(`${p?.protocol || 'tcp'}/${p?.host || '127.0.0.1'}:${port}`);
+    },
+    cloudProtocol: (parsedClient?.protocol as TransportProtocol) || 'tcp',
+    setCloudProtocol: (proto: TransportProtocol) => {
+      const p = parseLocator(clientLocator);
+      setClientLocator(`${proto}/${p?.host || '127.0.0.1'}:${p?.port || '7447'}`);
+    },
     localName: peerName,
     setLocalName: setPeerName,
   };

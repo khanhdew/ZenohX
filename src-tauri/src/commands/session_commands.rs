@@ -14,7 +14,7 @@
 
 use tauri::State;
 use uuid::Uuid;
-use crate::zenoh::types::{ScoutedNode, SessionConfig, SessionInfo};
+use crate::zenoh::types::{AdminSpaceEntry, ScoutedNode, SessionConfig, SessionInfo};
 use crate::AppState;
 
 /// Opens a new Zenoh session with the specified configuration and returns the session ID.
@@ -59,4 +59,18 @@ pub async fn get_all_sessions(
     state: State<'_, AppState>,
 ) -> Result<Vec<SessionInfo>, String> {
     Ok(state.session_manager.get_all_sessions().await)
+}
+
+/// Queries Zenoh Admin Space (@/**) to discover remote routers, links, and node topology.
+#[tauri::command]
+pub async fn query_admin_space(
+    state: State<'_, AppState>,
+    session_id: Uuid,
+    selector: Option<String>,
+    timeout_ms: u64,
+) -> Result<Vec<AdminSpaceEntry>, String> {
+    state
+        .session_manager
+        .query_admin_space(&session_id, selector.as_deref(), timeout_ms)
+        .await
 }

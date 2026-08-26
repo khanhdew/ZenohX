@@ -356,7 +356,15 @@ export function buildLocator(protocol: string, host: string, port: string): stri
     cleanHost = `[${cleanHost}]`;
   }
 
-  const p = cleanPort !== '' ? cleanPort : '7447';
+  const defaultPortMap: Record<string, string> = {
+    tcp: '7447',
+    tls: '7446',
+    quic: '7448',
+    udp: '7449',
+    ws: '8080',
+    wss: '8443',
+  };
+  const p = cleanPort !== '' ? cleanPort : (defaultPortMap[proto] || '7447');
   return `${proto}/${cleanHost}:${p}`;
 }
 

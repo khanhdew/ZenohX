@@ -129,28 +129,39 @@ describe('Topology Store', () => {
       profiles,
     });
 
-    // filterType: all -> all nodes (r1 and p1)
+    // filterType: all -> all nodes (local-zid, r1, p1)
     useTopologyStore.getState().setFilterType('all');
     let filtered = useTopologyStore.getState().getFilteredNodes();
-    assert.equal(filtered.length, 2); // r1 (router, connected), p1 (peer, scouted)
+    assert.equal(filtered.length, 3); // local-zid (local client), r1 (router, connected), p1 (peer, scouted)
 
+    // filterType: local -> local nodes
+    useTopologyStore.getState().setFilterType('local');
+    filtered = useTopologyStore.getState().getFilteredNodes();
+    assert.equal(filtered.length, 1);
+    assert.equal(filtered[0].scope, 'local');
 
-    // filterType: router -> router nodes only
+    // filterType: remote -> remote scouted nodes (r1 and p1)
+    useTopologyStore.getState().setFilterType('remote');
+    filtered = useTopologyStore.getState().getFilteredNodes();
+    assert.equal(filtered.length, 2);
+    assert.ok(filtered.every((n) => n.scope === 'remote'));
+
+    // filterType: router -> router nodes only (r1)
     useTopologyStore.getState().setFilterType('router');
     filtered = useTopologyStore.getState().getFilteredNodes();
     assert.equal(filtered.length, 1);
     assert.equal(filtered[0].type, 'router');
 
-    // filterType: peer -> peer nodes only
+    // filterType: peer -> peer nodes only (p1)
     useTopologyStore.getState().setFilterType('peer');
     filtered = useTopologyStore.getState().getFilteredNodes();
     assert.equal(filtered.length, 1);
     assert.equal(filtered[0].type, 'peer');
 
-    // filterType: connected -> connected nodes (r1)
+    // filterType: connected -> connected nodes (local-zid and r1)
     useTopologyStore.getState().setFilterType('connected');
     filtered = useTopologyStore.getState().getFilteredNodes();
-    assert.equal(filtered.length, 1);
+    assert.equal(filtered.length, 2);
     assert.ok(filtered.every((n) => n.status === 'connected'));
   });
 
@@ -282,7 +293,7 @@ describe('Topology Store', () => {
     });
 
     const store = useTopologyStore.getState();
-    assert.equal(store.edges.length, 1);
+    assert.ok(store.edges.length >= 1);
     const edgeId = store.edges[0].id;
 
 

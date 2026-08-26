@@ -144,14 +144,14 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
         )}
       </div>
 
-      {/* Optional Static Listen Endpoints */}
+      {/* Optional Listen Endpoints */}
       {addListenLocator && updateListenLocator && removeListenLocator && (
         <div className="space-y-2 pt-1 border-t">
           <div className="flex items-center justify-between">
-            <SimpleTooltip content="Allow inbound direct connections from non-multicast peers.">
+            <SimpleTooltip content="Allow inbound direct connections from non-multicast peers. If empty, Zenoh automatically binds to an ephemeral dynamic port.">
               <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
                 <Radio className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Static Listen Endpoints (Optional)</span>
+                <span>Listen Endpoints (Optional / Dynamic)</span>
               </Label>
             </SimpleTooltip>
             <Button
@@ -168,17 +168,17 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
 
           {listenLocators.length === 0 ? (
             <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
-              <span>Ephemeral listener (default dynamic port).</span>
+              <span>Dynamic ephemeral port (OS auto-assigns; peers discover via LAN multicast/gossip).</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     addListenLocator();
-                    setTimeout(() => updateListenLocator(0, 'tcp/0.0.0.0:7447'), 0);
+                    setTimeout(() => updateListenLocator(0, 'tcp/0.0.0.0:0'), 0);
                   }}
                   className="text-[10px] font-medium text-primary hover:underline"
                 >
-                  + Bind TCP:7447
+                  + Add Custom Port
                 </button>
               </div>
             </div>

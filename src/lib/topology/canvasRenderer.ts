@@ -27,6 +27,206 @@ export interface RenderOptions {
   customNodeLabels?: Record<string, string>;
 }
 
+export interface NodeRoleStyle {
+  fill: string;
+  stroke: string;
+  iconStroke: string;
+  glow: string;
+}
+
+export function getNodeRoleColors(type: TopologyNode['type'], isDark: boolean): NodeRoleStyle {
+  if (type === 'router') {
+    return {
+      fill: isDark ? '#1e1b4b' : '#e0e7ff', // Indigo 950 / 100
+      stroke: isDark ? '#818cf8' : '#6366f1', // Indigo 400 / 500
+      iconStroke: isDark ? '#c7d2fe' : '#4338ca', // Indigo 200 / 700
+      glow: isDark ? 'rgba(129, 140, 248, 0.3)' : 'rgba(99, 102, 241, 0.25)',
+    };
+  }
+  if (type === 'peer') {
+    return {
+      fill: isDark ? '#064e3b' : '#d1fae5', // Emerald 950 / 100
+      stroke: isDark ? '#34d399' : '#10b981', // Emerald 400 / 500
+      iconStroke: isDark ? '#a7f3d0' : '#047857', // Emerald 200 / 700
+      glow: isDark ? 'rgba(52, 211, 153, 0.3)' : 'rgba(16, 185, 129, 0.25)',
+    };
+  }
+  // client (default)
+  return {
+    fill: isDark ? '#082f49' : '#e0f2fe', // Sky 950 / 100
+    stroke: isDark ? '#38bdf8' : '#0ea5e9', // Sky 400 / 500
+    iconStroke: isDark ? '#bae6fd' : '#0369a1', // Sky 200 / 700
+    glow: isDark ? 'rgba(56, 189, 248, 0.3)' : 'rgba(14, 165, 233, 0.25)',
+  };
+}
+
+export function getNodeStatusColor(status: TopologyNode['status']): string {
+  switch (status) {
+    case 'connected':
+      return '#10b981'; // Emerald-500
+    case 'connecting':
+      return '#f59e0b'; // Amber-500
+    case 'scouted':
+      return '#3b82f6'; // Blue-500
+    case 'disconnected':
+    default:
+      return '#ef4444'; // Red-500 (Offline)
+  }
+}
+const SERVER_SVG_PATH =
+  'M4 2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 12h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z M6 6h.01 M6 18h.01';
+const SHARE2_SVG_PATH =
+  'M21 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M9 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M21 19a3 3 0 1 1-6 0 3 3 0 0 1 6 0z M8.59 13.51l6.83 3.98 M15.41 6.51l-6.82 3.98';
+const LAPTOP_SVG_PATH =
+  'M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16';
+
+let serverPath2D: Path2D | null = null;
+let share2Path2D: Path2D | null = null;
+let laptopPath2D: Path2D | null = null;
+
+if (typeof Path2D !== 'undefined') {
+  try {
+    serverPath2D = new Path2D(SERVER_SVG_PATH);
+    share2Path2D = new Path2D(SHARE2_SVG_PATH);
+    laptopPath2D = new Path2D(LAPTOP_SVG_PATH);
+  } catch {
+    // Fallback if Path2D SVG constructor is not supported
+  }
+}
+
+/**
+ * Draws the Lucide-styled vector icon according to node role:
+ * - router: Server
+ * - peer: Share2
+ * - client: Laptop
+ */
+export function drawNodeRoleIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  type: TopologyNode['type'],
+  strokeColor: string
+): void {
+  const iconSize = Math.max(12, radius * 0.7);
+  const scale = iconSize / 24;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  if (type === 'router') {
+    if (serverPath2D) {
+      ctx.translate(-12 * scale, -12 * scale);
+      ctx.scale(scale, scale);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2 / scale > 2.5 ? 2.5 : Math.max(1.5, 2);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke(serverPath2D);
+    } else {
+      // Direct Canvas2D fallback for Server icon
+      const w = 18 * scale;
+      const h = 7 * scale;
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.75;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Top rack unit
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(-w / 2, -h - 1.5 * scale, w, h, 2 * scale);
+        ctx.stroke();
+        // Bottom rack unit
+        ctx.beginPath();
+        ctx.roundRect(-w / 2, 1.5 * scale, w, h, 2 * scale);
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(-w / 2, -h - 1.5 * scale, w, h);
+        ctx.strokeRect(-w / 2, 1.5 * scale, w, h);
+      }
+      // Status LEDs
+      ctx.beginPath();
+      ctx.arc(-w / 2 + 3.5 * scale, -h / 2 - 1.5 * scale, 1 * scale, 0, Math.PI * 2);
+      ctx.arc(-w / 2 + 3.5 * scale, h / 2 + 1.5 * scale, 1 * scale, 0, Math.PI * 2);
+      ctx.fillStyle = strokeColor;
+      ctx.fill();
+    }
+  } else if (type === 'peer') {
+    if (share2Path2D) {
+      ctx.translate(-12 * scale, -12 * scale);
+      ctx.scale(scale, scale);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2 / scale > 2.5 ? 2.5 : Math.max(1.5, 2);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke(share2Path2D);
+    } else {
+      // Direct Canvas2D fallback for Share2 icon
+      const r = 2.5 * scale;
+      const topX = 6 * scale, topY = -6 * scale;
+      const botX = 6 * scale, botY = 6 * scale;
+      const leftX = -6 * scale, leftY = 0;
+
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.75;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Connecting lines
+      ctx.beginPath();
+      ctx.moveTo(leftX, leftY);
+      ctx.lineTo(topX, topY);
+      ctx.moveTo(leftX, leftY);
+      ctx.lineTo(botX, botY);
+      ctx.stroke();
+
+      // Node circles
+      ctx.beginPath();
+      ctx.arc(topX, topY, r, 0, Math.PI * 2);
+      ctx.arc(botX, botY, r, 0, Math.PI * 2);
+      ctx.arc(leftX, leftY, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  } else {
+    // client -> Laptop icon
+    if (laptopPath2D) {
+      ctx.translate(-12 * scale, -12 * scale);
+      ctx.scale(scale, scale);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 2 / scale > 2.5 ? 2.5 : Math.max(1.5, 2);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke(laptopPath2D);
+    } else {
+      // Direct Canvas2D fallback for Laptop icon
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = 1.75;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      // Screen
+      const sw = 14 * scale;
+      const sh = 9 * scale;
+      if (typeof ctx.roundRect === 'function') {
+        ctx.beginPath();
+        ctx.roundRect(-sw / 2, -sh / 2 - 2 * scale, sw, sh, 1.5 * scale);
+        ctx.stroke();
+      } else {
+        ctx.strokeRect(-sw / 2, -sh / 2 - 2 * scale, sw, sh);
+      }
+
+      // Base
+      ctx.beginPath();
+      ctx.moveTo(-9 * scale, sh / 2 + 2 * scale);
+      ctx.lineTo(9 * scale, sh / 2 + 2 * scale);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
 export function renderTopologyCanvas(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -90,10 +290,10 @@ export function renderTopologyCanvas(
     ctx.lineTo(target.x, target.y);
 
     if (isLiveTransmitting) {
-      ctx.strokeStyle = isDark ? '#34d399' : '#059669'; // Glowing Emerald
+      ctx.strokeStyle = isDark ? '#60a5fa' : '#2563eb'; // Glowing Blue
       ctx.lineWidth = isSelected || isHovered ? 3.5 : 2.5;
     } else if (isConnected) {
-      ctx.strokeStyle = isDark ? '#10b981' : '#059669'; // Emerald-500
+      ctx.strokeStyle = isDark ? '#3b82f6' : '#2563eb'; // Blue-500
       ctx.lineWidth = isSelected || isHovered ? 3 : 2;
     } else {
       ctx.strokeStyle = isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)';
@@ -113,7 +313,7 @@ export function renderTopologyCanvas(
 
         ctx.beginPath();
         ctx.arc(px, py, 3.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#34d399';
+        ctx.fillStyle = '#60a5fa';
         ctx.fill();
       }
     }
@@ -134,7 +334,7 @@ export function renderTopologyCanvas(
       const pillY = midY - 14;
 
       ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
-      ctx.strokeStyle = '#10b981';
+      ctx.strokeStyle = '#3b82f6';
       ctx.lineWidth = 1.2;
       ctx.beginPath();
       if (typeof ctx.roundRect === 'function') {
@@ -145,7 +345,7 @@ export function renderTopologyCanvas(
       ctx.fill();
       ctx.stroke();
 
-      ctx.fillStyle = isDark ? '#34d399' : '#047857';
+      ctx.fillStyle = isDark ? '#60a5fa' : '#1d4ed8';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(infoText, midX, pillY);
@@ -185,6 +385,7 @@ export function renderTopologyCanvas(
   for (const node of nodes) {
     const isSelected = node.id === selectedNodeId;
     const isHovered = node.id === hoveredNodeId;
+    const roleColors = getNodeRoleColors(node.type, isDark);
 
     const displayLabel =
       (node.zid && customNodeLabels[node.zid]) ||
@@ -204,9 +405,9 @@ export function renderTopologyCanvas(
     if (isSelected || matchesSearch) {
       ctx.beginPath();
       ctx.arc(node.x, node.y, node.radius + 6, 0, Math.PI * 2);
-      ctx.fillStyle = matchesSearch ? 'rgba(234, 179, 8, 0.25)' : 'rgba(59, 130, 246, 0.25)';
+      ctx.fillStyle = matchesSearch ? 'rgba(234, 179, 8, 0.25)' : roleColors.glow;
       ctx.fill();
-      ctx.strokeStyle = matchesSearch ? '#eab308' : '#3b82f6';
+      ctx.strokeStyle = matchesSearch ? '#eab308' : roleColors.stroke;
       ctx.lineWidth = 2;
       ctx.stroke();
     }
@@ -214,39 +415,28 @@ export function renderTopologyCanvas(
     // Main Node Circle Body
     ctx.beginPath();
     ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-
-    if (node.type === 'router') {
-      ctx.fillStyle = isDark ? '#312e81' : '#e0e7ff'; // Indigo tint
-      ctx.strokeStyle = isDark ? '#818cf8' : '#4f46e5';
-    } else if (node.type === 'peer') {
-      ctx.fillStyle = isDark ? '#172554' : '#dbeafe'; // Blue tint
-      ctx.strokeStyle = isDark ? '#3b82f6' : '#2563eb';
-    } else {
-      ctx.fillStyle = isDark ? '#1e293b' : '#f1f5f9'; // Slate
-      ctx.strokeStyle = isDark ? '#64748b' : '#94a3b8';
-    }
-
+    ctx.fillStyle = roleColors.fill;
+    ctx.strokeStyle = roleColors.stroke;
     ctx.lineWidth = isHovered ? 3 : 2;
     ctx.fill();
     ctx.stroke();
 
-    // Node Type Icon Text / Letter
-    ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const iconLetter = node.type === 'router' ? 'R' : node.type === 'peer' ? 'P' : 'C';
-    ctx.fillText(iconLetter, node.x, node.y);
+    // Local Node Indicator Ring (Subtle concentric accent ring for local app nodes)
+    if (node.scope === 'local') {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.radius - 3.5, 0, Math.PI * 2);
+      ctx.strokeStyle = isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(16, 185, 129, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
-    // Node Status Dot Badge
-    const statusColor =
-      node.status === 'connected'
-        ? '#10b981'
-        : node.status === 'connecting'
-        ? '#f59e0b'
-        : node.status === 'scouted'
-        ? '#3b82f6'
-        : '#64748b';
+    // Node Role Vector Icon (Server for router, Share2 for peer, Laptop for client)
+    drawNodeRoleIcon(ctx, node.x, node.y, node.radius, node.type, roleColors.iconStroke);
+
+    // Node Status Dot Badge (Emerald = connected, Amber = connecting, Blue = scouted, Red = offline/disconnected)
+    const statusColor = getNodeStatusColor(node.status);
 
     ctx.beginPath();
     ctx.arc(node.x + node.radius * 0.7, node.y - node.radius * 0.7, 4.5, 0, Math.PI * 2);
@@ -262,6 +452,42 @@ export function renderTopologyCanvas(
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillText(displayLabel, node.x, node.y + node.radius + 6);
+
+    // Node Scope Pill Tag (LOCAL vs REMOTE)
+    const isLocal = node.scope === 'local';
+    const scopeTagText = isLocal ? 'LOCAL' : 'REMOTE';
+    const tagBg = isLocal
+      ? isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.12)'
+      : isDark ? 'rgba(14, 165, 233, 0.15)' : 'rgba(14, 165, 233, 0.12)';
+    const tagBorder = isLocal
+      ? isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(16, 185, 129, 0.3)'
+      : isDark ? 'rgba(14, 165, 233, 0.4)' : 'rgba(14, 165, 233, 0.3)';
+    const tagTextColor = isLocal
+      ? isDark ? '#34d399' : '#059669'
+      : isDark ? '#38bdf8' : '#0284c7';
+
+    const tagW = isLocal ? 32 : 40;
+    const tagH = 13;
+    const tagX = node.x - tagW / 2;
+    const tagY = node.y + node.radius + 20;
+
+    ctx.beginPath();
+    if (typeof (ctx as any).roundRect === 'function') {
+      (ctx as any).roundRect(tagX, tagY, tagW, tagH, 3);
+    } else {
+      ctx.rect(tagX, tagY, tagW, tagH);
+    }
+    ctx.fillStyle = tagBg;
+    ctx.fill();
+    ctx.strokeStyle = tagBorder;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.font = 'bold 8px monospace';
+    ctx.fillStyle = tagTextColor;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(scopeTagText, node.x, tagY + tagH / 2);
   }
 
   ctx.restore();

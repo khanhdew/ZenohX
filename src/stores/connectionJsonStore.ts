@@ -113,7 +113,7 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set) => ({
   syncEditFormJson: (config, activeSession) => {
     const resolvedConfig = { ...config };
     const bound = activeSession?.bound_locators;
-    if (bound && bound.length > 0) {
+    if (bound && bound.length > 0 && resolvedConfig.mode === 'router') {
       const configuredLocs = Array.isArray(config.listen_locators) ? config.listen_locators : [];
       const hasWildcardOrZero = configuredLocs.some(
         (l) => typeof l === 'string' && (l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]'))

@@ -83,12 +83,14 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
     return () => clearInterval(intervalId);
   }, [autoScoutInterval, scout]);
 
-  // Periodically refresh active sessions to keep live router-to-router and peer links up to date
+  // Periodically refresh active sessions and admin space topology
   useEffect(() => {
     useConnectionStore.getState().refreshSessions();
+    useTopologyStore.getState().fetchAdminTopology();
     const intervalId = setInterval(() => {
       useConnectionStore.getState().refreshSessions();
-    }, 2500);
+      useTopologyStore.getState().fetchAdminTopology();
+    }, 1500);
     return () => clearInterval(intervalId);
   }, []);
 

@@ -146,12 +146,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <ClientConfigForm
               clientName={form.clientName}
               setClientName={form.setClientName}
-              clientHost={form.clientHost}
-              setClientHost={form.setClientHost}
-              clientPort={form.clientPort}
-              setClientPort={form.setClientPort}
-              clientProtocol={form.clientProtocol}
-              setClientProtocol={form.setClientProtocol}
+              clientLocator={form.clientLocator}
+              setClientLocator={form.setClientLocator}
               username={form.username}
               setUsername={form.setUsername}
               password={form.password}

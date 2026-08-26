@@ -316,6 +316,71 @@ describe('Pub/Sub Workspace Store Integration', () => {
     assert.equal(msgsAfter[0].direction, 'outgoing');
   });
 
+  test('incoming samples from external publishers appear in realtime with and without source_id', async () => {
+    let capturedHandler: ((event: { payload: unknown }) => void) | null = null;
+    mockInvokeHandler = async () => undefined;
+
+    // @ts-expect-error Mocking tauri event plugin
+    globalThis.window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+      unregisterListener: () => {},
+    };
+    // @ts-expect-error Mocking tauri internals
+    globalThis.window.__TAURI_INTERNALS__.invoke = async (cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === 'plugin:event|listen') {
+        capturedHandler = args?.handler as (event: { payload: unknown }) => void;
+        return 1;
+      }
+      return mockInvokeHandler(cmd, args);
+    };
+
+    useMessageStore.getState().cleanupListener();
+    useMessageStore.setState({ messages: [], subscriptions: [] });
+    await useMessageStore.getState().initListener();
+
+    assert.ok(capturedHandler, 'Event handler should be registered');
+
+    // 1. Deliver incoming sample WITHOUT source_id (e.g. standard external publisher)
+    capturedHandler({
+      payload: [
+        {
+          session_id: 'sess-remote-1',
+          key_expr: 'sensor/temperature',
+          payload: Array.from(Buffer.from('{"temp": 24.2}')),
+          encoding: 'json',
+          kind: 'put',
+          timestamp: Date.now(),
+        },
+      ],
+    });
+
+    const msgs1 = useMessageStore.getState().messages;
+    assert.equal(msgs1.length, 1, 'Sample without source_id should appear in messages in realtime');
+    assert.equal(msgs1[0].keyExpr, 'sensor/temperature');
+    assert.equal(msgs1[0].direction, 'incoming');
+    assert.equal(msgs1[0].sourceId, undefined);
+
+    // 2. Deliver incoming sample WITH source_id (e.g. scouted peer/router publisher)
+    capturedHandler({
+      payload: [
+        {
+          session_id: 'sess-remote-1',
+          key_expr: 'sensor/humidity',
+          payload: Array.from(Buffer.from('{"humidity": 65}')),
+          encoding: 'json',
+          kind: 'put',
+          timestamp: Date.now(),
+          source_id: 'a1b2c3d4e5f6',
+        },
+      ],
+    });
+
+    const msgs2 = useMessageStore.getState().messages;
+    assert.equal(msgs2.length, 2, 'Sample with source_id should appear in messages in realtime');
+    assert.equal(msgs2[1].keyExpr, 'sensor/humidity');
+    assert.equal(msgs2[1].direction, 'incoming');
+    assert.equal(msgs2[1].sourceId, 'a1b2c3d4e5f6');
+  });
+
   test('addMessagesBatch processes batched samples and updates subscription counts in single pass', () => {
     useMessageStore.setState({
       subscriptions: [
@@ -462,7 +527,7 @@ describe('Pub/Sub Workspace Store Integration', () => {
     assert.equal(workspaceEl.type, PubSubWorkspace);
   });
 
-  test('discards all incoming samples that do not have a valid ZID (source_id)', async () => {
+  test('processes and displays all incoming samples in realtime regardless of whether source_id is attached', async () => {
     let capturedHandler: ((event: { payload: unknown }) => void) | null = null;
     mockInvokeHandler = async () => undefined;
 
@@ -484,7 +549,7 @@ describe('Pub/Sub Workspace Store Integration', () => {
     await useMessageStore.getState().initListener();
     assert.ok(capturedHandler);
 
-    // Simulate batch with 1 valid message (with ZID) and 2 invalid messages (without ZID or 0)
+    // Simulate batch with 1 message with ZID, 1 message without ZID, and 1 message with default ZID
     capturedHandler({
       payload: [
         {
@@ -499,7 +564,7 @@ describe('Pub/Sub Workspace Store Integration', () => {
         {
           session_id: 'sess-test-zid',
           key_expr: 'sensor/without-zid',
-          payload: Array.from(Buffer.from('invalid-1')),
+          payload: Array.from(Buffer.from('sample-1')),
           encoding: 'text',
           kind: 'put',
           timestamp: Date.now(),
@@ -507,21 +572,24 @@ describe('Pub/Sub Workspace Store Integration', () => {
         },
         {
           session_id: 'sess-test-zid',
-          key_expr: 'sensor/zero-zid',
-          payload: Array.from(Buffer.from('invalid-2')),
+          key_expr: 'sensor/default-zid',
+          payload: Array.from(Buffer.from('sample-2')),
           encoding: 'text',
           kind: 'put',
           timestamp: Date.now(),
-          source_id: '0', // Zero ZID
+          source_id: '0', // Default ZID
         },
       ],
     });
 
     const messages = useMessageStore.getState().messages;
-    // Exactly 1 message should be kept
-    assert.equal(messages.length, 1);
+    // All 3 valid network messages should be kept in real-time
+    assert.equal(messages.length, 3);
     assert.equal(messages[0].keyExpr, 'sensor/with-zid');
     assert.equal(messages[0].sourceId, 'abcdef0123456789');
+    assert.equal(messages[1].keyExpr, 'sensor/without-zid');
+    assert.equal(messages[1].sourceId, undefined);
+    assert.equal(messages[2].keyExpr, 'sensor/default-zid');
   });
 
   test('multi-node subscription isolation: same key expression on different nodes does not cross-contaminate or overwrite', async () => {

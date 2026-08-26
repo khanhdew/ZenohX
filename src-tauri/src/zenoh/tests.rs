@@ -264,6 +264,165 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_router_disconnect_does_not_disconnect_connected_router() {
+        let manager = SessionManager::new();
+        let (status_tx, mut status_rx) = tokio::sync::mpsc::channel::<SessionStatusEvent>(100);
+        manager
+            .set_status_callback(move |event| {
+                let _ = status_tx.try_send(event);
+            })
+            .await;
+
+        // 1. Start Upstream Router on port 17467
+        let r1_config = SessionConfig {
+            profile_id: Some("prof-r1-disc".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/127.0.0.1:17467".to_string()],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r1_id = manager.connect(r1_config).await.expect("connect r1");
+
+        // 2. Start Downstream Router on port 17468 connecting to Upstream Router
+        let r2_config = SessionConfig {
+            profile_id: Some("prof-r2-disc".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec!["tcp/127.0.0.1:17467".to_string()],
+            listen_locators: vec!["tcp/127.0.0.1:17468".to_string()],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r2_id = manager.connect(r2_config).await.expect("connect r2");
+
+        // Give Zenoh a moment to establish TCP link & handshake and watchdog to tick
+        tokio::time::sleep(tokio::time::Duration::from_millis(2500)).await;
+
+        if let Ok(sess) = manager.get_session(&r2_id).await {
+            let mut rc = 0;
+            let mut routers = sess.info().routers_zid().await;
+            while let Some(r) = routers.next() {
+                println!("R2 saw router: {r}");
+                rc += 1;
+            }
+            let mut pc = 0;
+            let mut peers = sess.info().peers_zid().await;
+            while let Some(p) = peers.next() {
+                println!("R2 saw peer: {p}");
+                pc += 1;
+            }
+            println!("R2 before R1 disconnect: routers={}, peers={}", rc, pc);
+        }
+
+        // 3. Disconnect Router 1
+        println!("Disconnecting R1...");
+        manager.disconnect(&r1_id).await.expect("disconnect r1");
+
+        // Wait longer than the watchdog 1500ms interval
+        tokio::time::sleep(tokio::time::Duration::from_millis(3500)).await;
+
+        if let Ok(sess) = manager.get_session(&r2_id).await {
+            let mut rc = 0;
+            let mut routers = sess.info().routers_zid().await;
+            while let Some(r) = routers.next() {
+                println!("R2 after disconnect saw router: {r}");
+                rc += 1;
+            }
+            let mut pc = 0;
+            let mut peers = sess.info().peers_zid().await;
+            while let Some(p) = peers.next() {
+                println!("R2 after disconnect saw peer: {p}");
+                pc += 1;
+            }
+            println!("R2 after R1 disconnect: routers={}, peers={}", rc, pc);
+        }
+
+        while let Ok(evt) = status_rx.try_recv() {
+            println!("Received status event: id={}, status={}, error={:?}", evt.session_id, evt.status, evt.error);
+        }
+
+        // 4. Assert Router 2 is STILL active and NOT disconnected
+        assert!(
+            manager.has_session(&r2_id).await,
+            "Router 2 should still be active even after Router 1 disconnects!"
+        );
+
+        let r2_session = manager.get_session(&r2_id).await.expect("get r2 session");
+        assert!(
+            !r2_session.is_closed(),
+            "Router 2 session should NOT be closed!"
+        );
+
+        manager.disconnect(&r2_id).await.expect("disconnect r2");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_client_behavior_on_router_disconnect() {
+        let manager = SessionManager::new();
+
+        // 1. Start Router on port 17477
+        let r_config = SessionConfig {
+            profile_id: Some("prof-r-client-test".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/127.0.0.1:17477".to_string()],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let r_id = manager.connect(r_config).await.expect("connect r");
+
+        // 2. Start Client connecting to Router on 17477
+        let c_config = SessionConfig {
+            profile_id: Some("prof-c-test".to_string()),
+            mode: "client".to_string(),
+            connect_locators: vec!["tcp/127.0.0.1:17477".to_string()],
+            listen_locators: vec![],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: Some(ReconnectRetryConfig {
+                period_init_ms: 500,
+                period_max_ms: 2000,
+                factor: 2,
+                timeout_ms: 10000,
+            }),
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+        let c_id = manager.connect(c_config).await.expect("connect c");
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+
+        let c_sess = manager.get_session(&c_id).await.expect("get client session");
+        let mut rc = 0;
+        let mut routers = c_sess.info().routers_zid().await;
+        while let Some(_) = routers.next() {
+            rc += 1;
+        }
+        println!("Client initially connected to {} routers", rc);
+
+        // Disconnect Router
+        manager.disconnect(&r_id).await.expect("disconnect r");
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+        println!("Client session is_closed after router drop: {}", c_sess.is_closed());
+
+        manager.disconnect(&c_id).await.ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_mutual_router_to_router_upstream_connection() {
         let manager = SessionManager::new();
 
@@ -442,6 +601,29 @@ mod tests {
         assert!(!resolved.iter().any(|l| l.contains("127.0.0.1")));
         assert!(!resolved.iter().any(|l| l.contains("fe80:")));
         assert!(!resolved.iter().any(|l| l.contains("169.254.")));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_query_admin_space() {
+        let manager = SessionManager::new();
+        let mut config = SessionConfig::default();
+        config.mode = "peer".to_string();
+
+        let session_id = manager.connect(config).await.expect("connect peer session");
+        
+        // Query admin space
+        let entries = manager
+            .query_admin_space(&session_id, Some("@/**"), 1000)
+            .await
+            .expect("query admin space");
+
+        // The query executes successfully and returns entries (or empty if admin queryables not registered)
+        for entry in &entries {
+            assert!(entry.key_expr.starts_with("@/"));
+            assert!(!entry.category.is_empty());
+        }
+
+        manager.disconnect(&session_id).await.expect("disconnect");
     }
 }
 

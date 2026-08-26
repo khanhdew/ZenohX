@@ -269,15 +269,15 @@ export const useMessageStore = create<MessageState>((set, get) => ({
           const newItems: MessageItem[] = [];
 
           for (const sample of samples) {
-            // Strictly discard all messages that don't have a valid publisher ZID (source_id)
-            if (!sample.source_id || sample.source_id.trim() === '' || sample.source_id === '0') {
-              continue;
-            }
-
-            const profileId = useConnectionStore.getState().sessionToProfile[sample.session_id];
-            const activeSession = useConnectionStore.getState().getActiveSession(sample.session_id);
+            const profileId =
+              useConnectionStore.getState().sessionToProfile[sample.session_id] ||
+              useConnectionStore.getState().selectedProfileId ||
+              undefined;
+            const activeSession =
+              useConnectionStore.getState().getActiveSession(sample.session_id) ||
+              (profileId ? useConnectionStore.getState().getActiveSession(profileId) : undefined);
             const localZid = activeSession?.zid?.toLowerCase();
-            const sourceZid = sample.source_id.toLowerCase();
+            const sourceZid = sample.source_id ? sample.source_id.toLowerCase() : undefined;
 
             // Check if this sample is an echo/loopback of our own publication on the same session
             const isSelfZid = Boolean(localZid && sourceZid && localZid === sourceZid);
@@ -824,18 +824,7 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
   addMessage: (msg: MessageItem) => {
     set((state) => {
-      // Check recent messages for duplicate
-      const recentWindow = state.messages.slice(-100);
-      const isDuplicate = recentWindow.some((m) => {
-        if (m.id === msg.id) return true;
-        const keyMatch = m.keyExpr === msg.keyExpr;
-        const dirMatch = m.direction === msg.direction;
-        const timeMatch = Math.abs(m.timestamp - msg.timestamp) < 1000;
-        const lenMatch = (m.payload?.length || 0) === (msg.payload?.length || 0);
-        const profileMatch = !m.profileId || !msg.profileId || m.profileId === msg.profileId;
-        return keyMatch && dirMatch && timeMatch && lenMatch && profileMatch;
-      });
-      if (isDuplicate) return state;
+      if (state.messages.some((m) => m.id === msg.id)) return state;
 
       const newMessages = [...state.messages, msg];
       if (newMessages.length > state.maxMessages) {

@@ -742,18 +742,12 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.ok(presetEl);
     assert.equal(presetEl.type, PresetSelector);
 
-    // Test ClientConfigForm element with WebSocket and Reconnect Retry
+    // Test ClientConfigForm element with unified locator
     const clientFormEl = React.createElement(ClientConfigForm, {
       clientName: 'My Client',
       setClientName: () => {},
-      clientHost: '127.0.0.1',
-      setClientHost: () => {},
-      clientPort: '8080',
-      setClientPort: () => {},
-      clientProtocol: 'ws',
-      setClientProtocol: () => {},
-      enableReconnectRetry: true,
-      setEnableReconnectRetry: () => {},
+      clientLocator: 'tcp/172.66.1.1:7447',
+      setClientLocator: () => {},
       username: '',
       setUsername: () => {},
       password: '',
@@ -922,6 +916,55 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.ok(quicIcon);
     assert.ok(udpIcon);
     assert.ok(unixIcon);
+  });
+
+  test('disconnect purges scoutedNodes matching the disconnected session to prevent ghost remote nodes', async () => {
+    const profile: ConnectionProfile = {
+      id: 'prof-local-1',
+      name: 'Local Router',
+      mode: 'router',
+      connect_locators: [],
+      listen_locators: ['tcp/127.0.0.1:7447'],
+      scout_multicast: true,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    useConnectionStore.setState({
+      profiles: [profile],
+      activeSessions: {
+        'prof-local-1': {
+          id: 'sess-1',
+          profile_id: 'prof-local-1',
+          zid: 'local-router-zid-1234',
+          connected_at: '2026-01-01T00:00:00Z',
+        },
+      },
+      scoutedNodes: [
+        {
+          zid: 'local-router-zid-1234',
+          what: 'Router',
+          locators: ['tcp/127.0.0.1:7447'],
+        },
+        {
+          zid: 'external-peer-5678',
+          what: 'Peer',
+          locators: ['udp/192.168.1.99:7447'],
+        },
+      ],
+    });
+
+    mockInvokeHandler = async (cmd) => {
+      if (cmd === 'disconnect_session') return undefined;
+      return undefined;
+    };
+
+    await useConnectionStore.getState().disconnect('prof-local-1');
+
+    const state = useConnectionStore.getState();
+    assert.equal(state.activeSessions['prof-local-1'], undefined);
+    assert.equal(state.scoutedNodes.length, 1);
+    assert.equal(state.scoutedNodes[0].zid, 'external-peer-5678');
   });
 });
 

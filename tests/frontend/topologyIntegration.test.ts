@@ -147,9 +147,10 @@ describe('Topology Integration & Navigation', () => {
     });
 
     const { nodes, edges } = useTopologyStore.getState();
-    assert.equal(nodes.length, 2);
-    assert.ok(nodes.some((n) => n.zid === 'zid-cloud-router' && n.status === 'connected'));
-    assert.ok(nodes.some((n) => n.zid === 'zid-peer-2' && n.status === 'scouted'));
+    assert.equal(nodes.length, 3);
+    assert.ok(nodes.some((n) => n.zid === 'zid-local-client' && n.scope === 'local'));
+    assert.ok(nodes.some((n) => n.zid === 'zid-cloud-router' && n.status === 'connected' && n.scope === 'remote'));
+    assert.ok(nodes.some((n) => n.zid === 'zid-peer-2' && n.scope === 'remote'));
   });
 });
 

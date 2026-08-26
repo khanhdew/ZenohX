@@ -200,6 +200,14 @@ export function App() {
     });
   }, [scoutedNodes, activeSessions, profiles, syncTopology]);
 
+  // Continuous real-time session introspection & telemetry from Rust backend
+  useEffect(() => {
+    const interval = setInterval(() => {
+      useConnectionStore.getState().refreshSessions();
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Initialize continuous global traffic ticker
   useEffect(() => {
     const cleanup = initTrafficTicker();

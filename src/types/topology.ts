@@ -20,6 +20,7 @@ import type { ScoutedNode, ConnectionProfile, ActiveSession, SessionLinkInfo } f
 
 export type TopologyNodeType = 'router' | 'peer' | 'client';
 export type TopologyNodeStatus = 'connected' | 'scouted' | 'connecting' | 'disconnected';
+export type TopologyNodeScope = 'local' | 'remote';
 export type TopologyProtocol = 'tcp' | 'tls' | 'udp' | 'quic' | 'ws' | 'unix' | 'mesh' | 'unknown';
 
 export interface TopologyNode {
@@ -28,6 +29,7 @@ export interface TopologyNode {
   label: string;
   type: TopologyNodeType;
   status: TopologyNodeStatus;
+  scope?: TopologyNodeScope;
   locators: string[];
   connectLocators?: string[];
   links?: SessionLinkInfo[];
@@ -75,12 +77,46 @@ export interface TopologyGraphData {
   edges: TopologyEdge[];
 }
 
+export interface AdminSpaceEntry {
+  keyExpr: string;
+  zid?: string;
+  category: 'info' | 'link' | 'transport' | 'router' | 'sub' | 'pub' | 'other' | string;
+  payloadJson: string;
+  timestamp: number;
+}
+
+export interface AdminRemoteNode {
+  zid: string;
+  whatami: 'router' | 'peer' | 'client';
+  version?: string;
+  locators: string[];
+  neighbors: string[];
+  links: SessionLinkInfo[];
+  rawInfo?: Record<string, unknown>;
+}
+
+export interface AdminRemoteLink {
+  sourceZid: string;
+  targetZid?: string;
+  srcLocator: string;
+  dstLocator: string;
+  isStreamed?: boolean;
+  mtu?: number;
+  interfaces?: string[];
+}
+
+export interface AdminTopologyData {
+  nodes: Map<string, AdminRemoteNode>;
+  links: AdminRemoteLink[];
+}
+
 export interface BuildTopologyOptions {
   scoutedNodes: ScoutedNode[];
   activeSessions: Record<string, ActiveSession>;
   profiles: ConnectionProfile[];
   existingNodes?: TopologyNode[];
   customNodeLabels?: Record<string, string>;
+  adminData?: AdminTopologyData;
 }
 
 

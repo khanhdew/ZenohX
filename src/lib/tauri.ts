@@ -92,6 +92,21 @@ export async function getAllSessions(): Promise<SessionInfo[]> {
   return invoke<SessionInfo[]>('get_all_sessions');
 }
 
+/**
+ * Queries Zenoh Admin Space (@/**) to introspect remote routers, links, and node topology.
+ */
+export async function queryAdminSpace(
+  sessionId: string,
+  selector: string = '@/**',
+  timeoutMs: number = 2500
+): Promise<import('../types/topology').AdminSpaceEntry[]> {
+  return invoke<import('../types/topology').AdminSpaceEntry[]>('query_admin_space', {
+    sessionId,
+    selector,
+    timeoutMs,
+  });
+}
+
 // ============================================================================
 // Pub/Sub IPC Commands
 // ============================================================================

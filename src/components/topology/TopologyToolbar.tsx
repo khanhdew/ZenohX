@@ -18,6 +18,10 @@ import {
   LayoutGrid,
   Sparkles,
   ChevronDown,
+  Laptop,
+  Globe,
+  Server,
+  Share2,
 } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -43,6 +47,8 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
   const filterType = useTopologyStore((s) => s.filterType);
   const layoutMode = useTopologyStore((s) => s.layoutMode);
   const autoScoutInterval = useTopologyStore((s) => s.autoScoutInterval);
+  const adminDiscoveryEnabled = useTopologyStore((s) => s.adminDiscoveryEnabled);
+  const setAdminDiscoveryEnabled = useTopologyStore((s) => s.setAdminDiscoveryEnabled);
 
   const setSearchQuery = useTopologyStore((s) => s.setSearchQuery);
   const setFilterType = useTopologyStore((s) => s.setFilterType);
@@ -51,6 +57,8 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
 
   const isScouting = useConnectionStore((s) => s.isScouting);
 
+  const localCount = nodes.filter((n) => n.scope === 'local').length;
+  const remoteCount = nodes.filter((n) => n.scope === 'remote').length;
   const routerCount = nodes.filter((n) => n.type === 'router').length;
   const peerCount = nodes.filter((n) => n.type === 'peer').length;
   const connectedCount = nodes.filter((n) => n.status === 'connected').length;
@@ -70,8 +78,8 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
         </div>
       </div>
 
-      {/* Center: Filter tabs */}
-      <div className="flex items-center rounded-md bg-muted p-0.5 text-xs">
+      {/* Center: Scope & Filter tabs */}
+      <div className="flex items-center rounded-md bg-muted p-0.5 text-xs gap-0.5">
         <button
           type="button"
           onClick={() => setFilterType('all')}
@@ -86,8 +94,38 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
 
         <button
           type="button"
+          onClick={() => setFilterType('local')}
+          className={`px-2.5 py-1 rounded-sm font-medium transition-colors flex items-center gap-1.5 ${
+            filterType === 'local'
+              ? 'bg-background text-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          title="Nodes created and hosted locally by ZenohX"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span>Local ({localCount})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilterType('remote')}
+          className={`px-2.5 py-1 rounded-sm font-medium transition-colors flex items-center gap-1.5 ${
+            filterType === 'remote'
+              ? 'bg-background text-foreground shadow-xs'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          title="Discovered network and upstream remote nodes"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+          <span>Remote ({remoteCount})</span>
+        </button>
+
+        <div className="w-[1px] h-3.5 bg-border/60 mx-0.5" />
+
+        <button
+          type="button"
           onClick={() => setFilterType('router')}
-          className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${
+          className={`px-2 py-1 rounded-sm font-medium transition-colors ${
             filterType === 'router'
               ? 'bg-background text-foreground shadow-xs'
               : 'text-muted-foreground hover:text-foreground'
@@ -99,7 +137,7 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
         <button
           type="button"
           onClick={() => setFilterType('peer')}
-          className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${
+          className={`px-2 py-1 rounded-sm font-medium transition-colors ${
             filterType === 'peer'
               ? 'bg-background text-foreground shadow-xs'
               : 'text-muted-foreground hover:text-foreground'
@@ -111,7 +149,7 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
         <button
           type="button"
           onClick={() => setFilterType('connected')}
-          className={`px-2.5 py-1 rounded-sm font-medium transition-colors ${
+          className={`px-2 py-1 rounded-sm font-medium transition-colors ${
             filterType === 'connected'
               ? 'bg-background text-foreground shadow-xs'
               : 'text-muted-foreground hover:text-foreground'
@@ -150,6 +188,26 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
             <span>Radial</span>
           </Button>
         </div>
+
+        {/* Admin Space Discovery Toggle */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setAdminDiscoveryEnabled(!adminDiscoveryEnabled)}
+          className={`h-8 px-2.5 text-xs gap-1.5 font-medium border rounded-md transition-colors ${
+            adminDiscoveryEnabled
+              ? 'bg-primary/10 text-primary border-primary/30'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+          title={
+            adminDiscoveryEnabled
+              ? 'Admin Space mesh discovery active (@/**)'
+              : 'Click to enable Admin Space mesh discovery (@/**)'
+          }
+        >
+          <Globe className="w-3.5 h-3.5" />
+          <span>Admin Space</span>
+        </Button>
 
         {/* Unified Scout Split Button with Auto-Scout Dropdown */}
         <div className="flex items-center rounded-md border bg-card shadow-xs overflow-hidden">

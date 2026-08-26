@@ -20,8 +20,9 @@ use super::query::{
 };
 use super::scout::scout_nodes;
 use super::types::{
-    InboundQuery, PublishOptions, ReplySample, ScoutedNode, SessionConfig, SessionInfo,
-    SessionLinkInfo, SessionStatusEvent, StreamGeneratorConfig, SubscribeOptions, ZenohSample,
+    AdminSpaceEntry, InboundQuery, PublishOptions, ReplySample, ScoutedNode, SessionConfig,
+    SessionInfo, SessionLinkInfo, SessionStatusEvent, StreamGeneratorConfig, SubscribeOptions,
+    ZenohSample,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -150,7 +151,7 @@ impl SessionManager {
         let pending_queries_arc = self.pending_queries.clone();
         let status_cb_arc = self.status_callback.clone();
         let is_client = config.mode.to_lowercase() == "client";
-        let has_connect_locators = !config.connect_locators.is_empty();
+        let has_reconnect_retry = config.reconnect_retry.is_some();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_millis(1500));
@@ -177,7 +178,10 @@ impl SessionManager {
                             break;
                         }
 
-                        if is_client {
+                        // For client mode without reconnect retry configured, notify if router connection drops.
+                        // Routers and peers are standalone nodes with their own lifecycle and listeners,
+                        // so losing a remote neighbor/upstream must never disconnect their local session.
+                        if is_client && !has_reconnect_retry {
                             let mut router_count = 0;
                             let mut routers = session.info().routers_zid().await;
                             while let Some(_) = routers.next() {
@@ -193,33 +197,6 @@ impl SessionManager {
                                     &pending_queries_arc,
                                     &status_cb_arc,
                                     "Connection to Zenoh router lost: router unreachable",
-                                ).await;
-                                break;
-                            } else if initial_grace_ticks > 0 {
-                                initial_grace_ticks -= 1;
-                            }
-                        } else if has_connect_locators {
-                            let mut peer_count = 0;
-                            let mut peers = session.info().peers_zid().await;
-                            while let Some(_) = peers.next() {
-                                peer_count += 1;
-                            }
-
-                            let mut router_count = 0;
-                            let mut routers = session.info().routers_zid().await;
-                            while let Some(_) = routers.next() {
-                                router_count += 1;
-                            }
-
-                            if peer_count > 0 || router_count > 0 {
-                                had_connection = true;
-                            } else if had_connection {
-                                handle_unexpected_disconnect(
-                                    session_id,
-                                    &sessions_arc,
-                                    &pending_queries_arc,
-                                    &status_cb_arc,
-                                    "Zenoh connection lost: remote endpoint unreachable",
                                 ).await;
                                 break;
                             } else if initial_grace_ticks > 0 {
@@ -670,7 +647,13 @@ impl SessionManager {
         let mut transport_map = std::collections::HashMap::new();
         for t in session.info().transports().await {
             let whatami_str = format!("{:?}", t.whatami()).to_lowercase();
-            transport_map.insert(t.zid().to_string(), whatami_str);
+            let t_zid = t.zid().to_string();
+            if (whatami_str.contains("router") || whatami_str == "router") && !connected_routers.contains(&t_zid) {
+                connected_routers.push(t_zid.clone());
+            } else if (whatami_str.contains("peer") || whatami_str == "peer") && !connected_peers.contains(&t_zid) {
+                connected_peers.push(t_zid.clone());
+            }
+            transport_map.insert(t_zid, whatami_str);
         }
 
         let mut links = Vec::new();
@@ -680,6 +663,13 @@ impl SessionManager {
                 .get(&link_zid)
                 .cloned()
                 .unwrap_or_else(|| "router".to_string());
+
+            if (whatami.contains("router") || whatami == "router") && !connected_routers.contains(&link_zid) {
+                connected_routers.push(link_zid.clone());
+            } else if (whatami.contains("peer") || whatami == "peer") && !connected_peers.contains(&link_zid) {
+                connected_peers.push(link_zid.clone());
+            }
+
             links.push(SessionLinkInfo {
                 zid: link_zid,
                 whatami,
@@ -781,6 +771,94 @@ impl SessionManager {
     /// Scans the local network for Zenoh routers and peers via multicast.
     pub async fn scout_locators(&self, timeout_ms: u64) -> Result<Vec<ScoutedNode>, String> {
         scout_nodes(timeout_ms).await
+    }
+
+    /// Queries the internal Zenoh Admin Space (@/**) across the mesh to introspect remote routers, links, and nodes.
+    pub async fn query_admin_space(
+        &self,
+        session_id: &Uuid,
+        selector: Option<&str>,
+        timeout_ms: u64,
+    ) -> Result<Vec<AdminSpaceEntry>, String> {
+        let sel = selector.unwrap_or("@/**");
+        let replies = self
+            .query_get_advanced(
+                session_id,
+                sel,
+                "all",
+                timeout_ms,
+                None,
+                None,
+                Some("none".to_string()),
+            )
+            .await?;
+
+        let mut entries = Vec::new();
+        for r in replies {
+            if r.is_err {
+                continue;
+            }
+            let key = r.key_expr.clone();
+            let stripped = key.trim_start_matches("@/");
+            let parts: Vec<&str> = stripped.split('/').collect();
+
+            let payload_json = String::from_utf8(r.payload).unwrap_or_default();
+
+            // Extract ZID accurately from non-reserved path segments or payload JSON
+            let mut zid = None;
+            for part in &parts {
+                let p_lower = part.to_lowercase();
+                if p_lower != "session"
+                    && p_lower != "link"
+                    && p_lower != "transport"
+                    && p_lower != "router"
+                    && p_lower != "subscriber"
+                    && p_lower != "publisher"
+                    && p_lower != "queryable"
+                    && p_lower != "admin"
+                    && p_lower != "info"
+                    && p_lower != "config"
+                    && p_lower.len() >= 8
+                {
+                    zid = Some(part.to_string());
+                    break;
+                }
+            }
+
+            if zid.is_none() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&payload_json) {
+                    if let Some(z) = v.get("zid").and_then(|z| z.as_str()) {
+                        zid = Some(z.to_string());
+                    }
+                }
+            }
+
+            let category = if key.contains("/session/link") {
+                "link"
+            } else if key.contains("/session/transport") {
+                "transport"
+            } else if key.contains("/session/info") {
+                "info"
+            } else if key.contains("/router") {
+                "router"
+            } else if key.contains("/subscriber") {
+                "sub"
+            } else if key.contains("/publisher") {
+                "pub"
+            } else {
+                "other"
+            };
+
+            entries.push(AdminSpaceEntry {
+                key_expr: key,
+                zid,
+                category: category.to_string(),
+                payload_json,
+                timestamp: r.timestamp,
+            });
+        }
+
+        Ok(entries)
     }
 }
 

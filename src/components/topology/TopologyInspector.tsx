@@ -20,7 +20,7 @@ import {
   Radio,
   ShieldCheck,
   Server,
-  Users,
+  Share2,
   Laptop,
   Network,
   Clock,
@@ -51,6 +51,7 @@ export interface TopologyInspectorProps {
 export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
   node,
   onClose,
+  onOpenProfileEditor,
   onNavigateToPubSub,
 }) => {
   const [copiedLocator, setCopiedLocator] = useState<string | null>(null);
@@ -73,6 +74,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
   // Derive the up-to-date node & resolved name directly from store state
   const liveNode = (node && storeNodes.find((n) => n.id === node.id || n.zid === node.zid)) || node;
+  const isLocalNode = liveNode ? liveNode.scope === 'local' : false;
   const resolvedName =
     (node?.zid && customNodeLabels[node.zid]) ||
     (node?.zid && customNodeLabels[node.zid.toLowerCase()]) ||
@@ -131,9 +133,9 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
             {liveNode.type === 'router' ? (
               <Server className="w-4 h-4 text-indigo-500" />
             ) : liveNode.type === 'peer' ? (
-              <Users className="w-4 h-4 text-blue-500" />
+              <Share2 className="w-4 h-4 text-emerald-500" />
             ) : (
-              <Laptop className="w-4 h-4 text-emerald-500" />
+              <Laptop className="w-4 h-4 text-sky-500" />
             )}
           </div>
 
@@ -175,19 +177,31 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
               <div className="flex items-center gap-1 group">
                 <h3
                   className="text-xs font-semibold truncate cursor-pointer hover:underline"
-                  title="Click to rename"
-                  onClick={handleStartEditing}
+                  title={isLocalNode ? 'Click to edit profile' : 'Click to rename'}
+                  onClick={() => {
+                    if (isLocalNode) {
+                      onOpenProfileEditor?.(liveNode);
+                    } else {
+                      handleStartEditing();
+                    }
+                  }}
                 >
                   {resolvedName}
                 </h3>
                 <Button
                   variant="ghost"
                   size="iconSm"
-                  onClick={handleStartEditing}
+                  onClick={() => {
+                    if (isLocalNode) {
+                      onOpenProfileEditor?.(liveNode);
+                    } else {
+                      handleStartEditing();
+                    }
+                  }}
                   className="h-5 w-5 p-0 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground shrink-0"
-                  title="Rename node name"
+                  title={isLocalNode ? 'Edit profile' : 'Rename node'}
                 >
-                  <Edit2 className="w-2.5 h-2.5" />
+                  {isLocalNode ? <FileCode className="w-2.5 h-2.5" /> : <Edit2 className="w-2.5 h-2.5" />}
                 </Button>
               </div>
             )}
@@ -196,6 +210,16 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
               <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
                 {liveNode.type} node
               </span>
+              <Badge
+                variant="outline"
+                className={`text-[9px] h-3.5 px-1 py-0 font-medium ${
+                  liveNode.scope === 'local'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
+                }`}
+              >
+                {liveNode.scope === 'local' ? 'Local App' : 'Remote'}
+              </Badge>
               {existingProfile && (
                 <Badge variant="outline" className="text-[9px] h-3.5 bg-primary/10 text-primary border-primary/20 px-1 py-0 font-normal">
                   Saved
@@ -241,8 +265,21 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
         {/* Connection Type & Mode */}
         <div className="space-y-1.5">
-          <label className="text-[11px] font-medium text-muted-foreground">Connection Role & Mode</label>
+          <label className="text-[11px] font-medium text-muted-foreground">Connection Role & Scope</label>
           <div className="p-2.5 rounded-md bg-muted/40 border space-y-1.5 font-mono text-[11px]">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-[10px] uppercase font-semibold">Node Scope</span>
+              <Badge
+                variant="outline"
+                className={`text-[10px] uppercase font-mono px-1.5 py-0 ${
+                  liveNode.scope === 'local'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
+                }`}
+              >
+                {liveNode.scope === 'local' ? 'Local (App Node)' : 'Remote (Network)'}
+              </Badge>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground text-[10px] uppercase font-semibold">Node Role</span>
               <Badge
@@ -251,8 +288,8 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                   node.type === 'router'
                     ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
                     : node.type === 'peer'
-                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30'
-                    : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                    : 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/30'
                 }`}
               >
                 {node.type}
@@ -464,7 +501,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
               <div className="p-2 rounded-md bg-muted/40 border space-y-1.5">
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                   <span className="flex items-center gap-1">
-                    <Users className="w-3 h-3 text-blue-500" />
+                    <Share2 className="w-3 h-3 text-emerald-500" />
                     Connected Peers ({node.connectedPeers?.length || 0})
                   </span>
                 </div>
@@ -473,7 +510,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                     {node.connectedPeers.map((pZid, idx) => (
                       <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
                         <span className="truncate" title={pZid}>{pZid}</span>
-                        <Badge variant="outline" className="text-[8px] px-1 py-0 bg-blue-500/10 text-blue-500 border-blue-500/20">
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 bg-emerald-500/10 text-emerald-500 border-emerald-500/20">
                           Direct
                         </Badge>
                       </div>
@@ -655,7 +692,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
         {node.type === 'peer' && (
           <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
-            <Users className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <Share2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
             <span>
               {node.status === 'connected'
                 ? 'Active Peer tracked in mesh.'
@@ -666,7 +703,7 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
         {node.type === 'client' && (
           <div className="p-2 rounded-md bg-muted/60 border text-[11px] text-muted-foreground flex items-center gap-2">
-            <Laptop className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+            <Laptop className="w-3.5 h-3.5 text-sky-500 shrink-0" />
             <span>
               {node.status === 'connected'
                 ? 'Active Client Session tracked on network.'
@@ -676,16 +713,29 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         )}
 
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleStartEditing}
-            className="flex-1 h-7 text-xs gap-1"
-            title="Edit custom name for this node"
-          >
-            <Edit2 className="w-3 h-3 text-primary" />
-            <span>Edit Name</span>
-          </Button>
+          {isLocalNode ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onOpenProfileEditor?.(liveNode)}
+              className="flex-1 h-7 text-xs gap-1"
+              title="Edit profile for this local node"
+            >
+              <FileCode className="w-3 h-3 text-primary" />
+              <span>Edit Profile</span>
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStartEditing}
+              className="flex-1 h-7 text-xs gap-1"
+              title="Edit custom name for this remote node"
+            >
+              <Edit2 className="w-3 h-3 text-primary" />
+              <span>Edit Name</span>
+            </Button>
+          )}
 
           <Button
             variant="outline"

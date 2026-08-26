@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import React from 'react';
-import { Cloud, Server, Share2, Check } from 'lucide-react';
+import { Laptop, Server, Share2, Check } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Badge } from '../../ui/badge';
 import { SimpleTooltip } from '../../ui/tooltip';
@@ -65,7 +65,7 @@ const ROLES: RoleCard[] = [
     subtitle: 'Lightweight Edge',
     badge: 'Edge Client',
     summary: 'Unidirectional client connecting upstream to a cloud or edge router.',
-    icon: Cloud,
+    icon: Laptop,
     iconColor: 'text-sky-500',
     selectedBorder: 'border-sky-500 ring-1 ring-sky-500/30',
     selectedBg: 'bg-sky-500/10',

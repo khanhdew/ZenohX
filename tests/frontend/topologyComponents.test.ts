@@ -191,4 +191,174 @@ describe('Topology UI Components Exports & Types', () => {
     assert.equal(element.props.node, dummyNode);
     assert.deepEqual(element.props.position, { x: 150, y: 250 });
   });
+
+  it('getNodeRoleColors returns correct color palette matching New Connection preset roles', async () => {
+    const { getNodeRoleColors } = await import('../../src/lib/topology/canvasRenderer');
+
+    // Router - Indigo
+    const routerDark = getNodeRoleColors('router', true);
+    assert.equal(routerDark.fill, '#1e1b4b');
+    assert.equal(routerDark.stroke, '#818cf8');
+    assert.equal(routerDark.iconStroke, '#c7d2fe');
+
+    const routerLight = getNodeRoleColors('router', false);
+    assert.equal(routerLight.fill, '#e0e7ff');
+    assert.equal(routerLight.stroke, '#6366f1');
+    assert.equal(routerLight.iconStroke, '#4338ca');
+
+    // Peer - Emerald
+    const peerDark = getNodeRoleColors('peer', true);
+    assert.equal(peerDark.fill, '#064e3b');
+    assert.equal(peerDark.stroke, '#34d399');
+    assert.equal(peerDark.iconStroke, '#a7f3d0');
+
+    const peerLight = getNodeRoleColors('peer', false);
+    assert.equal(peerLight.fill, '#d1fae5');
+    assert.equal(peerLight.stroke, '#10b981');
+    assert.equal(peerLight.iconStroke, '#047857');
+
+    // Client - Sky
+    const clientDark = getNodeRoleColors('client', true);
+    assert.equal(clientDark.fill, '#082f49');
+    assert.equal(clientDark.stroke, '#38bdf8');
+    assert.equal(clientDark.iconStroke, '#bae6fd');
+
+    const clientLight = getNodeRoleColors('client', false);
+    assert.equal(clientLight.fill, '#e0f2fe');
+    assert.equal(clientLight.stroke, '#0ea5e9');
+    assert.equal(clientLight.iconStroke, '#0369a1');
+  });
+
+  it('getNodeStatusColor returns red for offline/disconnected and correct colors for other states', async () => {
+    const { getNodeStatusColor } = await import('../../src/lib/topology/canvasRenderer');
+
+    assert.equal(getNodeStatusColor('connected'), '#10b981'); // Emerald
+    assert.equal(getNodeStatusColor('connecting'), '#f59e0b'); // Amber
+    assert.equal(getNodeStatusColor('scouted'), '#3b82f6'); // Blue
+    assert.equal(getNodeStatusColor('disconnected'), '#ef4444'); // Red (Offline)
+  });
+
+  it('drawNodeRoleIcon executes without error for all roles on canvas context', async () => {
+    const { drawNodeRoleIcon } = await import('../../src/lib/topology/canvasRenderer');
+
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      scale: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      fill: () => {},
+      arc: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      strokeRect: () => {},
+      roundRect: () => {},
+      strokeStyle: '',
+      fillStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    // Should run smoothly for router (Server), peer (Share2), and client (Laptop)
+    assert.doesNotThrow(() => {
+      drawNodeRoleIcon(mockCtx, 100, 100, 30, 'router', '#6366f1');
+      drawNodeRoleIcon(mockCtx, 200, 200, 28, 'peer', '#10b981');
+      drawNodeRoleIcon(mockCtx, 300, 300, 26, 'client', '#0ea5e9');
+    });
+  });
+
+  it('renderTopologyCanvas renders topology nodes with role colors and icons', async () => {
+    const { renderTopologyCanvas } = await import('../../src/lib/topology/canvasRenderer');
+
+    const mockCtx = {
+      save: () => {},
+      restore: () => {},
+      clearRect: () => {},
+      translate: () => {},
+      scale: () => {},
+      beginPath: () => {},
+      closePath: () => {},
+      stroke: () => {},
+      fill: () => {},
+      arc: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      strokeRect: () => {},
+      roundRect: () => {},
+      fillText: () => {},
+      measureText: () => ({ width: 40 }),
+      strokeStyle: '',
+      fillStyle: '',
+      lineWidth: 0,
+      lineCap: '',
+      lineJoin: '',
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+    } as unknown as CanvasRenderingContext2D;
+
+    const testNodes: TopologyNode[] = [
+      {
+        id: 'node-r1',
+        zid: '0123456789abcdef',
+        label: 'Zenoh Router 1',
+        type: 'router',
+        status: 'connected',
+        locators: ['tcp/127.0.0.1:7447'],
+        isTls: false,
+        x: 50,
+        y: 50,
+        vx: 0,
+        vy: 0,
+        fx: null,
+        fy: null,
+        radius: 34,
+      },
+      {
+        id: 'node-p1',
+        zid: 'fedcba9876543210',
+        label: 'Zenoh Peer 1',
+        type: 'peer',
+        status: 'scouted',
+        locators: ['udp/10.0.0.1:7447'],
+        isTls: false,
+        x: 150,
+        y: 150,
+        vx: 0,
+        vy: 0,
+        fx: null,
+        fy: null,
+        radius: 30,
+      },
+      {
+        id: 'node-c1',
+        zid: '1122334455667788',
+        label: 'Zenoh Client 1',
+        type: 'client',
+        status: 'connected',
+        locators: [],
+        isTls: true,
+        x: 250,
+        y: 250,
+        vx: 0,
+        vy: 0,
+        fx: null,
+        fy: null,
+        radius: 28,
+      },
+    ];
+
+    assert.doesNotThrow(() => {
+      renderTopologyCanvas(mockCtx, 800, 600, { x: 0, y: 0, k: 1 }, testNodes, [], {
+        isDark: true,
+        selectedNodeId: 'node-r1',
+        hoveredNodeId: 'node-p1',
+        searchQuery: '',
+        animationTick: 1,
+      });
+    });
+  });
 });

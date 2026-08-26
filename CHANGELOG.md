@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+
+## [v0.5.2] - 2026-08-26
+
+### 🐛 Fixed
+- **pubsub:** ensure real-time message stream displays incoming samples without requiring tab switch
+- **types:** resolve TypeScript compiler errors and remove unused imports
+
+### 🔧 Maintenance
+- add Apache-2.0 license headers and update gitignore
+- release v0.5.2
+- **scripts:** add dedicated npm test scripts for types, unit, rust, and all
+- reset version back to 0.5.1 for clean release preparation
+
+---
 ## [v0.5.1] - 2026-08-25
 
 ### 🚀 Added & Enhanced

@@ -122,6 +122,7 @@ describe('Topology Integration & Navigation', () => {
           mode: 'client',
           connect_locators: ['tcp/10.0.0.1:7447'],
           listen_locators: [],
+          connected_routers: ['zid-cloud-router'],
           connected_peers: ['zid-peer-2'],
         },
       },

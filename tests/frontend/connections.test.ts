@@ -329,7 +329,10 @@ describe('Connection Manager Integration & Helpers', () => {
 
   test('saveAndConnect does NOT store profile if connection fails', async () => {
     mockInvokeHandler = async (cmd) => {
-      if (cmd === 'connect_session') {
+      if (cmd === 'save_profile') {
+        return undefined;
+      }
+      if (cmd === 'connect_node_by_zid' || cmd === 'connect_session') {
         throw new Error('failed to open zenoh session: connection refused');
       }
       return undefined;
@@ -361,28 +364,20 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.equal(Object.keys(useConnectionStore.getState().activeSessions).length, 0);
   });
 
-  test('saveAndConnect disconnects opened session if persistence fails', async () => {
-    let disconnectedSessionId: string | null = null;
+  test('saveAndConnect fails if persistence fails', async () => {
+    let connectCalled = false;
     mockInvokeHandler = async (cmd, args: any) => {
-      if (cmd === 'connect_session') {
-        return 'sess-uuid-will-abort';
+      if (cmd === 'save_profile') {
+        throw new Error('SQLite database write locked');
       }
-      if (cmd === 'get_session_info') {
+      if (cmd === 'connect_node_by_zid' || cmd === 'connect_session') {
+        connectCalled = true;
         return {
           id: 'sess-uuid-will-abort',
           zid: '12345678',
           mode: 'client',
           created_at: 1000,
-          subscribers_count: 0,
-          queryables_count: 0,
         };
-      }
-      if (cmd === 'save_profile') {
-        throw new Error('SQLite database write locked');
-      }
-      if (cmd === 'disconnect_session') {
-        disconnectedSessionId = args?.sessionId;
-        return undefined;
       }
       return undefined;
     };
@@ -408,13 +403,23 @@ describe('Connection Manager Integration & Helpers', () => {
       /SQLite database write locked/
     );
 
-    // Verify session was cleaned up / disconnected
-    assert.equal(disconnectedSessionId, 'sess-uuid-will-abort');
+    // Verify connection was not attempted if persistence failed
+    assert.equal(connectCalled, false);
     assert.equal(useConnectionStore.getState().profiles.length, 0);
   });
 
   test('saveAndConnect stores profile and activates session when connection succeeds', async () => {
     mockInvokeHandler = async (cmd) => {
+      if (cmd === 'connect_node_by_zid') {
+        return {
+          id: 'sess-uuid-123',
+          zid: '12345678',
+          mode: 'client',
+          created_at: 1000,
+          subscribers_count: 0,
+          queryables_count: 0,
+        };
+      }
       if (cmd === 'connect_session') {
         return 'sess-uuid-123';
       }

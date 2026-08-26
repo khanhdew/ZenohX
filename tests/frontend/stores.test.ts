@@ -240,6 +240,7 @@ describe('Connection Store', () => {
     };
 
     mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'connect_node_by_zid') return mockSessionInfo;
       if (cmd === 'connect_session') return mockSessionId;
       if (cmd === 'get_session_info') return mockSessionInfo;
       if (cmd === 'disconnect_session') return undefined;

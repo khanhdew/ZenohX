@@ -25,7 +25,7 @@ import type {
   BuildTopologyOptions,
 } from '../../types/topology';
 import type { ConnectionProfile } from '../../types/zenoh';
-import { isTlsEnabled, filterRealLocators } from '../tls';
+import { isTlsEnabled, filterRealLocators, isEphemeralPortLocator } from '../tls';
 
 export function extractLocatorProtocol(locator: string, isTls?: boolean): TopologyProtocol {
   if (!locator || typeof locator !== 'string') return isTls ? 'tls' : 'unknown';
@@ -327,6 +327,17 @@ export function findMatchingProfile(
   return undefined;
 }
 
+export function cleanConnectLocators(locators?: string[]): string[] {
+  if (!Array.isArray(locators)) return [];
+  return Array.from(
+    new Set(
+      locators
+        .filter((l): l is string => typeof l === 'string' && l.trim().length > 0)
+        .map((l) => l.trim())
+    )
+  );
+}
+
 export function buildTopologyGraph({
   scoutedNodes,
   activeSessions,
@@ -335,61 +346,202 @@ export function buildTopologyGraph({
   customNodeLabels = {},
   adminData,
 }: BuildTopologyOptions): TopologyGraphData {
-  const existingMap = new Map<string, TopologyNode>(existingNodes.map((n) => [n.id, n]));
-  const zidNodeMap = new Map<string, TopologyNode>();
+  // Map keyed strictly by lowercase ZID to guarantee 1:1 mapping between ZID and node
+  const nodeMap = new Map<string, TopologyNode>();
   const edges: TopologyEdge[] = [];
 
-  const findMatchingRemoteNode = (target: {
-    zid?: string;
-    locators?: string[];
-    excludeId?: string;
-  }): TopologyNode | undefined => {
-    // 1. Direct ZID lookup
-    if (target.zid) {
-      const cleanZid = target.zid.toLowerCase();
-      const node =
-        zidNodeMap.get(target.zid) ||
-        zidNodeMap.get(cleanZid) ||
-        Array.from(zidNodeMap.values()).find(
-          (n) => n.id !== target.excludeId && n.zid.toLowerCase() === cleanZid
-        );
-      if (node) return node;
-    }
-
-    // 2. Locator lookup (match full locator OR non-local host/IP)
-    if (target.locators && target.locators.length > 0) {
-      for (const loc of target.locators) {
-        if (!loc) continue;
-        const hostPort = extractLocatorHostPort(loc);
-        const host = (hostPort.includes(':') ? hostPort.slice(0, hostPort.lastIndexOf(':')) : hostPort)
-          .replace(/^\[|\]$/g, '')
-          .toLowerCase();
-        const isLocalHost =
-          host === '127.0.0.1' || host === 'localhost' || host === '0.0.0.0' || host === '::1' || !host;
-
-        for (const node of zidNodeMap.values()) {
-          if (target.excludeId && node.id === target.excludeId) continue;
-          if (node.locators.some((nLoc) => isLocatorMatch(nLoc, loc) || isSameEndpoint(nLoc, loc))) {
-            return node;
-          }
-          if (!isLocalHost) {
-            const hasSameHost = node.locators.some((nLoc) => {
-              const nHp = extractLocatorHostPort(nLoc);
-              const nHost = (nHp.includes(':') ? nHp.slice(0, nHp.lastIndexOf(':')) : nHp)
-                .replace(/^\[|\]$/g, '')
-                .toLowerCase();
-              return nHost === host;
-            });
-            if (hasSameHost) return node;
-          }
-        }
+  const findExistingPosition = (
+    zid?: string,
+    id?: string,
+    locators?: string[]
+  ): { x: number; y: number; vx: number; vy: number; fx: number | null; fy: number | null } | undefined => {
+    if (zid) {
+      const cleanZid = zid.toLowerCase();
+      const byZid = existingNodes.find((n) => n.zid && n.zid.toLowerCase() === cleanZid);
+      if (byZid) {
+        return { x: byZid.x, y: byZid.y, vx: byZid.vx, vy: byZid.vy, fx: byZid.fx ?? null, fy: byZid.fy ?? null };
       }
     }
-
+    if (id) {
+      const byId = existingNodes.find((n) => n.id === id);
+      if (byId) {
+        return { x: byId.x, y: byId.y, vx: byId.vx, vy: byId.vy, fx: byId.fx ?? null, fy: byId.fy ?? null };
+      }
+    }
+    if (locators && locators.length > 0) {
+      const byLoc = existingNodes.find(
+        (n) => n.locators && n.locators.some((l) => locators.some((tL) => isLocatorMatch(l, tL) || isSameEndpoint(l, tL)))
+      );
+      if (byLoc) {
+        return { x: byLoc.x, y: byLoc.y, vx: byLoc.vx, vy: byLoc.vy, fx: byLoc.fx ?? null, fy: byLoc.fy ?? null };
+      }
+    }
     return undefined;
   };
 
-  // 1. Populate all Scouted Network Nodes
+  const getCustomLabel = (zid?: string, id?: string): string | undefined => {
+    if (!zid && !id) return undefined;
+    const cleanZid = (zid || '').toLowerCase();
+    return (
+      (zid && customNodeLabels[zid]) ||
+      (cleanZid && customNodeLabels[cleanZid]) ||
+      (id && customNodeLabels[id]) ||
+      (cleanZid && customNodeLabels[`scouted-${cleanZid}`]) ||
+      (cleanZid && customNodeLabels[`profile-${cleanZid}`]) ||
+      (cleanZid && customNodeLabels[`admin-${cleanZid}`])
+    );
+  };
+
+  // 1. Process Active Sessions & Profiles (Local App Nodes)
+  const connectedProfiles = profiles.filter((p) => Boolean(activeSessions[p.id]));
+
+  connectedProfiles.forEach((profile, index) => {
+    const sessionInfo = activeSessions[profile.id];
+    const rawMode = (sessionInfo?.mode || profile.mode || 'peer').toLowerCase();
+    const nodeType: TopologyNode['type'] =
+      rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
+    const sessionZid = sessionInfo?.zid || derivePersistentZid(profile.id);
+    const cleanZid = sessionZid.toLowerCase();
+
+    // Router locators must always remain static as configured in profile (or session listen_locators).
+    // They must never mutate to dynamic OS bound addresses or ephemeral ports.
+    const rawListen =
+      nodeType === 'client'
+        ? []
+        : nodeType === 'router'
+        ? (profile.listen_locators && profile.listen_locators.length > 0
+            ? profile.listen_locators
+            : sessionInfo?.listen_locators && sessionInfo.listen_locators.length > 0
+            ? sessionInfo.listen_locators
+            : ['tcp/0.0.0.0:7447'])
+        : sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0
+        ? sessionInfo.bound_locators
+        : sessionInfo?.listen_locators || profile.listen_locators || [];
+
+    const locators =
+      nodeType === 'client'
+        ? []
+        : filterRealLocators(Array.from(new Set(rawListen)));
+
+    const connectLocators = cleanConnectLocators([
+      ...(sessionInfo?.connect_locators || []),
+      ...(profile.connect_locators || []),
+    ]);
+
+    const nodeId = `profile-${profile.id}`;
+    const customName = getCustomLabel(sessionZid, nodeId);
+    const isTls = isTlsEnabled(profile.tls_config, [...locators, ...connectLocators]);
+
+    let localNode = nodeMap.get(cleanZid);
+    if (localNode) {
+      localNode.id = nodeId;
+      localNode.status = 'connected';
+      localNode.profileId = profile.id;
+      localNode.scope = 'local';
+      localNode.type = nodeType;
+      localNode.mode = rawMode;
+      localNode.label = customName || profile.name || localNode.label;
+      localNode.connectLocators = connectLocators;
+      localNode.locators = filterRealLocators(
+        Array.from(new Set([...localNode.locators, ...locators]))
+      );
+      localNode.links = sessionInfo?.links || localNode.links;
+      localNode.connectedRouters = sessionInfo?.connected_routers || localNode.connectedRouters;
+      localNode.connectedPeers = sessionInfo?.connected_peers || localNode.connectedPeers;
+      localNode.activeSubscribers = sessionInfo?.active_subscribers ?? localNode.activeSubscribers;
+      localNode.activeQueryables = sessionInfo?.active_queryables ?? localNode.activeQueryables;
+      localNode.uptimeSeconds = sessionInfo?.uptime_seconds ?? localNode.uptimeSeconds;
+      localNode.radius = nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24;
+      if (isTls) localNode.isTls = true;
+    } else {
+      const existingPos = findExistingPosition(sessionZid, nodeId, [...locators, ...connectLocators]);
+      localNode = {
+        id: nodeId,
+        zid: sessionZid,
+        label:
+          customName ||
+          profile.name ||
+          (nodeType === 'client' ? 'Edge Client' : nodeType === 'router' ? 'Local Router' : 'Local Peer'),
+        type: nodeType,
+        status: 'connected',
+        scope: 'local',
+        locators,
+        connectLocators,
+        links: sessionInfo?.links || [],
+        isTls,
+        profileId: profile.id,
+        mode: rawMode,
+        connectedRouters: sessionInfo?.connected_routers || [],
+        connectedPeers: sessionInfo?.connected_peers || [],
+        activeSubscribers: sessionInfo?.active_subscribers ?? 0,
+        activeQueryables: sessionInfo?.active_queryables ?? 0,
+        uptimeSeconds: sessionInfo?.uptime_seconds ?? 0,
+        x: existingPos ? existingPos.x : 140 + index * 60,
+        y: existingPos ? existingPos.y : -80 + index * 60,
+        vx: existingPos ? existingPos.vx : 0,
+        vy: existingPos ? existingPos.vy : 0,
+        fx: existingPos?.fx ?? null,
+        fy: existingPos?.fy ?? null,
+        radius: nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24,
+      };
+      nodeMap.set(cleanZid, localNode);
+    }
+  });
+
+  // Handle any activeSessions not in profiles array
+  Object.entries(activeSessions).forEach(([profileId, sessionInfo], index) => {
+    if (connectedProfiles.some((p) => p.id === profileId)) return;
+    const sessionZid = sessionInfo.zid || profileId;
+    if (!sessionZid) return;
+    const cleanZid = sessionZid.toLowerCase();
+
+    let targetNode = nodeMap.get(cleanZid);
+    if (targetNode) {
+      targetNode.status = 'connected';
+      targetNode.profileId = profileId;
+      targetNode.scope = 'local';
+    } else {
+      const nodeId = `profile-${profileId}`;
+      const existingPos = findExistingPosition(sessionZid, nodeId);
+      const rawMode = (sessionInfo.mode || 'router').toLowerCase();
+      const nodeType: TopologyNode['type'] =
+        rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
+      const locs = filterRealLocators([
+        ...(sessionInfo.bound_locators || []),
+        ...(sessionInfo.listen_locators || []),
+      ]);
+
+      const node: TopologyNode = {
+        id: nodeId,
+        zid: sessionZid,
+        label: `Active Node (${sessionZid.slice(0, 6)})`,
+        type: nodeType,
+        status: 'connected',
+        scope: 'local',
+        locators: locs,
+        connectLocators: cleanConnectLocators(sessionInfo.connect_locators),
+        links: sessionInfo.links || [],
+        isTls: isTlsEnabled(null, [...locs, ...(sessionInfo.connect_locators || [])]),
+        profileId,
+        mode: rawMode,
+        connectedRouters: sessionInfo.connected_routers || [],
+        connectedPeers: sessionInfo.connected_peers || [],
+        activeSubscribers: sessionInfo.active_subscribers ?? 0,
+        activeQueryables: sessionInfo.active_queryables ?? 0,
+        uptimeSeconds: sessionInfo.uptime_seconds ?? 0,
+        x: existingPos ? existingPos.x : 180 + index * 60,
+        y: existingPos ? existingPos.y : -120 + index * 60,
+        vx: existingPos ? existingPos.vx : 0,
+        vy: existingPos ? existingPos.vy : 0,
+        fx: existingPos?.fx ?? null,
+        fy: existingPos?.fy ?? null,
+        radius: nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24,
+      };
+      nodeMap.set(cleanZid, node);
+    }
+  });
+
+  // 2. Process Scouted Network Nodes
   scoutedNodes.forEach((node, index) => {
     const scoutZid = (node.zid || '').toLowerCase();
     if (!scoutZid) return;
@@ -415,10 +567,7 @@ export function buildTopologyGraph({
       }
     }
 
-    const existingScout = findMatchingRemoteNode({
-      zid: node.zid,
-      locators: node.locators,
-    });
+    const existingScout = nodeMap.get(scoutZid);
     if (existingScout) {
       existingScout.locators = filterRealLocators(
         Array.from(new Set([...existingScout.locators, ...(node.locators || [])]))
@@ -426,16 +575,11 @@ export function buildTopologyGraph({
       if ((node.locators || []).some((loc) => extractLocatorProtocol(loc) === 'tls')) {
         existingScout.isTls = true;
       }
-      if (node.zid && existingScout.zid !== node.zid) {
-        existingScout.zid = node.zid;
-        zidNodeMap.set(node.zid, existingScout);
-        zidNodeMap.set(scoutZid, existingScout);
-      }
       return;
     }
 
     const nodeId = `scouted-${node.zid}`;
-    const existing = existingMap.get(nodeId) || existingMap.get(node.zid);
+    const existingPos = findExistingPosition(node.zid, nodeId, node.locators);
 
     const isTls = (node.locators || []).some((loc) => extractLocatorProtocol(loc) === 'tls');
     const whatLower = (node.what || '').toLowerCase();
@@ -445,13 +589,7 @@ export function buildTopologyGraph({
       ? 'peer'
       : 'client';
 
-    const customLabel =
-      (node.zid && customNodeLabels[node.zid]) ||
-      (node.zid && customNodeLabels[node.zid.toLowerCase()]) ||
-      (scoutZid && customNodeLabels[scoutZid]) ||
-      (scoutZid && customNodeLabels[scoutZid.toLowerCase()]) ||
-      customNodeLabels[nodeId];
-
+    const customLabel = getCustomLabel(node.zid, nodeId);
     const shortZid =
       node.zid.length > 8 ? `${node.zid.substring(0, 4)}...${node.zid.slice(-4)}` : node.zid;
     const label =
@@ -473,271 +611,37 @@ export function buildTopologyGraph({
       locators: filterRealLocators(node.locators || []),
       isTls,
       profileId: matchingProf?.id,
-      x: existing ? existing.x : defaultX,
-      y: existing ? existing.y : defaultY,
-      vx: existing ? existing.vx : 0,
-      vy: existing ? existing.vy : 0,
-      fx: existing?.fx ?? null,
-      fy: existing?.fy ?? null,
+      x: existingPos ? existingPos.x : defaultX,
+      y: existingPos ? existingPos.y : defaultY,
+      vx: existingPos ? existingPos.vx : 0,
+      vy: existingPos ? existingPos.vy : 0,
+      fx: existingPos?.fx ?? null,
+      fy: existingPos?.fy ?? null,
       radius,
     };
-    zidNodeMap.set(node.zid, topologyNode);
-    zidNodeMap.set(scoutZid, topologyNode);
+    nodeMap.set(scoutZid, topologyNode);
   });
 
-  // 2. Process Active Sessions & Profiles (Direct Local App Node Tracking)
-  const connectedProfiles = profiles.filter((p) => Boolean(activeSessions[p.id]));
-
-  connectedProfiles.forEach((profile, index) => {
-    const sessionInfo = activeSessions[profile.id];
-    const rawMode = (sessionInfo?.mode || profile.mode || 'peer').toLowerCase();
-    const nodeType: TopologyNode['type'] =
-      rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
-    const sessionZid = sessionInfo?.zid || derivePersistentZid(profile.id);
-
-    const rawListen =
-      sessionInfo?.bound_locators && sessionInfo.bound_locators.length > 0
-        ? sessionInfo.bound_locators
-        : sessionInfo?.listen_locators || profile.listen_locators || [];
-
-    const locators = filterRealLocators(
-      Array.from(new Set(rawListen)).map((loc) =>
-        loc.includes('0.0.0.0') ? loc.replace('0.0.0.0', '127.0.0.1') : loc
-      )
-    );
-
-    const connectLocators = filterRealLocators([
-      ...(sessionInfo?.connect_locators || []),
-      ...(profile.connect_locators || []),
-    ]);
-
-    let localNode =
-      zidNodeMap.get(sessionZid) ||
-      Array.from(zidNodeMap.values()).find(
-        (n) => n.zid.toLowerCase() === sessionZid.toLowerCase()
-      );
-
-    const customName =
-      (sessionZid && customNodeLabels[sessionZid]) ||
-      (sessionZid && customNodeLabels[sessionZid.toLowerCase()]) ||
-      (localNode?.zid && customNodeLabels[localNode.zid]) ||
-      (localNode?.zid && customNodeLabels[localNode.zid.toLowerCase()]) ||
-      customNodeLabels[`profile-${profile.id}`];
-
-    if (localNode) {
-      localNode.status = 'connected';
-      localNode.profileId = profile.id;
-      localNode.scope = 'local';
-      localNode.type = nodeType;
-      localNode.mode = rawMode;
-      localNode.label = customName || profile.name || localNode.label;
-      localNode.connectLocators = connectLocators;
-      localNode.locators = filterRealLocators(
-        Array.from(new Set([...localNode.locators, ...locators]))
-      );
-      localNode.links = sessionInfo?.links || localNode.links;
-      localNode.connectedRouters = sessionInfo?.connected_routers || localNode.connectedRouters;
-      localNode.connectedPeers = sessionInfo?.connected_peers || localNode.connectedPeers;
-      localNode.activeSubscribers = sessionInfo?.active_subscribers ?? localNode.activeSubscribers;
-      localNode.activeQueryables = sessionInfo?.active_queryables ?? localNode.activeQueryables;
-      localNode.uptimeSeconds = sessionInfo?.uptime_seconds ?? localNode.uptimeSeconds;
-      localNode.radius = nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24;
-    } else {
-      const nodeId = `profile-${profile.id}`;
-      const existing = existingMap.get(nodeId);
-      const isTls = isTlsEnabled(profile.tls_config, [...locators, ...connectLocators]);
-      localNode = {
-        id: nodeId,
-        zid: sessionZid,
-        label:
-          customName ||
-          profile.name ||
-          (nodeType === 'client' ? 'Edge Client' : nodeType === 'router' ? 'Local Router' : 'Local Peer'),
-        type: nodeType,
-        status: 'connected',
-        scope: 'local',
-        locators,
-        connectLocators,
-        links: sessionInfo?.links || [],
-        isTls,
-        profileId: profile.id,
-        mode: rawMode,
-        connectedRouters: sessionInfo?.connected_routers || [],
-        connectedPeers: sessionInfo?.connected_peers || [],
-        activeSubscribers: sessionInfo?.active_subscribers ?? 0,
-        activeQueryables: sessionInfo?.active_queryables ?? 0,
-        uptimeSeconds: sessionInfo?.uptime_seconds ?? 0,
-        x: existing ? existing.x : 140 + index * 60,
-        y: existing ? existing.y : -80 + index * 60,
-        vx: existing ? existing.vx : 0,
-        vy: existing ? existing.vy : 0,
-        fx: existing?.fx ?? null,
-        fy: existing?.fy ?? null,
-        radius: nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24,
-      };
-      zidNodeMap.set(sessionZid, localNode);
-    }
-  });
-
-  // Handle any activeSessions not in profiles array
-  Object.entries(activeSessions).forEach(([profileId, sessionInfo], index) => {
-    if (connectedProfiles.some((p) => p.id === profileId)) return;
-    const sessionZid = sessionInfo.zid || profileId;
-    if (!sessionZid) return;
-
-    let targetNode =
-      zidNodeMap.get(sessionZid) ||
-      Array.from(zidNodeMap.values()).find(
-        (n) => n.zid.toLowerCase() === sessionZid.toLowerCase()
-      );
-
-    if (targetNode) {
-      targetNode.status = 'connected';
-      targetNode.profileId = profileId;
-      targetNode.scope = 'local';
-    } else {
-      const nodeId = `profile-${profileId}`;
-      const existing = existingMap.get(nodeId);
-      const rawMode = (sessionInfo.mode || 'router').toLowerCase();
-      const nodeType: TopologyNode['type'] =
-        rawMode === 'router' ? 'router' : rawMode === 'client' ? 'client' : 'peer';
-      const locs = filterRealLocators([
-        ...(sessionInfo.bound_locators || []),
-        ...(sessionInfo.listen_locators || []),
-      ]);
-
-      const node: TopologyNode = {
-        id: nodeId,
-        zid: sessionZid,
-        label: `Active Node (${sessionZid.slice(0, 6)})`,
-        type: nodeType,
-        status: 'connected',
-        scope: 'local',
-        locators: locs,
-        connectLocators: sessionInfo.connect_locators || [],
-        links: sessionInfo.links || [],
-        isTls: isTlsEnabled(null, [...locs, ...(sessionInfo.connect_locators || [])]),
-        profileId,
-        mode: rawMode,
-        connectedRouters: sessionInfo.connected_routers || [],
-        connectedPeers: sessionInfo.connected_peers || [],
-        activeSubscribers: sessionInfo.active_subscribers ?? 0,
-        activeQueryables: sessionInfo.active_queryables ?? 0,
-        uptimeSeconds: sessionInfo.uptime_seconds ?? 0,
-        x: existing ? existing.x : 180 + index * 60,
-        y: existing ? existing.y : -120 + index * 60,
-        vx: existing ? existing.vx : 0,
-        vy: existing ? existing.vy : 0,
-        fx: existing?.fx ?? null,
-        fy: existing?.fy ?? null,
-        radius: nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24,
-      };
-      zidNodeMap.set(sessionZid, node);
-    }
-  });
-
-  // 3. Process Remote Upstream Nodes from connect_locators, Links, and Session Info
-  connectedProfiles.forEach((profile) => {
-    const sessionInfo = activeSessions[profile.id];
-    const sessionZid = sessionInfo?.zid || derivePersistentZid(profile.id);
-    const localNode = zidNodeMap.get(sessionZid);
-
-    const connectLocators = filterRealLocators([
-      ...(sessionInfo?.connect_locators || []),
-      ...(profile.connect_locators || []),
-    ]);
-
-    const externalConnectLocators = connectLocators.filter(
-      (loc) => !localNode || !localNode.locators.some((l) => isLocatorMatch(l, loc))
-    );
-
-    if (externalConnectLocators.length > 0) {
-      const routerZidMatch = sessionInfo?.connected_routers?.[0];
-      const linkZidMatch = sessionInfo?.links?.[0]?.zid;
-      const explicitTargetZid = routerZidMatch || linkZidMatch;
-
-      let upstreamNode = findMatchingRemoteNode({
-        zid: explicitTargetZid,
-        locators: externalConnectLocators,
-        excludeId: localNode?.id,
-      });
-
-      if (upstreamNode) {
-        upstreamNode.status = 'connected';
-        if (explicitTargetZid && upstreamNode.zid !== explicitTargetZid) {
-          upstreamNode.zid = explicitTargetZid;
-          zidNodeMap.set(explicitTargetZid, upstreamNode);
-          zidNodeMap.set(explicitTargetZid.toLowerCase(), upstreamNode);
-        }
-        upstreamNode.locators = filterRealLocators(
-          Array.from(new Set([...upstreamNode.locators, ...externalConnectLocators]))
-        );
-      } else {
-        const primaryLoc = externalConnectLocators[0];
-        const hostPort = extractLocatorHostPort(primaryLoc);
-        const proto = extractLocatorProtocol(primaryLoc);
-        const upstreamZid = explicitTargetZid || derivePersistentZid(primaryLoc);
-        const remoteNodeId = `remote-upstream-${hostPort.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-        const existingRemote = existingMap.get(remoteNodeId);
-        const customName =
-          (upstreamZid && customNodeLabels[upstreamZid]) ||
-          (upstreamZid && customNodeLabels[upstreamZid.toLowerCase()]) ||
-          customNodeLabels[remoteNodeId];
-
-        upstreamNode = {
-          id: remoteNodeId,
-          zid: upstreamZid,
-          label: customName || (hostPort ? `Upstream Router (${hostPort})` : 'Upstream Router'),
-          type: 'router',
-          status: 'connected',
-          scope: 'remote',
-          locators: externalConnectLocators,
-          connectLocators: [],
-          links: [],
-          isTls: proto === 'tls' || externalConnectLocators.some((l) => extractLocatorProtocol(l) === 'tls'),
-          profileId: undefined,
-          mode: 'router',
-          connectedRouters: [],
-          connectedPeers: [],
-          activeSubscribers: 0,
-          activeQueryables: 0,
-          uptimeSeconds: 0,
-          x: existingRemote ? existingRemote.x : (localNode ? localNode.x + 180 : 320),
-          y: existingRemote ? existingRemote.y : (localNode ? localNode.y - 40 : -80),
-          vx: existingRemote ? existingRemote.vx : 0,
-          vy: existingRemote ? existingRemote.vy : 0,
-          fx: existingRemote?.fx ?? null,
-          fy: existingRemote?.fy ?? null,
-          radius: 34,
-        };
-        zidNodeMap.set(upstreamZid, upstreamNode);
-        zidNodeMap.set(upstreamZid.toLowerCase(), upstreamNode);
-        zidNodeMap.set(remoteNodeId, upstreamNode);
-      }
-    }
-  });
-
-  // 3. Process Authoritative Links from SessionInfo (session.info().links() & transports())
+  // 3. Process Authoritative Links and Connected Routers/Peers from Active Sessions
   Object.values(activeSessions).forEach((sessionInfo) => {
-    const sessionZid = sessionInfo.zid;
-    const localNode = sessionZid ? zidNodeMap.get(sessionZid) : undefined;
-
     if (sessionInfo.links && sessionInfo.links.length > 0) {
       sessionInfo.links.forEach((link) => {
+        if (!link.zid) return;
         const linkZid = link.zid;
-        const lowerZid = linkZid.toLowerCase();
-        let targetNode = findMatchingRemoteNode({
-          zid: linkZid,
-          locators: [link.dst],
-          excludeId: localNode?.id,
-        });
+        const cleanZid = linkZid.toLowerCase();
+        let targetNode = nodeMap.get(cleanZid);
 
-        const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === lowerZid);
+        const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === cleanZid);
         const profMatch = findMatchingProfile(profiles, { zid: linkZid, locators: [link.dst] });
+        const rawWhat = (link.whatami || 'router').toLowerCase();
+        const isClientNode = rawWhat === 'client';
+        // Never treat ephemeral client socket ports (e.g. 44331) as advertised node listen locators
+        const validLinkLocators =
+          !isClientNode && link.dst && !isEphemeralPortLocator(link.dst) ? [link.dst] : [];
 
         const combinedLocators = Array.from(
           new Set([
-            link.dst,
+            ...validLinkLocators,
             ...(scoutMatch?.locators || []),
             ...(profMatch?.listen_locators || []),
           ])
@@ -748,16 +652,18 @@ export function buildTopologyGraph({
             linkZid.length > 8
               ? `${linkZid.substring(0, 4)}...${linkZid.slice(-4)}`
               : linkZid;
-          const nodeId = `link-${linkZid}`;
-          const existing = existingMap.get(nodeId);
-          const rawWhat = (link.whatami || 'router').toLowerCase();
+          const nodeId = `link-${cleanZid}`;
+          const existingPos = findExistingPosition(linkZid, nodeId, combinedLocators);
           const nodeType: TopologyNode['type'] =
             rawWhat === 'peer' ? 'peer' : rawWhat === 'client' ? 'client' : 'router';
           const isTls = extractLocatorProtocol(link.dst) === 'tls' || Boolean(profMatch?.tls_config);
+          const customName = getCustomLabel(linkZid, nodeId);
+
           targetNode = {
             id: nodeId,
             zid: linkZid,
             label:
+              customName ||
               profMatch?.name ||
               (scoutMatch?.what
                 ? `${scoutMatch.what} (${shortZid})`
@@ -765,32 +671,26 @@ export function buildTopologyGraph({
             type: nodeType,
             status: 'connected',
             scope: 'remote',
-            locators: filterRealLocators(combinedLocators),
+            locators: nodeType === 'client' ? [] : filterRealLocators(combinedLocators).filter((loc) => !isEphemeralPortLocator(loc)),
             connectLocators: profMatch?.connect_locators || [],
             links: [link],
             isTls,
             profileId: profMatch?.id,
-            x: existing ? existing.x : 320,
-            y: existing ? existing.y : -80,
-            vx: existing ? existing.vx : 0,
-            vy: existing ? existing.vy : 0,
-            fx: existing?.fx ?? null,
-            fy: existing?.fy ?? null,
+            x: existingPos ? existingPos.x : 320,
+            y: existingPos ? existingPos.y : -80,
+            vx: existingPos ? existingPos.vx : 0,
+            vy: existingPos ? existingPos.vy : 0,
+            fx: existingPos?.fx ?? null,
+            fy: existingPos?.fy ?? null,
             radius: nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24,
           };
-          zidNodeMap.set(linkZid, targetNode);
-          zidNodeMap.set(lowerZid, targetNode);
+          nodeMap.set(cleanZid, targetNode);
         } else {
           targetNode.status = 'connected';
-          if (targetNode.zid !== linkZid) {
-            targetNode.zid = linkZid;
-            zidNodeMap.set(linkZid, targetNode);
-            zidNodeMap.set(lowerZid, targetNode);
-          }
           if (targetNode.type !== 'client' && combinedLocators.length > 0) {
             targetNode.locators = filterRealLocators(
               Array.from(new Set([...targetNode.locators, ...combinedLocators]))
-            );
+            ).filter((loc) => !isEphemeralPortLocator(loc));
           }
           if (!targetNode.links) targetNode.links = [];
           if (!targetNode.links.some((l) => l.src === link.src && l.dst === link.dst)) {
@@ -802,22 +702,14 @@ export function buildTopologyGraph({
 
     if (sessionInfo.connected_routers && sessionInfo.connected_routers.length > 0) {
       sessionInfo.connected_routers.forEach((rZid) => {
-        const lowerZid = rZid.toLowerCase();
-        let targetRouter = findMatchingRemoteNode({
-          zid: rZid,
-          locators: sessionInfo.connect_locators,
-          excludeId: localNode?.id,
-        });
+        if (!rZid) return;
+        const cleanZid = rZid.toLowerCase();
+        let targetRouter = nodeMap.get(cleanZid);
 
-        const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === lowerZid);
-        const profMatch = findMatchingProfile(profiles, {
-          zid: rZid,
-          locators: sessionInfo.connect_locators,
-        });
-
+        const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === cleanZid);
+        const profMatch = findMatchingProfile(profiles, { zid: rZid });
         const routerLocators = Array.from(
           new Set([
-            ...(sessionInfo.connect_locators || []),
             ...(scoutMatch?.locators || []),
             ...(profMatch?.listen_locators || []),
           ])
@@ -826,12 +718,15 @@ export function buildTopologyGraph({
         if (!targetRouter) {
           const shortZid =
             rZid.length > 8 ? `${rZid.substring(0, 4)}...${rZid.slice(-4)}` : rZid;
-          const nodeId = `remote-router-${rZid}`;
-          const existing = existingMap.get(nodeId);
+          const nodeId = `remote-router-${cleanZid}`;
+          const existingPos = findExistingPosition(rZid, nodeId, routerLocators);
+          const customName = getCustomLabel(rZid, nodeId);
+
           targetRouter = {
             id: nodeId,
             zid: rZid,
             label:
+              customName ||
               profMatch?.name ||
               (scoutMatch?.what
                 ? `${scoutMatch.what} (${shortZid})`
@@ -843,23 +738,17 @@ export function buildTopologyGraph({
             connectLocators: profMatch?.connect_locators || [],
             isTls: isTlsEnabled(profMatch?.tls_config, routerLocators),
             profileId: profMatch?.id,
-            x: existing ? existing.x : 320,
-            y: existing ? existing.y : -80,
-            vx: existing ? existing.vx : 0,
-            vy: existing ? existing.vy : 0,
-            fx: existing?.fx ?? null,
-            fy: existing?.fy ?? null,
+            x: existingPos ? existingPos.x : 320,
+            y: existingPos ? existingPos.y : -80,
+            vx: existingPos ? existingPos.vx : 0,
+            vy: existingPos ? existingPos.vy : 0,
+            fx: existingPos?.fx ?? null,
+            fy: existingPos?.fy ?? null,
             radius: 34,
           };
-          zidNodeMap.set(rZid, targetRouter);
-          zidNodeMap.set(lowerZid, targetRouter);
+          nodeMap.set(cleanZid, targetRouter);
         } else {
           targetRouter.status = 'connected';
-          if (targetRouter.zid !== rZid) {
-            targetRouter.zid = rZid;
-            zidNodeMap.set(rZid, targetRouter);
-            zidNodeMap.set(lowerZid, targetRouter);
-          }
           if (routerLocators.length > 0) {
             targetRouter.locators = filterRealLocators(
               Array.from(new Set([...targetRouter.locators, ...routerLocators]))
@@ -871,15 +760,12 @@ export function buildTopologyGraph({
 
     if (sessionInfo.connected_peers && sessionInfo.connected_peers.length > 0) {
       sessionInfo.connected_peers.forEach((pZid) => {
-        const lowerZid = pZid.toLowerCase();
-        let targetPeer = findMatchingRemoteNode({
-          zid: pZid,
-          excludeId: localNode?.id,
-        });
+        if (!pZid) return;
+        const cleanZid = pZid.toLowerCase();
+        let targetPeer = nodeMap.get(cleanZid);
 
-        const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === lowerZid);
+        const scoutMatch = scoutedNodes.find((s) => s.zid.toLowerCase() === cleanZid);
         const profMatch = findMatchingProfile(profiles, { zid: pZid });
-
         const peerLocators = Array.from(
           new Set([
             ...(scoutMatch?.locators || []),
@@ -890,12 +776,15 @@ export function buildTopologyGraph({
         if (!targetPeer) {
           const shortZid =
             pZid.length > 8 ? `${pZid.substring(0, 4)}...${pZid.slice(-4)}` : pZid;
-          const nodeId = `remote-peer-${pZid}`;
-          const existing = existingMap.get(nodeId);
+          const nodeId = `remote-peer-${cleanZid}`;
+          const existingPos = findExistingPosition(pZid, nodeId, peerLocators);
+          const customName = getCustomLabel(pZid, nodeId);
+
           targetPeer = {
             id: nodeId,
             zid: pZid,
             label:
+              customName ||
               profMatch?.name ||
               (scoutMatch?.what
                 ? `${scoutMatch.what} (${shortZid})`
@@ -907,23 +796,17 @@ export function buildTopologyGraph({
             connectLocators: profMatch?.connect_locators || [],
             isTls: isTlsEnabled(profMatch?.tls_config, peerLocators),
             profileId: profMatch?.id,
-            x: existing ? existing.x : -120,
-            y: existing ? existing.y : 80,
-            vx: existing ? existing.vx : 0,
-            vy: existing ? existing.vy : 0,
-            fx: existing?.fx ?? null,
-            fy: existing?.fy ?? null,
+            x: existingPos ? existingPos.x : -120,
+            y: existingPos ? existingPos.y : 80,
+            vx: existingPos ? existingPos.vx : 0,
+            vy: existingPos ? existingPos.vy : 0,
+            fx: existingPos?.fx ?? null,
+            fy: existingPos?.fy ?? null,
             radius: 28,
           };
-          zidNodeMap.set(pZid, targetPeer);
-          zidNodeMap.set(lowerZid, targetPeer);
+          nodeMap.set(cleanZid, targetPeer);
         } else {
           targetPeer.status = 'connected';
-          if (targetPeer.zid !== pZid) {
-            targetPeer.zid = pZid;
-            zidNodeMap.set(pZid, targetPeer);
-            zidNodeMap.set(lowerZid, targetPeer);
-          }
           if (peerLocators.length > 0) {
             targetPeer.locators = filterRealLocators(
               Array.from(new Set([...targetPeer.locators, ...peerLocators]))
@@ -934,14 +817,12 @@ export function buildTopologyGraph({
     }
   });
 
-  // 3.6 Process Admin Space Discovery Data (@/**)
+  // 4. Process Admin Space Discovery Data (@/**)
   if (adminData && adminData.nodes) {
     adminData.nodes.forEach((admNode) => {
-      const aZid = admNode.zid.toLowerCase();
-      let targetNode = findMatchingRemoteNode({
-        zid: admNode.zid,
-        locators: admNode.locators,
-      });
+      if (!admNode.zid) return;
+      const cleanZid = admNode.zid.toLowerCase();
+      let targetNode = nodeMap.get(cleanZid);
 
       const profMatch = findMatchingProfile(profiles, { zid: admNode.zid, locators: admNode.locators });
 
@@ -955,14 +836,11 @@ export function buildTopologyGraph({
           admNode.zid.length > 8
             ? `${admNode.zid.substring(0, 4)}...${admNode.zid.slice(-4)}`
             : admNode.zid;
-        const nodeId = `admin-${aZid}`;
-        const existing = existingMap.get(nodeId);
+        const nodeId = `admin-${cleanZid}`;
+        const existingPos = findExistingPosition(admNode.zid, nodeId, admNode.locators);
         const nodeType: TopologyNode['type'] = admNode.whatami;
         const isTls = (admNode.locators || []).some((l) => extractLocatorProtocol(l) === 'tls');
-        const customName =
-          (admNode.zid && customNodeLabels[admNode.zid]) ||
-          (aZid && customNodeLabels[aZid]) ||
-          customNodeLabels[nodeId];
+        const customName = getCustomLabel(admNode.zid, nodeId);
 
         targetNode = {
           id: nodeId,
@@ -979,21 +857,19 @@ export function buildTopologyGraph({
           links: admNode.links || [],
           isTls,
           profileId: profMatch?.id,
-          x: existing ? existing.x : 360,
-          y: existing ? existing.y : 100,
-          vx: existing ? existing.vx : 0,
-          vy: existing ? existing.vy : 0,
-          fx: existing?.fx ?? null,
-          fy: existing?.fy ?? null,
+          x: existingPos ? existingPos.x : 360,
+          y: existingPos ? existingPos.y : 100,
+          vx: existingPos ? existingPos.vx : 0,
+          vy: existingPos ? existingPos.vy : 0,
+          fx: existingPos?.fx ?? null,
+          fy: existingPos?.fy ?? null,
           radius: nodeType === 'router' ? 34 : nodeType === 'peer' ? 28 : 24,
         };
-        zidNodeMap.set(admNode.zid, targetNode);
-        zidNodeMap.set(aZid, targetNode);
+        nodeMap.set(cleanZid, targetNode);
       } else {
-        if (targetNode.zid !== admNode.zid) {
-          targetNode.zid = admNode.zid;
-          zidNodeMap.set(admNode.zid, targetNode);
-          zidNodeMap.set(aZid, targetNode);
+        if (targetNode.scope !== 'local') {
+          targetNode.type = admNode.whatami;
+          targetNode.status = 'connected';
         }
         if (admNode.locators && admNode.locators.length > 0) {
           targetNode.locators = filterRealLocators(
@@ -1007,10 +883,12 @@ export function buildTopologyGraph({
     });
   }
 
-  const nodes = Array.from(new Set(zidNodeMap.values()));
+  // Filter: ONLY nodes with a valid, non-empty ZID (1 ZID = Exactly 1 Node)
+  const nodes = Array.from(nodeMap.values()).filter(
+    (n) => Boolean(n.zid && typeof n.zid === 'string' && n.zid.trim().length > 0)
+  );
 
-
-  // 4. Generate Inter-Node Topology Edges (Strict Mode: Real verified connections only)
+  // 5. Generate Inter-Node Topology Edges (Authoritative live connections only)
   const edgeSet = new Set<string>();
 
   const addEdge = (
@@ -1020,6 +898,7 @@ export function buildTopologyGraph({
     status: 'active' | 'scouted',
     overrideLocator?: string
   ) => {
+    if (!n1 || !n2 || n1.id === n2.id || n1.zid.toLowerCase() === n2.zid.toLowerCase()) return;
     const sortedIds = [n1.id, n2.id].sort();
     const edgeKey = `${sortedIds[0]}<->${sortedIds[1]}`;
     if (edgeSet.has(edgeKey)) return;
@@ -1050,16 +929,13 @@ export function buildTopologyGraph({
 
   // Authoritative links from Rust session.info().links()
   Object.values(activeSessions).forEach((sessionInfo) => {
-    const sessionNode = sessionInfo.zid ? zidNodeMap.get(sessionInfo.zid) : undefined;
+    const sessionNode = sessionInfo.zid ? nodeMap.get(sessionInfo.zid.toLowerCase()) : undefined;
     if (!sessionNode) return;
 
     if (sessionInfo.links && sessionInfo.links.length > 0) {
       sessionInfo.links.forEach((link) => {
-        const targetNode =
-          zidNodeMap.get(link.zid) ||
-          Array.from(zidNodeMap.values()).find(
-            (n) => n.zid.toLowerCase() === link.zid.toLowerCase()
-          );
+        if (!link.zid) return;
+        const targetNode = nodeMap.get(link.zid.toLowerCase());
         if (targetNode) {
           addEdge(sessionNode, targetNode, true, 'active', link.dst);
         }
@@ -1071,9 +947,7 @@ export function buildTopologyGraph({
   nodes.forEach((node) => {
     if (node.connectedRouters && node.connectedRouters.length > 0) {
       node.connectedRouters.forEach((routerZid) => {
-        const targetRouter = nodes.find(
-          (n) => n.zid === routerZid || n.zid.toLowerCase() === routerZid.toLowerCase()
-        );
+        const targetRouter = nodeMap.get(routerZid.toLowerCase());
         if (targetRouter) {
           addEdge(node, targetRouter, true, 'active');
         }
@@ -1081,21 +955,9 @@ export function buildTopologyGraph({
     }
     if (node.connectedPeers && node.connectedPeers.length > 0) {
       node.connectedPeers.forEach((peerZid) => {
-        const targetPeer = nodes.find(
-          (n) => n.zid === peerZid || n.zid.toLowerCase() === peerZid.toLowerCase()
-        );
+        const targetPeer = nodeMap.get(peerZid.toLowerCase());
         if (targetPeer) {
           addEdge(node, targetPeer, true, 'active');
-        }
-      });
-    }
-    if (node.connectLocators && node.connectLocators.length > 0 && node.scope === 'local') {
-      node.connectLocators.forEach((cLoc) => {
-        const target = nodes.find(
-          (n) => n.id !== node.id && n.locators.some((l) => isLocatorMatch(l, cLoc))
-        );
-        if (target) {
-          addEdge(node, target, true, 'active', cLoc);
         }
       });
     }
@@ -1105,21 +967,13 @@ export function buildTopologyGraph({
   if (adminData) {
     if (adminData.links && adminData.links.length > 0) {
       adminData.links.forEach((link) => {
-        const srcNode =
-          zidNodeMap.get(link.sourceZid) ||
-          Array.from(zidNodeMap.values()).find(
-            (n) => n.zid.toLowerCase() === link.sourceZid.toLowerCase()
-          );
+        if (!link.sourceZid) return;
+        const srcNode = nodeMap.get(link.sourceZid.toLowerCase());
         const dstNode = link.targetZid
-          ? (zidNodeMap.get(link.targetZid) ||
-            Array.from(zidNodeMap.values()).find(
-              (n) => n.zid.toLowerCase() === link.targetZid?.toLowerCase()
-            ))
-          : Array.from(zidNodeMap.values()).find((n) =>
-              n.locators.some((l) => isLocatorMatch(l, link.dstLocator))
-            );
+          ? nodeMap.get(link.targetZid.toLowerCase())
+          : nodes.find((n) => n.locators.some((l) => isLocatorMatch(l, link.dstLocator)));
 
-        if (srcNode && dstNode && srcNode.id !== dstNode.id) {
+        if (srcNode && dstNode) {
           addEdge(srcNode, dstNode, true, 'active', link.dstLocator);
         }
       });
@@ -1127,20 +981,14 @@ export function buildTopologyGraph({
 
     if (adminData.nodes) {
       adminData.nodes.forEach((admNode) => {
-        const nodeA =
-          zidNodeMap.get(admNode.zid) ||
-          Array.from(zidNodeMap.values()).find(
-            (n) => n.zid.toLowerCase() === admNode.zid.toLowerCase()
-          );
+        if (!admNode.zid) return;
+        const nodeA = nodeMap.get(admNode.zid.toLowerCase());
         if (!nodeA) return;
 
         admNode.neighbors.forEach((nbrZid) => {
-          const nodeB =
-            zidNodeMap.get(nbrZid) ||
-            Array.from(zidNodeMap.values()).find(
-              (n) => n.zid.toLowerCase() === nbrZid.toLowerCase()
-            );
-          if (nodeB && nodeA.id !== nodeB.id) {
+          if (!nbrZid) return;
+          const nodeB = nodeMap.get(nbrZid.toLowerCase());
+          if (nodeB) {
             addEdge(nodeA, nodeB, true, 'active');
           }
         });
@@ -1148,79 +996,13 @@ export function buildTopologyGraph({
     }
   }
 
-  // Final Deduplication Pass: Merge any duplicate remote nodes that share ZID, endpoints, or non-local host
-  const rawNodes = Array.from(new Set(zidNodeMap.values()));
-  const mergedNodes: TopologyNode[] = [];
-  const nodeIdRemap = new Map<string, string>(); // oldId -> mergedId
-
-  for (const node of rawNodes) {
-    if (node.scope === 'local') {
-      mergedNodes.push(node);
-      continue;
-    }
-
-    // Check if there is already an existing node in mergedNodes that matches this remote node
-    const existing = mergedNodes.find((m) => {
-      if (m.scope !== 'remote') return false;
-      if (m.zid && node.zid && m.zid.toLowerCase() === node.zid.toLowerCase()) return true;
-      return node.locators.some((loc) =>
-        m.locators.some((mLoc) => isLocatorMatch(loc, mLoc) || isSameEndpoint(loc, mLoc))
-      );
-    });
-
-    if (existing) {
-      nodeIdRemap.set(node.id, existing.id);
-      // Merge locators, links, and ZID
-      existing.locators = filterRealLocators(
-        Array.from(new Set([...existing.locators, ...node.locators]))
-      );
-      if (node.links && node.links.length > 0) {
-        existing.links = Array.from(new Set([...(existing.links || []), ...node.links]));
-      }
-      if (node.isTls) existing.isTls = true;
-      if (node.status === 'connected') existing.status = 'connected';
-      if (node.zid && (!existing.zid || existing.zid.length < node.zid.length)) {
-        existing.zid = node.zid;
-      }
-    } else {
-      mergedNodes.push(node);
-    }
-  }
-
-  // Update edges to use remapped node IDs and remove self-loops or duplicate edges
-  const finalEdges: TopologyEdge[] = [];
-  const finalEdgeSet = new Set<string>();
-
-  edges.forEach((edge) => {
-    const src = nodeIdRemap.get(edge.source) || edge.source;
-    const tgt = nodeIdRemap.get(edge.target) || edge.target;
-    if (src === tgt) return; // Ignore self-loops created by merge
-
-    const sortedIds = [src, tgt].sort();
-    const edgeKey = `${sortedIds[0]}<->${sortedIds[1]}`;
-    if (finalEdgeSet.has(edgeKey)) return;
-    finalEdgeSet.add(edgeKey);
-
-    finalEdges.push({
-      ...edge,
-      id: edgeKey,
-      source: src,
-      target: tgt,
-    });
-  });
-
-  // Final Pass: Ensure customNodeLabels is applied to EVERY node in the graph by ZID, lowercase ZID, and ID
-  mergedNodes.forEach((n) => {
-    const custom =
-      (n.zid && customNodeLabels[n.zid]) ||
-      (n.zid && customNodeLabels[n.zid.toLowerCase()]) ||
-      (n.id && customNodeLabels[n.id]) ||
-      (n.zid && customNodeLabels[`scouted-${n.zid}`]) ||
-      (n.zid && customNodeLabels[`scouted-${n.zid.toLowerCase()}`]);
+  // Final Pass: Ensure custom labels are attached
+  nodes.forEach((n) => {
+    const custom = getCustomLabel(n.zid, n.id);
     if (custom) {
       n.label = custom;
     }
   });
 
-  return { nodes: mergedNodes, edges: finalEdges };
+  return { nodes, edges };
 }

@@ -120,6 +120,7 @@ describe('Topology Store', () => {
         mode: 'client',
         locators: [],
         connected_at: Date.now(),
+        connected_routers: ['r1'],
       },
     };
 
@@ -294,7 +295,8 @@ describe('Topology Store', () => {
 
     const store = useTopologyStore.getState();
     assert.ok(store.edges.length >= 1);
-    const edgeId = store.edges[0].id;
+    const targetEdge = store.edges.find((e) => e.source.includes('router-zid-1') || e.target.includes('router-zid-1')) || store.edges[0];
+    const edgeId = targetEdge.id;
 
 
     // Trigger traffic on this session
@@ -347,6 +349,29 @@ describe('Topology Store', () => {
     assert.ok(resetNode);
     assert.notEqual(resetNode.label, 'Main Edge Gateway');
   });
+
+  it('resets adminData and cleans remote admin nodes when all sessions disconnect', async () => {
+    const adminNodes = new Map();
+    adminNodes.set('remote-cloud-zid', {
+      zid: 'remote-cloud-zid',
+      whatami: 'router',
+      locators: ['tcp/172.66.1.1:7447'],
+      neighbors: [],
+      links: [],
+    });
+
+    useTopologyStore.setState({
+      adminData: {
+        nodes: adminNodes,
+        links: [],
+      },
+    });
+
+    // Calling fetchAdminTopology when no sessions are active should clear adminData and reset graph
+    await useTopologyStore.getState().fetchAdminTopology();
+    assert.equal(useTopologyStore.getState().adminData, null, 'adminData must be cleared when no sessions active');
+  });
 });
+
 
 

@@ -40,7 +40,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
       label: 'Local Router',
       type: 'router',
       status: 'connected',
-      locators: ['tcp/0.0.0.0:0', 'ws/0.0.0.0:8080'],
+      locators: ['tcp/0.0.0.0:7447', 'ws/0.0.0.0:8080'],
       connectLocators: ['tcp/10.0.0.1:7447'],
       isTls: false,
       isZenohX: true,
@@ -55,7 +55,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
       name: 'Local Router',
       mode: 'router',
       connect_locators: ['tcp/10.0.0.1:7447'],
-      listen_locators: ['tcp/0.0.0.0:0'],
+      listen_locators: ['tcp/0.0.0.0:7447'],
       scout_multicast: true,
       scout_gossip: true,
       user_auth: null,
@@ -69,8 +69,8 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
       id: 'sess-1',
       zid: '0123456789abcdef0123456789abcdef',
       mode: 'router',
-      bound_locators: ['tcp/192.168.1.50:43219', 'ws/192.168.1.50:8080'],
-      listen_locators: ['tcp/0.0.0.0:0'],
+      bound_locators: ['tcp/192.168.1.50:7447', 'ws/192.168.1.50:8080'],
+      listen_locators: ['tcp/0.0.0.0:7447'],
       connect_locators: ['tcp/10.0.0.1:7447'],
       peers: [],
       routers: [],
@@ -83,7 +83,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.equal(parsed.id, '0123456789abcdef0123456789abcdef');
     assert.equal(parsed.mode, 'router');
     assert.deepEqual(parsed.listen?.endpoints, [
-      'tcp/0.0.0.0:0',
+      'tcp/0.0.0.0:7447',
       'ws/0.0.0.0:8080',
     ]);
     assert.deepEqual(parsed.connect?.endpoints, ['tcp/10.0.0.1:7447']);
@@ -119,12 +119,12 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.equal(useConnectionJsonStore.getState().selectedProfileId, 'prof-client-123');
   });
 
-  it('syncs live JSON5 configuration and resolves real bound IP and port for active sessions', () => {
+  it('syncs live JSON5 configuration and resolves real bound IP and port for active peer sessions', () => {
     const store = useConnectionJsonStore.getState();
 
-    const routerFormConfig = {
-      profile_id: 'prof-router-1',
-      mode: 'router' as const,
+    const peerFormConfig = {
+      profile_id: 'prof-peer-1',
+      mode: 'peer' as const,
       connect_locators: [],
       listen_locators: ['tcp/0.0.0.0:0'],
       scout_multicast: true,
@@ -134,7 +134,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     const liveSession: SessionInfo = {
       id: 'sess-123',
       zid: 'abcdef0123456789abcdef0123456789',
-      mode: 'router',
+      mode: 'peer',
       bound_locators: ['tcp/192.168.1.105:43821', 'ws/192.168.1.105:8080'],
       listen_locators: ['tcp/0.0.0.0:0'],
       connect_locators: [],
@@ -143,14 +143,31 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
       transports: [],
     };
 
-    const json = store.syncEditFormJson(routerFormConfig, liveSession);
+    const json = store.syncEditFormJson(peerFormConfig, liveSession);
     const parsed = JSON.parse(json);
 
-    assert.equal(parsed.mode, 'router');
+    assert.equal(parsed.mode, 'peer');
     assert.deepEqual(parsed.listen?.endpoints, [
       'tcp/192.168.1.105:43821',
       'ws/192.168.1.105:8080',
     ]);
+
+    // Verify router mode remains static as configured
+    const routerFormConfig = {
+      profile_id: 'prof-router-1',
+      mode: 'router' as const,
+      connect_locators: [],
+      listen_locators: ['tcp/192.168.1.100:7447'],
+      scout_multicast: true,
+      scout_gossip: true,
+    };
+    const routerJson = store.syncEditFormJson(routerFormConfig, {
+      ...liveSession,
+      mode: 'router',
+    });
+    const parsedRouter = JSON.parse(routerJson);
+    assert.equal(parsedRouter.mode, 'router');
+    assert.deepEqual(parsedRouter.listen?.endpoints, ['tcp/192.168.1.100:7447']);
   });
 
   it('parses raw Zenoh JSON configuration into structured profile fields', () => {
@@ -327,5 +344,15 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.deepEqual(parsed.listen?.endpoints, ['tcp/0.0.0.0:7448', 'ws/0.0.0.0:8081']);
     // Custom non-standard properties must be merged
     assert.equal(parsed.transport?.unicast?.max_sessions, 25);
+  });
+
+  it('fetchNodeConfiguration sets selectedNodeZid and handles empty input cleanly', async () => {
+    const store = useConnectionJsonStore.getState();
+    const emptyRes = await store.fetchNodeConfiguration('');
+    assert.equal(emptyRes, '');
+    assert.equal(useConnectionJsonStore.getState().selectedNodeZid, null);
+
+    await store.fetchNodeConfiguration('0123456789abcdef0123456789abcdef');
+    assert.equal(useConnectionJsonStore.getState().selectedNodeZid, '0123456789abcdef0123456789abcdef');
   });
 });

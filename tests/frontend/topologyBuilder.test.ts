@@ -22,8 +22,9 @@ import {
   findMatchingProfile,
   derivePersistentZid,
 } from '../../src/lib/topology/topologyBuilder.ts';
+import { parseAdminSpaceEntries } from '../../src/lib/topology/adminSpaceParser.ts';
 import type { ScoutedNode, ConnectionProfile, ActiveSession } from '../../src/types/zenoh.ts';
-import type { TopologyNode } from '../../src/types/topology.ts';
+import type { TopologyNode, AdminSpaceEntry } from '../../src/types/topology.ts';
 
 describe('Topology Data Builder', () => {
   it('extracts locator protocols correctly', () => {
@@ -184,6 +185,15 @@ describe('Topology Data Builder', () => {
         profile_id: 'prof-cloud',
         zid: 'local-zid-001',
         connected_at: '2026-01-01T00:00:00Z',
+        connected_routers: ['cloud-router-zid'],
+        links: [
+          {
+            src: 'tcp/192.168.1.50:54321',
+            dst: 'tls/router.cloud.zenoh.io:443',
+            zid: 'cloud-router-zid',
+            whatami: 'router',
+          },
+        ],
       },
     };
 
@@ -237,6 +247,72 @@ describe('Topology Data Builder', () => {
     assert.equal(nodes.length, 2);
     // Strict mode: no edges unless an exact connection is confirmed
     assert.equal(edges.length, 0);
+  });
+
+  it('connects a client node to ONLY its active physical router link when multiple connect locators are configured', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: 'router-1-zid',
+        what: 'Router',
+        locators: ['tcp/10.0.0.1:7447'],
+      },
+      {
+        zid: 'router-2-zid',
+        what: 'Router',
+        locators: ['tcp/10.0.0.2:7447'],
+      },
+    ];
+
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-client',
+        name: 'Client Edge',
+        mode: 'client',
+        connect_locators: ['tcp/10.0.0.1:7447', 'tcp/10.0.0.2:7447'],
+        listen_locators: [],
+        scout_multicast: false,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-client': {
+        id: 'sess-client',
+        profile_id: 'prof-client',
+        zid: 'client-zid-1234',
+        connected_routers: ['router-1-zid'],
+        links: [
+          {
+            zid: 'router-1-zid',
+            whatami: 'router',
+            src: 'tcp/10.0.0.100:54321',
+            dst: 'tcp/10.0.0.1:7447',
+            is_streamed: true,
+            mtu: 65535,
+            interfaces: [],
+          },
+        ],
+        connected_at: '2026-01-01T00:00:00Z',
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    assert.equal(nodes.length, 3);
+
+    const clientEdges = edges.filter(
+      (e) => e.source === 'profile-prof-client' || e.target === 'profile-prof-client'
+    );
+    assert.equal(clientEdges.length, 1);
+    const linkedTarget = clientEdges[0].source === 'profile-prof-client' ? clientEdges[0].target : clientEdges[0].source;
+    const targetRouter = nodes.find((n) => n.id === linkedTarget);
+    assert.equal(targetRouter?.zid, 'router-1-zid');
   });
 
   it('accurately models local client and connected scouted router', () => {
@@ -436,14 +512,24 @@ describe('Topology Data Builder', () => {
     assert.equal(exactPeerEdge?.status, 'active');
   });
 
-  it('resolves bound locators and eliminates 0.0.0.0:0 in advertised node details', () => {
+  it('resolves bound locators for dynamic peer and keeps router strictly static', () => {
     const profiles: ConnectionProfile[] = [
       {
-        id: 'prof-router-auto',
-        name: 'Ephemeral Router',
-        mode: 'router',
+        id: 'prof-peer-auto',
+        name: 'Ephemeral Peer',
+        mode: 'peer',
         connect_locators: [],
         listen_locators: ['tcp/0.0.0.0:0'],
+        scout_multicast: true,
+        created_at: 1704067200000,
+        updated_at: 1704067200000,
+      },
+      {
+        id: 'prof-router-static',
+        name: 'Static Router',
+        mode: 'router',
+        connect_locators: [],
+        listen_locators: ['tcp/192.168.1.1:7447'],
         scout_multicast: true,
         created_at: 1704067200000,
         updated_at: 1704067200000,
@@ -451,13 +537,26 @@ describe('Topology Data Builder', () => {
     ];
 
     const activeSessions: Record<string, ActiveSession> = {
-      'prof-router-auto': {
-        zid: 'router-zid-real-ip',
-        mode: 'router',
+      'prof-peer-auto': {
+        zid: 'peer-zid-real-ip',
+        mode: 'peer',
         connected_routers: [],
         connected_peers: [],
         bound_locators: ['tcp/192.168.1.100:43219', 'tcp/127.0.0.1:43219'],
         listen_locators: ['tcp/0.0.0.0:0'],
+        connect_locators: [],
+        active_subscribers: 0,
+        active_queryables: 0,
+        uptime_seconds: 10,
+        links: [],
+      },
+      'prof-router-static': {
+        zid: 'router-zid-static-ip',
+        mode: 'router',
+        connected_routers: [],
+        connected_peers: [],
+        bound_locators: ['tcp/192.168.1.1:7447', 'tcp/127.0.0.1:7447'],
+        listen_locators: ['tcp/192.168.1.1:7447'],
         connect_locators: [],
         active_subscribers: 0,
         active_queryables: 0,
@@ -473,12 +572,15 @@ describe('Topology Data Builder', () => {
       existingNodes: [],
     });
 
-    const routerNode = nodes.find((n) => n.zid === 'router-zid-real-ip');
+    const peerNode = nodes.find((n) => n.zid === 'peer-zid-real-ip');
+    assert.ok(peerNode);
+    // Peer resolves dynamic bound locators
+    assert.deepEqual(peerNode?.locators, ['tcp/192.168.1.100:43219']);
+
+    const routerNode = nodes.find((n) => n.zid === 'router-zid-static-ip');
     assert.ok(routerNode);
-    // Advertised locators must use real bound locators and never show 0.0.0.0:0 or loopback
-    assert.deepEqual(routerNode?.locators, ['tcp/192.168.1.100:43219']);
-    assert.equal(routerNode?.locators.some((l) => l.includes('0.0.0.0:0')), false);
-    assert.equal(routerNode?.locators.some((l) => l.includes('127.0.0.1')), false);
+    // Router stays strictly static as configured
+    assert.deepEqual(routerNode?.locators, ['tcp/192.168.1.1:7447']);
   });
 
   it('matches existing profiles in storage by profileId, listen_locators, connect_locators, or label', () => {
@@ -831,7 +933,281 @@ describe('Topology Data Builder', () => {
     assert.equal(edges[0].source, localNode.id);
     assert.equal(edges[0].target, remoteRouter.id);
   });
+
+  it('keeps distinct nodes on the same IP host with different ports separate', () => {
+    const scoutedNodes: ScoutedNode[] = [
+      {
+        zid: 'router-port-7447',
+        what: 'Router',
+        locators: ['tcp/192.168.1.50:7447'],
+      },
+      {
+        zid: 'router-port-7448',
+        what: 'Router',
+        locators: ['tcp/192.168.1.50:7448'],
+      },
+    ];
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes,
+      activeSessions: {},
+      profiles: [],
+      existingNodes: [],
+    });
+
+    assert.equal(nodes.length, 2, 'Two distinct routers on different ports must not be merged');
+    assert.ok(nodes.some((n) => n.zid === 'router-port-7447'));
+    assert.ok(nodes.some((n) => n.zid === 'router-port-7448'));
+  });
+
+  it('connects to multiple distinct upstreams without overwriting ZIDs or merging nodes', () => {
+    const profiles: ConnectionProfile[] = [
+      {
+        id: 'prof-multi-up',
+        name: 'Multi-Router Client',
+        mode: 'client',
+        connect_locators: ['tcp/10.0.0.1:7447', 'tcp/10.0.0.2:7447'],
+        listen_locators: [],
+        scout_multicast: false,
+        created_at: 1000,
+        updated_at: 1000,
+      },
+    ];
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-multi-up': {
+        id: 'sess-multi-up',
+        profile_id: 'prof-multi-up',
+        zid: 'local-client-zid-1',
+        mode: 'client',
+        connected_routers: ['router-upstream-1', 'router-upstream-2'],
+        connect_locators: ['tcp/10.0.0.1:7447', 'tcp/10.0.0.2:7447'],
+        listen_locators: [],
+        links: [
+          {
+            zid: 'router-upstream-1',
+            whatami: 'router',
+            src: 'tcp/10.0.0.100:50001',
+            dst: 'tcp/10.0.0.1:7447',
+            is_streamed: true,
+          },
+          {
+            zid: 'router-upstream-2',
+            whatami: 'router',
+            src: 'tcp/10.0.0.100:50002',
+            dst: 'tcp/10.0.0.2:7447',
+            is_streamed: true,
+          },
+        ],
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions,
+      profiles,
+      existingNodes: [],
+    });
+
+    // Expect 3 nodes: 1 local client and 2 upstream routers (router-upstream-1 and router-upstream-2)
+    assert.equal(nodes.length, 3, 'Must have 1 local client and 2 distinct upstream routers');
+    const r1 = nodes.find((n) => n.zid === 'router-upstream-1');
+    const r2 = nodes.find((n) => n.zid === 'router-upstream-2');
+    const client = nodes.find((n) => n.zid === 'local-client-zid-1');
+
+    assert.ok(r1, 'router-upstream-1 must exist');
+    assert.ok(r2, 'router-upstream-2 must exist');
+    assert.ok(client, 'local client must exist');
+
+    assert.equal(edges.length, 2, 'Must have 2 active edges connecting client to both routers');
+  });
+
+  it('preserves localhost connect_locators even when other connect_locators exist', () => {
+    const profile: ConnectionProfile = {
+      id: 'prof-dual-connect',
+      name: 'Dual Connect Node',
+      mode: 'peer',
+      connect_locators: ['tcp/127.0.0.1:7447', 'tcp/192.168.1.50:7447'],
+      listen_locators: [],
+      scout_multicast: false,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-dual-connect': {
+        id: 'sess-dual',
+        profile_id: 'prof-dual-connect',
+        zid: 'peer-local-zid',
+        mode: 'peer',
+        connect_locators: ['tcp/127.0.0.1:7447', 'tcp/192.168.1.50:7447'],
+        listen_locators: [],
+        connected_routers: [],
+        connected_peers: [],
+        links: [],
+      },
+    };
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions,
+      profiles: [profile],
+      existingNodes: [],
+    });
+
+    const localNode = nodes.find((n) => n.zid === 'peer-local-zid');
+    assert.ok(localNode);
+    assert.ok(localNode.connectLocators?.includes('tcp/127.0.0.1:7447'), '127.0.0.1 connect locator must not be stripped');
+    assert.ok(localNode.connectLocators?.includes('tcp/192.168.1.50:7447'), '192.168.1.50 connect locator must be kept');
+  });
+
+  it('consolidates all listen locators of a remote router from Admin Space into a single node without duplicate listen nodes', () => {
+    const remoteRouterZid = '16c8087948a803dd35c400495f5be4f2';
+    const rawEntries: AdminSpaceEntry[] = [
+      {
+        keyExpr: `@/${remoteRouterZid}/session/info`,
+        zid: remoteRouterZid,
+        category: 'info',
+        payloadJson: JSON.stringify({
+          zid: remoteRouterZid,
+          whatami: 'Router',
+          version: '1.7.2',
+          locators: [
+            'tcp/192.168.1.100:7447',
+            'tls/192.168.1.100:7446',
+            'quic/192.168.1.100:7448',
+            'ws/192.168.1.100:8080',
+          ],
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${remoteRouterZid}/session/transport/unicast/listen/tcp/0.0.0.0/7447`,
+        zid: remoteRouterZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({ locator: 'tcp/0.0.0.0:7447' }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${remoteRouterZid}/session/transport/unicast/listen/tls/0.0.0.0/7446`,
+        zid: remoteRouterZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({ locator: 'tls/0.0.0.0:7446' }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${remoteRouterZid}/session/link/unicast/listen/0`,
+        zid: remoteRouterZid,
+        category: 'link',
+        payloadJson: JSON.stringify({ src: 'tcp/0.0.0.0:7447', dst: '' }),
+        timestamp: 1000,
+      },
+    ];
+
+    const adminData = parseAdminSpaceEntries(rawEntries);
+
+    const clientProfile: ConnectionProfile = {
+      id: 'prof-client',
+      name: 'Local Client',
+      mode: 'client',
+      connect_locators: ['tcp/192.168.1.100:7447'],
+      listen_locators: [],
+      scout_multicast: false,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-client': {
+        id: 'sess-client',
+        profile_id: 'prof-client',
+        zid: 'client-app-zid',
+        mode: 'client',
+        connect_locators: ['tcp/192.168.1.100:7447'],
+        listen_locators: [],
+        connected_routers: [remoteRouterZid],
+        connected_peers: [],
+        links: [
+          {
+            zid: remoteRouterZid,
+            whatami: 'router',
+            src: 'tcp/192.168.1.50:54321',
+            dst: 'tcp/192.168.1.100:7447',
+            is_streamed: true,
+            interfaces: [],
+          },
+        ],
+      },
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions,
+      profiles: [clientProfile],
+      adminData,
+      existingNodes: [],
+    });
+
+    // Exactly 2 nodes: 1 local client and 1 remote router (NO extra nodes for listen locators / ports / tokens)
+    assert.equal(nodes.length, 2, `Expected 2 nodes (client + router), but got ${nodes.length}: ${nodes.map((n) => `${n.label} (zid: ${n.zid})`).join(', ')}`);
+
+    const routerNode = nodes.find((n) => n.zid === remoteRouterZid);
+    assert.ok(routerNode, 'Remote router must exist in graph');
+    assert.equal(routerNode.scope, 'remote');
+    assert.equal(routerNode.status, 'connected');
+    assert.equal(routerNode.type, 'router');
+
+    // All locators must be on this router node
+    assert.ok(routerNode.locators.includes('tcp/192.168.1.100:7447'));
+    assert.ok(routerNode.locators.includes('tls/192.168.1.100:7446'));
+    assert.ok(routerNode.locators.includes('quic/192.168.1.100:7448'));
+    assert.ok(routerNode.locators.includes('ws/192.168.1.100:8080'));
+
+    // Edges: 1 edge between local client and remote router
+    assert.equal(edges.length, 1);
+  });
+
+  it('does NOT ingest ephemeral client socket ports (e.g. 44331) as listen locators for connected nodes', () => {
+    const activeSessions: Record<string, ActiveSession> = {
+      'prof-router': {
+        id: 'sess-router',
+        profile_id: 'prof-router',
+        zid: 'router-zid-authoritative',
+        mode: 'router',
+        listen_locators: ['tcp/192.168.101.1:7447'],
+        connect_locators: [],
+        links: [
+          {
+            zid: 'client-zid-remote-1',
+            whatami: 'client',
+            src: 'tcp/192.168.101.1:7447',
+            dst: 'tcp/192.168.101.10:44331', // Ephemeral client TCP socket
+            is_streamed: true,
+            interfaces: [],
+          },
+        ],
+      },
+    };
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions,
+      profiles: [],
+      existingNodes: [],
+    });
+
+    assert.equal(nodes.length, 2);
+
+    const clientNode = nodes.find((n) => n.zid === 'client-zid-remote-1');
+    assert.ok(clientNode);
+    assert.equal(clientNode.type, 'client');
+    // Ephemeral port 44331 must NOT be in locators
+    assert.equal(clientNode.locators.length, 0);
+    assert.ok(!clientNode.locators.some((l) => l.includes('44331')));
+  });
 });
+
+
 
 
 

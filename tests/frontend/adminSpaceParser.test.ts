@@ -91,4 +91,152 @@ describe('Admin Space Parser', () => {
     assert.ok(nodeA.neighbors.includes('fedcba9876543210'));
     assert.ok(nodeB.neighbors.includes('a1b2c3d4e5f67890'));
   });
+
+  it('parses session link entries with remote peer/router ZID in payload', () => {
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: '@/local-router-zid/session/link/1',
+        zid: 'local-router-zid',
+        category: 'link',
+        payloadJson: JSON.stringify({
+          zid: 'remote-router-zid',
+          whatami: 'Router',
+          src: 'tcp/10.0.0.1:54321',
+          dst: 'tcp/10.0.0.2:7447',
+          is_streamed: true,
+          mtu: 1500,
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    assert.equal(parsed.links.length, 1);
+    assert.equal(parsed.links[0].sourceZid, 'local-router-zid');
+    assert.equal(parsed.links[0].targetZid, 'remote-router-zid');
+    assert.equal(parsed.links[0].dstLocator, 'tcp/10.0.0.2:7447');
+
+    const localNode = parsed.nodes.get('local-router-zid');
+    assert.ok(localNode);
+    assert.equal(localNode.links.length, 1);
+    assert.equal(localNode.links[0].zid, 'remote-router-zid');
+  });
+
+  it('does NOT create independent nodes for listen transports or listen locators of a remote router', () => {
+    const routerZid = '16c8087948a803dd35c400495f5be4f2';
+    const entries: AdminSpaceEntry[] = [
+      // 1. Router session info
+      {
+        keyExpr: `@/${routerZid}/session/info`,
+        zid: routerZid,
+        category: 'info',
+        payloadJson: JSON.stringify({
+          zid: routerZid,
+          whatami: 'Router',
+          version: '1.7.2',
+          locators: [
+            'tcp/192.168.1.100:7447',
+            'tls/192.168.1.100:7446',
+            'quic/192.168.1.100:7448',
+            'ws/192.168.1.100:8080',
+          ],
+        }),
+        timestamp: 1000,
+      },
+      // 2. Unicast listen transport entries
+      {
+        keyExpr: `@/${routerZid}/session/transport/unicast/listen/tcp/0.0.0.0/7447`,
+        zid: routerZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({
+          locator: 'tcp/0.0.0.0:7447',
+          mtu: 65535,
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${routerZid}/session/transport/unicast/listen/tls/0.0.0.0/7446`,
+        zid: routerZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({
+          locator: 'tls/0.0.0.0:7446',
+          mtu: 65535,
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${routerZid}/session/transport/unicast/listen/quic/0.0.0.0/7448`,
+        zid: routerZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({
+          locator: 'quic/0.0.0.0:7448',
+          mtu: 65535,
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${routerZid}/session/transport/unicast/listen/ws/0.0.0.0/8080`,
+        zid: routerZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({
+          locator: 'ws/0.0.0.0:8080',
+          mtu: 65535,
+        }),
+        timestamp: 1000,
+      },
+      // 3. Listen link entries (listening sockets)
+      {
+        keyExpr: `@/${routerZid}/session/link/unicast/listen/0`,
+        zid: routerZid,
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tcp/0.0.0.0:7447',
+          dst: '',
+          is_streamed: true,
+          interfaces: ['192.168.1.100'],
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${routerZid}/session/link/unicast/listen/1`,
+        zid: routerZid,
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tls/0.0.0.0:7446',
+          dst: '',
+          is_streamed: true,
+          interfaces: ['192.168.1.100'],
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+
+    // MUST ONLY have 1 node (the router itself) and 0 fake nodes
+    assert.equal(parsed.nodes.size, 1, `Expected exactly 1 node for the router, but found ${parsed.nodes.size} nodes: ${Array.from(parsed.nodes.keys()).join(', ')}`);
+    assert.ok(parsed.nodes.has(routerZid), 'Router node must exist with its exact ZID');
+
+    // No fake nodes for port numbers or path tokens
+    assert.equal(parsed.nodes.has('7447'), false, 'Port 7447 must NOT be a node');
+    assert.equal(parsed.nodes.has('7446'), false, 'Port 7446 must NOT be a node');
+    assert.equal(parsed.nodes.has('7448'), false, 'Port 7448 must NOT be a node');
+    assert.equal(parsed.nodes.has('8080'), false, 'Port 8080 must NOT be a node');
+    assert.equal(parsed.nodes.has('unicast'), false, 'Token "unicast" must NOT be a node');
+    assert.equal(parsed.nodes.has('listen'), false, 'Token "listen" must NOT be a node');
+    assert.equal(parsed.nodes.has('transport'), false, 'Token "transport" must NOT be a node');
+
+    // Listen sockets must not create inter-node links
+    assert.equal(parsed.links.length, 0, 'Listen interfaces must not be treated as inter-node connection links');
+
+    // The router node should have all real advertised locators
+    const routerNode = parsed.nodes.get(routerZid)!;
+    assert.equal(routerNode.whatami, 'router');
+    assert.ok(routerNode.locators.includes('tcp/192.168.1.100:7447'));
+    assert.ok(routerNode.locators.includes('tls/192.168.1.100:7446'));
+    assert.ok(routerNode.locators.includes('quic/192.168.1.100:7448'));
+    assert.ok(routerNode.locators.includes('ws/192.168.1.100:8080'));
+  });
 });
+
+

@@ -67,24 +67,66 @@ mod tests {
         let _ = manager.disconnect(&session_id).await;
     }
 
+    struct TestTlsCerts {
+        pub dir: std::path::PathBuf,
+        pub ca_cert_path: String,
+        pub server_cert_path: String,
+        pub server_key_path: String,
+    }
+
+    impl TestTlsCerts {
+        pub fn create() -> Self {
+            let dir = std::env::temp_dir().join(format!("zenohx_tls_test_{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).expect("failed to create temp test certs dir");
+
+            let ca_path = dir.join("ca.crt");
+            let cert_path = dir.join("server.crt");
+            let key_path = dir.join("server.key");
+
+            const CA_CERT: &str = "-----BEGIN CERTIFICATE-----\nMIIDDTCCAfWgAwIBAgIUGRloBVzronZiMJ8b0ionsMcFJBIwDQYJKoZIhvcNAQEL\nBQAwFjEUMBIGA1UEAwwLWmVub2hUZXN0Q0EwHhcNMjYwODI2MTkyMTQ1WhcNMjcw\nODI2MTkyMTQ1WjAWMRQwEgYDVQQDDAtaZW5vaFRlc3RDQTCCASIwDQYJKoZIhvcN\nAQEBBQADggEPADCCAQoCggEBAN8x/cPI+Tvy8ze4TcXIW1ldH7WvVdVz3yUYizF8\ninITn41k5yJvNe496jbBuLY3rfHb87qQaom7s5x/FZzVCtlxqDXAMnitsw+HdHcG\nhdK8rmOidi+9t3FgjKn4et1XtlbRLbMJol/Iyv5Mh2Qgu9jezCPQKy3eYcFsqHAk\n/lqQCTom38kmDCu47Nt2PGlYVfkAmjFZh6f5aGizemy6ylaRZJ8UQ8Ngj5qPD2JP\nQV0IVobjG50kfoNoYth4SC59cX+udLXhJpBZoAv5YKP7jw+T12KGnwDAVGuzWhn7\nSl4DMfZspHC/ODJwlmNH1O4lqY8MJxanj5GK0Cei77XlgBMCAwEAAaNTMFEwHQYD\nVR0OBBYEFOeSbXzixUPKnqmVdPEwqKlm+915MB8GA1UdIwQYMBaAFOeSbXzixUPK\nnqmVdPEwqKlm+915MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEB\nAFd56xMzzz0SYXgWonMdfSR5olL45EFOX6l9ermWtz0ibEugec9PDQxP3rtUM6Ks\n/3Sv2E9gRUO92trbniyC5rzuEmOxWDIxaIA2FxkvtKdzdPO3jnmpFyBovQcnWUw+\nbIst2NsvDtqiqDySJiMBmOcukxvUeJOZTba/FhBO428K10G2SfsFWQDpUzITA/R+\n1M772OjGpnaVDxlhe8mBDh3sDVuv42I993XxtpscJcs1iYRDIB2x9Q54osfzm+R7\n1vBAwhpU1czpseHu2xLyHsL+3DGunGhV009Sv2v/48WhHOU7YjCl9H04QRKDCSxB\n3Nr5Rjb/BMs++26tAbjRcn4=\n-----END CERTIFICATE-----\n";
+
+            const SERVER_CERT: &str = "-----BEGIN CERTIFICATE-----\nMIIDFjCCAf6gAwIBAgIUYlJaA7YoqfkOZCWvdaB8b1AmZKcwDQYJKoZIhvcNAQEL\nBQAwFjEUMBIGA1UEAwwLWmVub2hUZXN0Q0EwHhcNMjYwODI2MTkyMTQ1WhcNMjcw\nODI2MTkyMTQ1WjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEwggEiMA0GCSqGSIb3DQEB\nAQUAA4IBDwAwggEKAoIBAQCxi88Lwm0MOoNnadxOGmT/yGluCQX/TXWTpeU7rPX8\n/PrwmdQAFSzqn6FgMfrAvdyRC1Aje8BT9zBYLpbR5bUh48vwjU3wARuP11Dfo1C0\n8juryKRJl/IvJyVNFz+IE02hYl4tViPxkXHVtUXi2CRb7mPYhwCPX+CgOLmUcupu\ncv4psWRcjY/4FtB93h2DOBJIfHoDbNoCq9V2tJblooWfky0HuvOTrHh36YpTbKaq\nHBvL35tqfbow3c1vQy7+U09NBVMTYOfl+UfvS1Pu63+sEQmmxl1MnNZDtgoEL1cJ\nf7J3Bk227BcOOCl9nDx+FGZcoxQhWYP1K6ifrTb7yDlPAgMBAAGjXjBcMBoGA1Ud\nEQQTMBGHBH8AAAGCCWxvY2FsaG9zdDAdBgNVHQ4EFgQUPKDRI9/blu7bbmnr/Lqx\nH2M0+LgwHwYDVR0jBBgwFoAU55JtfOLFQ8qeqZV08TCoqWb73XkwDQYJKoZIhvcN\nAQELBQADggEBAGBvUWpA6zF3A2qwXQzhNZXXIpIl10DyBiHREEgqAmCO4Fbif9PG\nKsGCkz8AkNPK/LRwKFe4St3ShEnppa3nIrUBqV5Zfj0hnljR17o+4mRBBB0bcCZI\nMuvRKZ8KR1Q3jJeeiItOA5o10HCijp924rEFFs9IhMN9efb5isKNpiwD8jdfgH+6\nMoGjECRU7fyw+I5NUZARtDrRD+WoiWtkYIqTynZ7GW6N3C6fattAuYsTHwrfTSU1\n79atPmCInrb3CfIhIgB+31ikDhEVz3uyFQs9d0WDwDmeLRd1VJWNnqr3XP9b51KZ\n7FRq5+0BP6MOBUN2/khRQ6Ei9r6M20UysDA=\n-----END CERTIFICATE-----\n";
+
+            const SERVER_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCxi88Lwm0MOoNn\nadxOGmT/yGluCQX/TXWTpeU7rPX8/PrwmdQAFSzqn6FgMfrAvdyRC1Aje8BT9zBY\nLpbR5bUh48vwjU3wARuP11Dfo1C08juryKRJl/IvJyVNFz+IE02hYl4tViPxkXHV\ntUXi2CRb7mPYhwCPX+CgOLmUcupucv4psWRcjY/4FtB93h2DOBJIfHoDbNoCq9V2\ntJblooWfky0HuvOTrHh36YpTbKaqHBvL35tqfbow3c1vQy7+U09NBVMTYOfl+Ufv\nS1Pu63+sEQmmxl1MnNZDtgoEL1cJf7J3Bk227BcOOCl9nDx+FGZcoxQhWYP1K6if\nrTb7yDlPAgMBAAECggEARnZXjfG0KIHCa9TaD48vHUpS+U4QeMGrk5Tn1Jawq55V\nEw7h0cSVpmoC+DPtsffH5TKJtANlkY1NPPoEdjoFeHU5F3dlAobWAvCvkon0ulNW\ndjczaFeq0KbnCWDcIGuUyCNLgA+rRTB1bpy6JyyjxW5nZuQxRzWEZuIMWMuAmaNV\nP4QgNqqUnINQ3pd2BmNA0ikS9xH7p3Xbg4bx/dgnpiul7Zb0tt4F783kzH6qnmCW\neg20dMnaNbbxhABzmLr6STdcLHHJbWpWcQR0LH2RzU2+UdYqzMtbp4uAVNSU5Pg1\n65vrEc2xqQVfMfHhY8KYXxZlVAhOPX22//NOebcQLQKBgQDdSfnVVpkGUIPYi32o\nFOvKyskNPabYFf1/aS9CXKPe3DQyEzyuQzDhb1RmXQfFrk6ynOgFlaCL0SoV1fMO\n6uDwb51y7ifk1/JKu0jbNb98Yq3QjYYHMAxh3ZcYI473ot2iZJtbZ5VZvZQ/fqUK\n0VVI9d0F1eE3gx9v/D4HOCOU5QKBgQDNZU5u2FZFhgL+JgR2z2+0m0ESpJCwLD08\nTkpI1t4baLaVP+NstgGkgnq6Ghkor6sNTAA6GVNmbnRae+EPl8JwiknyCAAjUlZD\nL2eEsABN2GUDX0vG6Z9gYpDxSyDy3dSPpKKtoZw0JuSMSWn5gwOltE5HFQeHnbRw\nw5O81l+GIwKBgFi5wX9FgoOiosqfW1maUdR0rFovvwbjAkokvXspM9c2iYMObYUd\nkarB/aAxat1a/1jkSq96h+2nhu1MZHE1wc0Fo6aiUMKTxyUppJOoIEfaNQDqzbNy\nE3Tl6SAXmco2thDXr+bdSGe7+IXg3IHS3xQq6FzfnbapT2CSTbiNTM71AoGAJqVY\nE50a5mvnpkAq+Nvg7b+Eh+h03OEGCJHGglwDYG7cY8qolOzN9FEknF2KvFAJRDA3\nnrbjLVO9CsViPFfWmuw6K5L7y6mTV4LU3G9tLzh3ESJeFKgid7U0BmKXaXr5oqlc\nfoT46gsjV438pZjUF9qMG+3GA+tVZx41bwN657cCgYEAnxfwy+/Ysu7C4VICFPJx\nncAI3JNWTj//0SRBT3bcmMMZQukDXC6ETdzg/Cei2wslAySBe6ZZyeTlGLzDx83v\n0ovWZ+OAKIaPrA8nw5bcPrP6h/t9OKZsVgAYDx2ghOTeEFKx1Xgf2an/RW+Wf3BP\nHZG4ISYqQzjl9/k8hYYfX24=\n-----END PRIVATE KEY-----\n";
+
+            std::fs::write(&ca_path, CA_CERT).expect("write ca.crt failed");
+            std::fs::write(&cert_path, SERVER_CERT).expect("write server.crt failed");
+            std::fs::write(&key_path, SERVER_KEY).expect("write server.key failed");
+
+            Self {
+                dir,
+                ca_cert_path: ca_path.to_string_lossy().to_string(),
+                server_cert_path: cert_path.to_string_lossy().to_string(),
+                server_key_path: key_path.to_string_lossy().to_string(),
+            }
+        }
+    }
+
+    impl Drop for TestTlsCerts {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_zenoh_tls_router_and_client_connection() {
+        let certs = TestTlsCerts::create();
         let manager = Arc::new(SessionManager::new());
 
-        // 1. Router with Server Cert & Key
+        // 1. Router with Server Cert & Key on dynamic ephemeral port
         let router_config = SessionConfig {
             profile_id: Some("tls-router-1".to_string()),
             mode: "router".to_string(),
             connect_locators: vec![],
-            listen_locators: vec!["tls/127.0.0.1:7446".to_string()],
+            listen_locators: vec!["tls/127.0.0.1:0".to_string()],
             scout_multicast: false,
             scout_gossip: false,
             reconnect_retry: None,
             user_auth: None,
             tls_config: Some(TlsConfig {
-                ca_cert: Some("/tmp/zenohx-tls-test/ca.crt".to_string()),
-                client_cert: Some("/tmp/zenohx-tls-test/server.crt".to_string()),
-                client_key: Some("/tmp/zenohx-tls-test/server.key".to_string()),
+                ca_cert: Some(certs.ca_cert_path.clone()),
+                client_cert: Some(certs.server_cert_path.clone()),
+                client_key: Some(certs.server_key_path.clone()),
                 tls_only: Some(true),
             }),
             custom_config: None,
@@ -92,20 +134,24 @@ mod tests {
 
         let router_session_id = manager.connect(router_config).await.expect("Router connect failed");
         let router_info = manager.get_session_info(&router_session_id).await.expect("Router info failed");
-        println!("Router connected with bound locators: {:?}", router_info.bound_locators);
+        let router_locator = router_info
+            .bound_locators
+            .first()
+            .expect("router should have bound locator")
+            .clone();
 
         // 2. Client with Root CA
         let client_config = SessionConfig {
             profile_id: Some("tls-client-1".to_string()),
             mode: "client".to_string(),
-            connect_locators: vec!["tls/127.0.0.1:7446".to_string()],
+            connect_locators: vec![router_locator.clone()],
             listen_locators: vec![],
             scout_multicast: false,
             scout_gossip: false,
             reconnect_retry: None,
             user_auth: None,
             tls_config: Some(TlsConfig {
-                ca_cert: Some("/tmp/zenohx-tls-test/ca.crt".to_string()),
+                ca_cert: Some(certs.ca_cert_path.clone()),
                 client_cert: None,
                 client_key: None,
                 tls_only: Some(true),
@@ -114,27 +160,23 @@ mod tests {
         };
 
         let client_session_id = manager.connect(client_config).await;
-        println!("Client connect result: {:?}", client_session_id);
         assert!(client_session_id.is_ok(), "Client connect with Root CA failed: {:?}", client_session_id.err());
 
         let client_id = client_session_id.unwrap();
-        let client_info = manager.get_session_info(&client_id).await.expect("Client info failed");
-        println!("Client info: {:?}", client_info);
-
         let _ = manager.disconnect(&client_id).await;
 
         // 3. Peer connecting to TLS Router with Root CA (listening on dynamic TCP 0.0.0.0:0)
         let peer_config = SessionConfig {
             profile_id: Some("tls-peer-1".to_string()),
             mode: "peer".to_string(),
-            connect_locators: vec!["tls/127.0.0.1:7446".to_string()],
+            connect_locators: vec![router_locator],
             listen_locators: vec!["tcp/0.0.0.0:0".to_string()],
             scout_multicast: false,
             scout_gossip: false,
             reconnect_retry: None,
             user_auth: None,
             tls_config: Some(TlsConfig {
-                ca_cert: Some("/tmp/zenohx-tls-test/ca.crt".to_string()),
+                ca_cert: Some(certs.ca_cert_path.clone()),
                 client_cert: None,
                 client_key: None,
                 tls_only: None,

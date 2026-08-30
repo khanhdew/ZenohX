@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.5.4] - 2026-08-30
+
+### 🐛 Fixed
+- **zenoh,db:** restrict listen endpoint persistence to router and save database in app data dir
+
+### 🔧 Maintenance
+- **backend:** remove JSON5 debug logging and add peer TLS test
+- **zenoh:** make TLS integration test self-contained with temporary dynamic certs
+
+---
 ## [v0.5.3] - 2026-08-27
 
 ### 🚀 Added & Enhanced

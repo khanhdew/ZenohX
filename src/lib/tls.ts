@@ -641,12 +641,17 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
     };
   }
 
-  const listenLocs = filterRealLocators(config.listen_locators || []);
-
-  if (listenLocs.length > 0) {
-    result.listen = {
-      endpoints: listenLocs,
-    };
+  if (mode === 'router') {
+    const listenLocs = filterRealLocators(config.listen_locators || []);
+    if (listenLocs.length > 0) {
+      result.listen = {
+        endpoints: listenLocs,
+      };
+    } else {
+      result.listen = {
+        endpoints: ['tcp/0.0.0.0:7447'],
+      };
+    }
   }
 
   result.scouting = {
@@ -679,11 +684,15 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
       if (tls.ca_cert) tlsObj.root_ca_certificate = tls.ca_cert;
       if (tls.client_cert) {
         tlsObj.connect_certificate = tls.client_cert;
-        tlsObj.listen_certificate = tls.client_cert;
+        if (mode === 'router') {
+          tlsObj.listen_certificate = tls.client_cert;
+        }
       }
       if (tls.client_key) {
         tlsObj.connect_private_key = tls.client_key;
-        tlsObj.listen_private_key = tls.client_key;
+        if (mode === 'router') {
+          tlsObj.listen_private_key = tls.client_key;
+        }
       }
       result.transport.link.tls = tlsObj;
     }
@@ -700,8 +709,9 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
           }
         }
       } else if (k === 'listen') {
-        if (v && typeof v === 'object' && !Array.isArray(v)) {
+        if (mode === 'router' && v && typeof v === 'object' && !Array.isArray(v)) {
           result.listen = { ...(v as any), ...result.listen };
+          const listenLocs = filterRealLocators(config.listen_locators || []);
           if (listenLocs.length > 0) {
             result.listen.endpoints = listenLocs;
           }
@@ -717,6 +727,9 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
         if (!(k in result)) {
           result[k] = v;
         }
+      } else if (mode !== 'router' && (k === 'listen' || k.startsWith('listen/'))) {
+        // Skip listen overrides for peer and client
+        continue;
       } else if (v && typeof v === 'object' && !Array.isArray(v) && result[k] && typeof result[k] === 'object') {
         result[k] = { ...result[k], ...v };
       } else if (!(k in result)) {

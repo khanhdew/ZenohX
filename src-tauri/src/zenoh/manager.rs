@@ -807,11 +807,14 @@ impl SessionManager {
                 raw_listen.push(loc.to_string());
             }
             let real_listen = resolve_bound_locators(raw_listen);
-            let json5 = config.generate_json5(Some(&real_zid), &real_listen);
+            let is_router = config.mode.to_lowercase() == "router";
+            let json5 = config.generate_json5(Some(&real_zid), if is_router { &real_listen } else { &[] });
 
-            let locators = if config.mode.to_lowercase() == "router" {
+            let locators = if is_router {
                 if !config.listen_locators.is_empty() {
                     config.listen_locators.clone()
+                } else if !real_listen.is_empty() {
+                    real_listen
                 } else {
                     vec!["tcp/0.0.0.0:7447".to_string()]
                 }
@@ -870,11 +873,12 @@ impl SessionManager {
         remote_locs.sort();
         remote_locs.dedup();
 
+        let is_remote_router = remote_mode.to_lowercase() == "router";
         let remote_config = SessionConfig {
             profile_id: None,
             mode: remote_mode.clone(),
             connect_locators: vec![],
-            listen_locators: remote_locs.clone(),
+            listen_locators: if is_remote_router { remote_locs.clone() } else { vec![] },
             scout_multicast: true,
             scout_gossip: true,
             reconnect_retry: None,
@@ -883,7 +887,7 @@ impl SessionManager {
             custom_config: None,
         };
 
-        let json5 = remote_config.generate_json5(Some(&clean_zid), &remote_locs);
+        let json5 = remote_config.generate_json5(Some(&clean_zid), if is_remote_router { &remote_locs } else { &[] });
 
         Ok(NodeConfigurationResult {
             zid: clean_zid,

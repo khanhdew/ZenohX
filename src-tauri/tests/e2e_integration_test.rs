@@ -33,8 +33,8 @@ async fn test_full_e2e_integration_workflow() {
     let profile1_id = Uuid::new_v4().to_string();
     let profile1 = ConnectionProfile {
         id: profile1_id.clone(),
-        name: "Test Peer Node 1".to_string(),
-        mode: "peer".to_string(),
+        name: "Test Router Node 1".to_string(),
+        mode: "router".to_string(),
         connect_locators: vec![],
         listen_locators: vec!["tcp/127.0.0.1:17448".to_string()],
         scout_multicast: false,
@@ -67,17 +67,17 @@ async fn test_full_e2e_integration_workflow() {
     // Verify stored profiles
     let loaded_profiles = db.get_profiles().expect("failed to fetch profiles");
     assert_eq!(loaded_profiles.len(), 2);
-    assert!(loaded_profiles.iter().any(|p| p.id == profile1_id && p.name == "Test Peer Node 1"));
+    assert!(loaded_profiles.iter().any(|p| p.id == profile1_id && p.name == "Test Router Node 1"));
     assert!(loaded_profiles.iter().any(|p| p.id == profile2_id && p.name == "Test Peer Node 2"));
 
     // =========================================================================
-    // 2. Open 2 Concurrent Zenoh Peer Sessions in SessionManager
+    // 2. Open 2 Concurrent Zenoh Sessions in SessionManager
     // =========================================================================
     let session_manager = SessionManager::new();
 
     let session1_config = SessionConfig {
         profile_id: Some(profile1_id.clone()),
-        mode: "peer".to_string(),
+        mode: "router".to_string(),
         connect_locators: vec![],
         listen_locators: vec!["tcp/127.0.0.1:17448".to_string()],
         scout_multicast: false,

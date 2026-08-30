@@ -18,7 +18,7 @@ pub mod zenoh;
 
 use commands::*;
 use db::Database;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use zenoh::SessionManager;
 
 pub struct AppState {
@@ -30,9 +30,6 @@ pub struct AppState {
 pub fn run() {
     let session_manager = SessionManager::new();
     let sm_clone = session_manager.clone();
-    let db = Database::new("zenohx.db")
-        .or_else(|_| Database::new_in_memory())
-        .expect("failed to initialize SQLite database");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -40,6 +37,45 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let app_handle = app.handle().clone();
+
+            // Resolve proper App Data Directory for SQLite persistence
+            let data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            if let Err(e) = std::fs::create_dir_all(&data_dir) {
+                eprintln!("Failed to create app data directory '{:?}': {}", data_dir, e);
+            }
+
+            let db_path = data_dir.join("zenohx.db");
+
+            // Migrate legacy ~/zenohx.db or ./zenohx.db if app_data_dir db does not exist yet
+            if !db_path.exists() {
+                if let Ok(home) = app.path().home_dir() {
+                    let legacy_home_db = home.join("zenohx.db");
+                    if legacy_home_db.exists() && legacy_home_db.is_file() {
+                        if std::fs::copy(&legacy_home_db, &db_path).is_ok() {
+                            let _ = std::fs::remove_file(&legacy_home_db);
+                        }
+                    }
+                }
+                let legacy_cwd_db = std::path::Path::new("zenohx.db");
+                if legacy_cwd_db.exists() && legacy_cwd_db.is_file() && !db_path.exists() {
+                    if std::fs::copy(legacy_cwd_db, &db_path).is_ok() {
+                        let _ = std::fs::remove_file(legacy_cwd_db);
+                    }
+                }
+            }
+
+            let db = Database::new(&db_path)
+                .or_else(|_| Database::new_in_memory())
+                .expect("failed to initialize SQLite database");
+
+            app.manage(AppState {
+                session_manager: sm_clone.clone(),
+                db,
+            });
+
             let sm = sm_clone.clone();
             tauri::async_runtime::spawn(async move {
                 sm.set_status_callback(move |event| {
@@ -48,10 +84,6 @@ pub fn run() {
                 .await;
             });
             Ok(())
-        })
-        .manage(AppState {
-            session_manager,
-            db,
         })
         .invoke_handler(tauri::generate_handler![
             connect_session,

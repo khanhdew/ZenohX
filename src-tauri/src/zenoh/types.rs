@@ -226,33 +226,29 @@ impl SessionConfig {
             }
         }
 
-        if !self.listen_locators.is_empty() {
-            let normalized_listen: Vec<String> = self
-                .listen_locators
-                .iter()
-                .map(|l| normalize_locator(l))
-                .filter(|l| !l.is_empty())
-                .collect();
-            let json = serde_json::to_string(&normalized_listen)
-                .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
-            config
-                .insert_json5("listen/endpoints", &json)
-                .map_err(|e| format!("failed to set listen endpoints: {e}"))?;
-        } else if mode_str == "router" {
-            let default_router_listen = vec!["tcp/0.0.0.0:7447".to_string()];
-            let json = serde_json::to_string(&default_router_listen)
-                .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
-            config
-                .insert_json5("listen/endpoints", &json)
-                .map_err(|e| format!("failed to set router listen endpoints: {e}"))?;
-        } else if self.tls_config.is_some() && mode_str == "peer" {
-            // When TLS is configured on a peer without explicit listen locator, listen on dynamic port
-            let default_tls_listen = vec!["tls/0.0.0.0:0".to_string()];
-            let json = serde_json::to_string(&default_tls_listen)
-                .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
-            config
-                .insert_json5("listen/endpoints", &json)
-                .map_err(|e| format!("failed to set tls listen endpoints: {e}"))?;
+        // Only router mode sets listen endpoints from configuration.
+        // Peer and client modes do NOT load or configure fixed listen endpoints from JSON5/config.
+        if mode_str == "router" {
+            if !self.listen_locators.is_empty() {
+                let normalized_listen: Vec<String> = self
+                    .listen_locators
+                    .iter()
+                    .map(|l| normalize_locator(l))
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                let json = serde_json::to_string(&normalized_listen)
+                    .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
+                config
+                    .insert_json5("listen/endpoints", &json)
+                    .map_err(|e| format!("failed to set listen endpoints: {e}"))?;
+            } else {
+                let default_router_listen = vec!["tcp/0.0.0.0:7447".to_string()];
+                let json = serde_json::to_string(&default_router_listen)
+                    .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
+                config
+                    .insert_json5("listen/endpoints", &json)
+                    .map_err(|e| format!("failed to set router listen endpoints: {e}"))?;
+            }
         }
 
         // 4. Multicast & Gossip scouting
@@ -346,6 +342,10 @@ impl SessionConfig {
                         }
                         continue;
                     }
+                    if mode_str != "router" && (k == "listen" || k.starts_with("listen/")) {
+                        // Peer and Client must neither save nor load listen endpoints to/from JSON5
+                        continue;
+                    }
                     let json_val = serde_json::to_string(v)
                         .map_err(|e| format!("failed to serialize custom config value: {e}"))?;
                     config
@@ -401,9 +401,8 @@ impl SessionConfig {
         }
 
         // Listen endpoints:
-        // - For router: if live_bound is provided, use live_bound (authoritative resolved IP:port), else self.listen_locators, else default router port
-        // - For peer: use self.listen_locators or default to ["tcp/0.0.0.0:0"]
-        // - For client: no listen endpoints
+        // ONLY for router: if live_bound is provided, use live_bound (authoritative resolved IP:port), else self.listen_locators, else default router port
+        // Peer and Client must neither save nor load listen endpoints to/from JSON5.
         if mode == "router" {
             let listen_endpoints: Vec<String> = if !live_bound.is_empty() {
                 live_bound.to_vec()
@@ -423,21 +422,6 @@ impl SessionConfig {
                 listen_obj.insert("endpoints".to_string(), serde_json::Value::Array(eps));
                 map.insert("listen".to_string(), serde_json::Value::Object(listen_obj));
             }
-        } else if mode == "peer" {
-            let listen_endpoints: Vec<String> = if !self.listen_locators.is_empty() {
-                self.listen_locators.clone()
-            } else {
-                vec!["tcp/0.0.0.0:0".to_string()]
-            };
-
-            let mut listen_obj = serde_json::Map::new();
-            let eps: Vec<serde_json::Value> = listen_endpoints
-                .iter()
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| serde_json::Value::String(s.trim().to_string()))
-                .collect();
-            listen_obj.insert("endpoints".to_string(), serde_json::Value::Array(eps));
-            map.insert("listen".to_string(), serde_json::Value::Object(listen_obj));
         }
 
         let mut scouting_obj = serde_json::Map::new();
@@ -478,11 +462,15 @@ impl SessionConfig {
                 }
                 if let Some(cert) = &tls.client_cert {
                     tls_obj.insert("connect_certificate".to_string(), serde_json::json!(cert));
-                    tls_obj.insert("listen_certificate".to_string(), serde_json::json!(cert));
+                    if mode == "router" {
+                        tls_obj.insert("listen_certificate".to_string(), serde_json::json!(cert));
+                    }
                 }
                 if let Some(key) = &tls.client_key {
                     tls_obj.insert("connect_private_key".to_string(), serde_json::json!(key));
-                    tls_obj.insert("listen_private_key".to_string(), serde_json::json!(key));
+                    if mode == "router" {
+                        tls_obj.insert("listen_private_key".to_string(), serde_json::json!(key));
+                    }
                 }
                 link_obj.insert("tls".to_string(), serde_json::Value::Object(tls_obj));
                 transport_obj.insert("link".to_string(), serde_json::Value::Object(link_obj));
@@ -493,6 +481,9 @@ impl SessionConfig {
         if let Some(custom) = &self.custom_config {
             if let Some(obj) = custom.as_object() {
                 for (k, v) in obj {
+                    if mode != "router" && (k == "listen" || k.starts_with("listen/")) {
+                        continue;
+                    }
                     if !map.contains_key(k) {
                         map.insert(k.clone(), v.clone());
                     }

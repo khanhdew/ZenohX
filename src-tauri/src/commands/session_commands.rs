@@ -73,19 +73,18 @@ pub async fn connect_node_by_zid(
 
     // Authoritative Post-Connect Update:
     // - For router: Take real bound IP, port, and locators from the connected Zenoh node and save to database.
-    // - For peer: Preserve/save listen as 0.0.0.0:0 (ephemeral dynamic port).
-    // - For client: Save listen as empty (client does not listen).
+    // - For peer & client: Do not save listen endpoints.
     let mut updated_profile = profile.clone();
-    if profile.mode == "router" {
+    if profile.mode.to_lowercase() == "router" {
         if !session_info.bound_locators.is_empty() {
             updated_profile.listen_locators = session_info.bound_locators.clone();
         }
-    } else if profile.mode == "peer" {
-        if updated_profile.listen_locators.is_empty() {
-            updated_profile.listen_locators = vec!["tcp/0.0.0.0:0".to_string()];
-        }
     } else {
         updated_profile.listen_locators = vec![];
+        if let Some(custom_obj) = updated_profile.custom_config.as_mut().and_then(|v| v.as_object_mut()) {
+            custom_obj.remove("listen");
+            custom_obj.remove("listen/endpoints");
+        }
     }
     let _ = state.db.save_profile(&updated_profile);
 
@@ -175,11 +174,17 @@ pub async fn get_node_configuration(
         });
 
     if let Some(p) = profile {
+        let is_router = p.mode.to_lowercase() == "router";
+        let listen_locators = if is_router {
+            p.listen_locators.clone()
+        } else {
+            vec![]
+        };
         let config = crate::zenoh::types::SessionConfig {
             profile_id: Some(p.id.clone()),
             mode: p.mode.clone(),
             connect_locators: p.connect_locators.clone(),
-            listen_locators: p.listen_locators.clone(),
+            listen_locators: listen_locators.clone(),
             scout_multicast: p.scout_multicast,
             scout_gossip: true,
             reconnect_retry: None,
@@ -187,13 +192,13 @@ pub async fn get_node_configuration(
             tls_config: None,
             custom_config: p.custom_config.clone(),
         };
-        let json5 = config.generate_json5(Some(&p.id), &p.listen_locators);
+        let json5 = config.generate_json5(Some(&p.id), &listen_locators);
         return Ok(crate::zenoh::types::NodeConfigurationResult {
             zid: p.id.clone(),
             profile_id: Some(p.id),
             mode: p.mode,
             status: "disconnected".to_string(),
-            locators: p.listen_locators,
+            locators: listen_locators,
             connect_locators: p.connect_locators,
             json5,
             is_local: true,

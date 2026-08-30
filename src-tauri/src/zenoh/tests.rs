@@ -858,6 +858,131 @@ mod tests {
 
         manager.disconnect(&session_id).await.expect("disconnect");
     }
+
+    #[test]
+    fn test_peer_and_client_do_not_save_or_load_listen_endpoints_in_json5() {
+        // 1. Peer mode - generate_json5 should never output "listen"
+        let peer_config = SessionConfig {
+            profile_id: Some("peer-prof-1".to_string()),
+            mode: "peer".to_string(),
+            connect_locators: vec!["tcp/10.0.0.1:7447".to_string()],
+            listen_locators: vec!["tcp/192.168.1.50:43219".to_string()],
+            scout_multicast: true,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: Some(serde_json::json!({
+                "listen": {
+                    "endpoints": ["tcp/192.168.1.50:43219"]
+                },
+                "listen/endpoints": "[\"tcp/192.168.1.50:43219\"]",
+                "transport": { "unicast": { "max_sessions": 10 } }
+            })),
+        };
+
+        let live_bound = vec!["tcp/192.168.1.50:43219".to_string()];
+        let peer_json5 = peer_config.generate_json5(Some("peer-prof-1"), &live_bound);
+        let peer_parsed: serde_json::Value = serde_json::from_str(&peer_json5).expect("parse peer json5");
+
+        assert_eq!(peer_parsed.get("mode").and_then(|v| v.as_str()), Some("peer"));
+        assert!(peer_parsed.get("listen").is_none(), "Peer mode must NOT have 'listen' in JSON5");
+        assert!(peer_parsed.get("listen/endpoints").is_none(), "Peer mode must NOT have 'listen/endpoints' in JSON5");
+        assert!(peer_parsed.get("transport").is_some(), "Other custom config must be preserved");
+
+        // 2. Client mode - generate_json5 should never output "listen"
+        let client_config = SessionConfig {
+            profile_id: Some("client-prof-1".to_string()),
+            mode: "client".to_string(),
+            connect_locators: vec!["tcp/10.0.0.1:7447".to_string()],
+            listen_locators: vec!["tcp/0.0.0.0:0".to_string()],
+            scout_multicast: false,
+            scout_gossip: false,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: Some(serde_json::json!({
+                "listen": {
+                    "endpoints": ["tcp/127.0.0.1:7447"]
+                }
+            })),
+        };
+
+        let client_json5 = client_config.generate_json5(Some("client-prof-1"), &[]);
+        let client_parsed: serde_json::Value = serde_json::from_str(&client_json5).expect("parse client json5");
+
+        assert_eq!(client_parsed.get("mode").and_then(|v| v.as_str()), Some("client"));
+        assert!(client_parsed.get("listen").is_none(), "Client mode must NOT have 'listen' in JSON5");
+
+        // 3. Router mode - generate_json5 MUST output "listen"
+        let router_config = SessionConfig {
+            profile_id: Some("router-prof-1".to_string()),
+            mode: "router".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/0.0.0.0:7447".to_string()],
+            scout_multicast: true,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+        };
+
+        let router_json5 = router_config.generate_json5(Some("router-prof-1"), &[]);
+        let router_parsed: serde_json::Value = serde_json::from_str(&router_json5).expect("parse router json5");
+
+        assert_eq!(router_parsed.get("mode").and_then(|v| v.as_str()), Some("router"));
+        assert!(router_parsed.get("listen").is_some(), "Router mode MUST have 'listen' in JSON5");
+        let listen_eps = router_parsed["listen"]["endpoints"].as_array().expect("listen endpoints array");
+        assert_eq!(listen_eps[0].as_str(), Some("tcp/0.0.0.0:7447"));
+
+        // 4. to_zenoh_config should NOT load listen endpoints for peer or client
+        let peer_zenoh_cfg = peer_config.to_zenoh_config().expect("to_zenoh_config peer");
+        let peer_cfg_debug = format!("{:?}", peer_zenoh_cfg);
+        // The peer config should not have configured listen endpoints from listen_locators or custom_config
+        assert!(!peer_cfg_debug.contains("43219"), "Peer must not load persisted listen endpoint IP:port");
+
+        let client_zenoh_cfg = client_config.to_zenoh_config().expect("to_zenoh_config client");
+        let client_cfg_debug = format!("{:?}", client_zenoh_cfg);
+        assert!(!client_cfg_debug.contains("127.0.0.1:7447"), "Client must not load listen endpoints from custom_config");
+        assert!(!client_cfg_debug.contains("0.0.0.0:0"), "Client must not load listen endpoints from listen_locators");
+
+        let router_zenoh_cfg = router_config.to_zenoh_config().expect("to_zenoh_config router");
+        let router_cfg_debug = format!("{:?}", router_zenoh_cfg);
+        assert!(router_cfg_debug.contains("7447"), "Router must have listen endpoints configured");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_get_node_configuration_json5_peer_vs_router() {
+        let manager = SessionManager::new();
+
+        // 1. Connect peer session
+        let mut peer_cfg = SessionConfig::default_peer();
+        peer_cfg.listen_locators = vec!["tcp/0.0.0.0:0".to_string()];
+        let peer_id = manager.connect(peer_cfg).await.expect("connect peer");
+        let peer_info = manager.get_session_info(&peer_id).await.expect("get peer info");
+
+        let peer_node_cfg = manager.get_node_configuration(&peer_info.zid).await.expect("get peer node config");
+        assert_eq!(peer_node_cfg.mode, "peer");
+        let parsed_peer_json5: serde_json::Value = serde_json::from_str(&peer_node_cfg.json5).expect("parse peer json5");
+        assert!(parsed_peer_json5.get("listen").is_none(), "Peer node configuration JSON5 must NOT contain 'listen'");
+
+        manager.disconnect(&peer_id).await.expect("disconnect peer");
+
+        // 2. Connect router session
+        let mut router_cfg = SessionConfig::default();
+        router_cfg.mode = "router".to_string();
+        router_cfg.listen_locators = vec!["tcp/127.0.0.1:17499".to_string()];
+        let router_id = manager.connect(router_cfg).await.expect("connect router");
+        let router_info = manager.get_session_info(&router_id).await.expect("get router info");
+
+        let router_node_cfg = manager.get_node_configuration(&router_info.zid).await.expect("get router node config");
+        assert_eq!(router_node_cfg.mode, "router");
+        let parsed_router_json5: serde_json::Value = serde_json::from_str(&router_node_cfg.json5).expect("parse router json5");
+        assert!(parsed_router_json5.get("listen").is_some(), "Router node configuration JSON5 MUST contain 'listen'");
+
+        manager.disconnect(&router_id).await.expect("disconnect router");
+    }
 }
 
 

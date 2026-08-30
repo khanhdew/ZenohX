@@ -136,19 +136,8 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set, get) => 
     return jsonStr;
   },
 
-  syncEditFormJson: (config, activeSession) => {
+  syncEditFormJson: (config, _activeSession) => {
     const resolvedConfig = { ...config };
-    const bound = activeSession?.bound_locators;
-    // Only peer mode can be dynamic (e.g. dynamic port 0 / bound locators)
-    if (bound && bound.length > 0 && resolvedConfig.mode === 'peer') {
-      const configuredLocs = Array.isArray(config.listen_locators) ? config.listen_locators : [];
-      const hasWildcardOrZero = configuredLocs.some(
-        (l) => typeof l === 'string' && (l.includes(':0') || l.includes('0.0.0.0') || l.includes('[::]'))
-      );
-      if (hasWildcardOrZero || configuredLocs.length === 0) {
-        resolvedConfig.listen_locators = bound;
-      }
-    }
     const jsonStr = generateZenohJson5(resolvedConfig);
     set({
       selectedProfileId: (config as any)?.profile_id || (config as any)?.id || null,
@@ -188,12 +177,16 @@ export const useConnectionJsonStore = create<ConnectionJsonState>((set, get) => 
       }
 
       let listenLocs: string[] = [];
-      if (Array.isArray(parsed.listen?.endpoints)) {
-        listenLocs = parsed.listen.endpoints.filter((l: any) => typeof l === 'string' && l.trim());
-      } else if (typeof parsed.listen?.endpoints === 'string' && parsed.listen.endpoints.trim()) {
-        listenLocs = [parsed.listen.endpoints.trim()];
-      } else if (Array.isArray(parsed.listen_locators)) {
-        listenLocs = parsed.listen_locators.filter((l: any) => typeof l === 'string' && l.trim());
+      if (mode === 'router') {
+        if (Array.isArray(parsed.listen?.endpoints)) {
+          listenLocs = parsed.listen.endpoints.filter((l: any) => typeof l === 'string' && l.trim());
+        } else if (typeof parsed.listen?.endpoints === 'string' && parsed.listen.endpoints.trim()) {
+          listenLocs = [parsed.listen.endpoints.trim()];
+        } else if (Array.isArray(parsed.listen_locators)) {
+          listenLocs = parsed.listen_locators.filter((l: any) => typeof l === 'string' && l.trim());
+        }
+      } else {
+        delete parsed.listen;
       }
 
       const scoutMulticast =

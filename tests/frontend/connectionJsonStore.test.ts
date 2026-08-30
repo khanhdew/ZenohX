@@ -119,7 +119,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.equal(useConnectionJsonStore.getState().selectedProfileId, 'prof-client-123');
   });
 
-  it('syncs live JSON5 configuration and resolves real bound IP and port for active peer sessions', () => {
+  it('syncs live JSON5 configuration and ensures peer/client sessions do not include listen endpoints in JSON5', () => {
     const store = useConnectionJsonStore.getState();
 
     const peerFormConfig = {
@@ -147,12 +147,10 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     const parsed = JSON.parse(json);
 
     assert.equal(parsed.mode, 'peer');
-    assert.deepEqual(parsed.listen?.endpoints, [
-      'tcp/192.168.1.105:43821',
-      'ws/192.168.1.105:8080',
-    ]);
+    // Peer mode must NOT have listen endpoints in JSON5
+    assert.equal(parsed.listen, undefined);
 
-    // Verify router mode remains static as configured
+    // Verify router mode includes listen endpoints as configured
     const routerFormConfig = {
       profile_id: 'prof-router-1',
       mode: 'router' as const,
@@ -170,7 +168,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.deepEqual(parsedRouter.listen?.endpoints, ['tcp/192.168.1.100:7447']);
   });
 
-  it('parses raw Zenoh JSON configuration into structured profile fields', () => {
+  it('parses raw Zenoh JSON configuration into structured profile fields and ignores listen endpoints for peer', () => {
     const store = useConnectionJsonStore.getState();
 
     const rawJson = JSON.stringify({
@@ -208,7 +206,8 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     assert.equal(parsed?.id, 'fedcba9876543210fedcba9876543210');
     assert.equal(parsed?.mode, 'peer');
     assert.deepEqual(parsed?.connect_locators, ['tcp/192.168.1.100:7447']);
-    assert.deepEqual(parsed?.listen_locators, ['tcp/0.0.0.0:0']);
+    // Peer does not load listen endpoints
+    assert.deepEqual(parsed?.listen_locators, []);
     assert.equal(parsed?.scout_multicast, true);
     assert.equal(parsed?.scout_gossip, true);
     assert.equal(parsed?.user_auth?.username, 'alice');
@@ -225,7 +224,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     // Zenoh configuration with comments
     {
       /* Mode of the Zenoh node */
-      "mode": "peer",
+      "mode": "router",
       "connect": {
         "endpoints": [
           "tcp/192.168.1.14:42157", // Target peer
@@ -241,7 +240,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
 
     const parsed = store.parseJsonToProfile(json5Content);
     assert.ok(parsed);
-    assert.equal(parsed?.mode, 'peer');
+    assert.equal(parsed?.mode, 'router');
     assert.deepEqual(parsed?.connect_locators, ['tcp/192.168.1.14:42157']);
     assert.deepEqual(parsed?.listen_locators, ['tcp/0.0.0.0:7447']);
   });
@@ -272,7 +271,7 @@ describe('Connection JSON Store (useConnectionJsonStore)', () => {
     ]);
 
     const json5 = generateZenohJson5({
-      mode: 'peer',
+      mode: 'router',
       listen_locators: mixedEndpoints,
     });
     const parsed = JSON.parse(json5);

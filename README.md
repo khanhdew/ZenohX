@@ -24,12 +24,28 @@
 
 ## ✨ Features
 
-- **🚀 Real-Time Pub / Sub Streaming:**
-  - Subscribe to multiple key expressions (`sensor/**`, `robot/*/telemetry`) with custom color tags and wildcard resolution.
-  - Publish with **PUT** or **DELETE** sample kinds with expandable payload editor.
-  - **Recent Key Expressions**: Quick-access dropdown tracking your last 5 used key expressions.
+- **🌐 Interactive Network Topology & Mesh Visualizer:**
+  - **Live Graph Rendering**: Visualize connected routers, peers, clients, and discovered nodes with interactive force-directed and radial layouts.
+  - **Live Traffic Animation**: Real-time visual pulses along communication links on incoming and outgoing pub/sub samples.
+  - **Configurable Auto-Scout**: Background network discovery with interval selector (1s – 60s) or 1-click manual LAN multicast sweep.
+  - **Node Inspector Drawer**: View live node telemetry, connected peer links, runtime bound locators, and save discovered nodes to persistent profiles.
+- **🚀 Real-Time Pub / Sub Streaming & Traffic Generator:**
+  - Subscribe to multiple key expressions (`sensor/**`, `robot/*/telemetry`) with custom color tags and wildcard matching.
+  - Granular **QoS Controls**: Configure Reliability (`Express` / `Reliable`), Congestion Control (`Drop` / `Block`), Priority, and Subscriber Locality.
+  - **Continuous & Burst Stream Generator**: Built-in traffic generator to simulate sensor streams with configurable intervals and payload templates.
   - Direction indicators: Left border for incoming (`IN`) samples, Right border for outgoing (`OUT`) samples.
-  - Virtualized message feed handling 5,000+ live samples smoothly in memory.
+  - High-throughput batched ingestion and virtualized feed handling 10,000+ live messages smoothly in memory.
+- **🔌 Multi-Transport Network Architecture (7 Supported Protocols):**
+  - Native support for **`tcp/`**, **`tls/`**, **`udp/`**, **`quic/`**, **`ws/` (WebSockets)**, **`wss/` (Secure WebSockets)**, and **`unixpipe/` (Unix Domain Sockets)**.
+  - Role-specific configuration with dedicated presets for **Router**, **Peer**, and **Client** modes.
+  - Dynamic port resolution (`:0`) with 1-click copy badge for runtime bound locators.
+- **🔒 Advanced TLS & Mutual TLS (mTLS) Security:**
+  - Custom Root CA, client certificates, and private key configuration.
+  - **Strict TLS-Only Mode** to enforce encrypted links across all connections.
+  - User authentication with credentials and token authorization.
+- **⚙️ Live JSON5 Configuration Inspector & Sync:**
+  - Real-time bidirectional JSON5 configuration preview and editor.
+  - Synchronized with active session parameters, runtime locators, scouting policies, gossip discovery, and reconnect retry settings.
 - **⚡ Dynamic Protocol Buffers (Protobuf) Schema Registry & Codec:**
   - **In-App Schema Manager**: Upload `.proto` files, write/edit schema definitions in real-time with instant syntax validation and code formatting (`Ctrl+Shift+P` / `Cmd+Shift+P`).
   - **Built-in Robotics & IoT Presets**: Ready-to-use starter schemas for standard payloads (`sensor_msgs.proto`, `robot_control.proto`, and `geometry_msgs.proto`).
@@ -41,18 +57,15 @@
   - **Dynamic JavaScript Script Execution**: Run custom JS logic to dynamically compute replies from URL query parameters (`query.params`, `query.keyExpr`, `query.payload`) alongside static payloads.
   - **Interactive Script Sandbox**: Test and debug your JavaScript RPC logic live before deploying.
   - Built-in templates for RPC Calculators, Dynamic Telemetry Sensors, Echo Inspectors, and Health Status endpoints.
-- **📊 Traffic & Network Monitoring:**
-  - Real-time throughput metrics (bytes/sec, messages/sec) and key traffic breakdown tables.
-- **📡 Automatic Local LAN Multicast Scout:**
-  - Discover Zenoh routers and peers announcing on UDP multicast (`224.0.0.224:7446`) with 1-click connect.
-- **🔒 TLS & Mutual TLS (mTLS) Support:**
-  - Connect securely over `tls/`, `tcp/`, `quic/`, and `udp/`.
-  - Custom Root CA, client certificate, and private key authentication.
+- **📊 Traffic & Network Telemetry:**
+  - Real-time throughput metrics (bytes/sec, messages/sec), timeline charts, and per-key traffic breakdown tables.
+- **📡 Automatic Local LAN Multicast Scout & Gossip Discovery:**
+  - Discover Zenoh routers and peers announcing on UDP multicast (`224.0.0.224:7446`) with 1-click connect and mesh gossip propagation.
 - **📦 Multi-Format Payload Codec & Hex Editor:**
   - Real-time viewer & editor with syntax highlighting for **JSON**, **CBOR**, **Protocol Buffers (Protobuf)**, **Plain Text**, and **RAW/Hex**.
   - Interactive tree inspector, live schema validation, and wire byte size calculations.
-- **💾 Local SQLite Message Persistence:**
-  - Persist historical messages to local SQLite database with full-text and hex byte search.
+- **💾 Local SQLite Storage & Persistence:**
+  - Securely store connection profiles, queryable presets, query executions, and message logs in the OS application data directory with full-text search.
 - **🔄 Built-in Cryptographic Auto-Updater:**
   - Seamless in-app updates verified via Minisign digital signatures.
 

@@ -19,6 +19,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create_release.outputs.release_id }}
       release_notes: ${{ steps.release_notes.outputs.body }}
+      tag_name: ${{ steps.create_release.outputs.tag_name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,7 +42,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ] || [[ ! "$TAG" =~ ^v[0-9] ]]; then
             TAG="v$(node -p "require('./package.json').version")"
           fi
           
@@ -94,7 +95,7 @@ jobs:
             const fs = require('fs');
             const ref = context.ref || '';
             let tagName = ref.replace('refs/tags/', '');
-            if (!tagName || tagName === ref || tagName === 'main') {
+            if (!tagName || tagName === ref || tagName === 'main' || !/^v[0-9]/.test(tagName)) {
               const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
               tagName = `v${pkg.version}`;
             }
@@ -132,6 +133,7 @@ jobs:
             }
 
             core.setOutput('release_id', release.id.toString());
+            core.setOutput('tag_name', tagName);
 
   build-tauri:
     name: Build & Package (${{ matrix.name }})
@@ -225,8 +227,8 @@ jobs:
           VITE_POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
-          tagName: v__VERSION__
-          releaseName: 'ZenohX v__VERSION__'
+          tagName: ${{ needs.create-release.outputs.tag_name }}
+          releaseName: 'ZenohX ${{ needs.create-release.outputs.tag_name }}'
           releaseBody: ${{ needs.create-release.outputs.release_notes }}
           releaseDraft: true
           prerelease: false
@@ -240,6 +242,81 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
+      - name: Validate & Sanitize Updater JSON (latest.json)
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+          TAG_NAME: ${{ needs.create-release.outputs.tag_name }}
+        with:
+          script: |
+            const releaseId = Number(process.env.RELEASE_ID);
+            const tagName = process.env.TAG_NAME;
+            if (!releaseId || !tagName) return;
+
+            const assets = await github.rest.repos.listReleaseAssets({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: releaseId,
+              per_page: 100,
+            });
+
+            const latestAsset = assets.data.find((a) => a.name === 'latest.json');
+            if (!latestAsset) {
+              core.warning('latest.json not found on release assets');
+              return;
+            }
+
+            // Download existing latest.json
+            const response = await github.request('GET /repos/{owner}/{repo}/releases/assets/{asset_id}', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              asset_id: latestAsset.id,
+              headers: { accept: 'application/octet-stream' },
+            });
+
+            const rawContent = Buffer.from(response.data).toString('utf8');
+            let json = JSON.parse(rawContent);
+            let modified = false;
+
+            if (json.platforms) {
+              for (const [platformKey, platformData] of Object.entries(json.platforms)) {
+                if (platformData && typeof platformData.url === 'string') {
+                  const originalUrl = platformData.url;
+                  const sanitizedUrl = originalUrl
+                    .replace(/\/download\/v?__VERSION__\//g, `/download/${tagName}/`)
+                    .replace(/\/download\/untagged-[^/]+\//g, `/download/${tagName}/`);
+                  if (sanitizedUrl !== originalUrl) {
+                    platformData.url = sanitizedUrl;
+                    modified = true;
+                    core.info(`Sanitized ${platformKey} URL: ${originalUrl} -> ${sanitizedUrl}`);
+                  }
+                }
+              }
+            }
+
+            if (modified) {
+              const updatedContent = Buffer.from(JSON.stringify(json, null, 2));
+              await github.rest.repos.deleteReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: latestAsset.id,
+              });
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: releaseId,
+                name: 'latest.json',
+                data: updatedContent,
+                headers: {
+                  'content-type': 'application/json',
+                  'content-length': updatedContent.length,
+                },
+              });
+              core.info('Successfully updated and sanitized latest.json asset on release.');
+            } else {
+              core.info('latest.json URLs are all valid.');
+            }
+
       - name: Publish Draft Release
         uses: actions/github-script@v7
         env:

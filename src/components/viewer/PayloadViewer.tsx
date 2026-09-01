@@ -574,27 +574,29 @@ export const PayloadViewer: React.FC<PayloadViewerProps> = ({
     <div className={`flex flex-col rounded-md border bg-card text-card-foreground shadow-xs ${className}`}>
         {/* Header Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5">
-          {/* Navigation Tabs */}
-          <div className="flex items-center space-x-1">
-            {tabs.map((t) => {
-              const Icon = t.icon;
-              const isActive = activeTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setActiveTab(t.id)}
-                  className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                    isActive
-                      ? 'bg-background text-foreground shadow-xs'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                  type="button"
-                >
-                  <Icon className="w-3 h-3" />
-                  {t.label}
-                </button>
-              );
-            })}
+          {/* Format Dropdown Selector */}
+          <div className="flex items-center gap-1.5">
+            <Select value={activeTab} onValueChange={(val) => setActiveTab(val as ViewerTab)}>
+              <SelectTrigger
+                className="h-6 text-[11px] font-medium min-w-[105px] px-2 py-0 bg-background"
+                title={`Format: ${tabs.find((t) => t.id === activeTab)?.label || activeTab}`}
+              >
+                <SelectValue placeholder="Format" />
+              </SelectTrigger>
+              <SelectContent>
+                {tabs.map((t) => {
+                  const Icon = t.icon;
+                  return (
+                    <SelectItem key={t.id} value={t.id} className="text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span>{t.label}</span>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Right Actions, Message Type Selector & Metrics */}

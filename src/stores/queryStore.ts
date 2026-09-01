@@ -44,7 +44,7 @@ import {
   undeclareQueryable as undeclareQueryableIpc,
 } from '../lib/tauri';
 import { formatFriendlyError } from '../lib/errorUtils';
-import { encodePayload } from '../lib/formatters';
+import { encodePayload, matchesKeyExpr } from '../lib/formatters';
 import { executeInboundScript } from '../lib/scriptRunner';
 import { useConnectionStore } from './connectionStore';
 import { useTrafficStore } from './trafficStore';
@@ -195,14 +195,22 @@ export const useQueryStore = create<QueryState>((set, get) => ({
 
         // Check if there is an active queryable matching queryable_id or keyExpr with autoReply enabled
         const matchingQueryable = get().activeQueryables.find(
-          (q) => (q.id === inbound.queryable_id || q.keyExpr === inbound.key_expr) && q.autoReply
+          (q) =>
+            (q.id === inbound.queryable_id ||
+              q.keyExpr === inbound.key_expr ||
+              matchesKeyExpr(q.keyExpr, inbound.key_expr)) &&
+            q.autoReply
         );
 
         if (matchingQueryable) {
           try {
             let bytes: number[] = [];
             let enc = matchingQueryable.replyEncoding || 'json';
-            let replyKey = matchingQueryable.keyExpr || inbound.key_expr;
+            // Prefer the concrete queried key expression so queries on subpaths (e.g. rpc/a for rpc/**) succeed
+            let replyKey = inbound.key_expr;
+            if (replyKey.includes('*') && !matchingQueryable.keyExpr.includes('*')) {
+              replyKey = matchingQueryable.keyExpr;
+            }
 
             if (matchingQueryable.replyMode === 'script' && matchingQueryable.scriptCode) {
               const scriptRes = await executeInboundScript(

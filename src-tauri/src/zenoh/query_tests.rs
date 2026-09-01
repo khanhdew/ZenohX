@@ -461,5 +461,103 @@ mod tests {
 
         manager.disconnect(&session_id).await.unwrap();
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_zenoh_wildcard_queryable_subpath_query() {
+        let manager = SessionManager::new();
+        let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
+        let q_id = Uuid::new_v4();
+
+        let (tx, mut rx) = mpsc::channel::<InboundQuery>(10);
+
+        // Declare routed queryable on wildcard "rpc/**"
+        manager
+            .declare_queryable_routed(&session_id, q_id, "rpc/**", move |inbound| {
+                let _ = tx.try_send(inbound);
+            })
+            .await
+            .unwrap();
+
+        // Querier queries specific subpath "rpc/a"
+        let mgr_clone = manager.clone();
+        let query_handle = tokio::spawn(async move {
+            mgr_clone
+                .query_get(&session_id, "rpc/a", "all", 3000)
+                .await
+        });
+
+        let inbound = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("channel closed");
+
+        assert_eq!(inbound.key_expr, "rpc/a");
+
+        // Reply using the inbound token and key_expr "rpc/a"
+        manager
+            .reply_query(
+                &inbound.token,
+                &inbound.key_expr,
+                b"{\"msg\": \"hello rpc/a\"}".to_vec(),
+                "application/json",
+            )
+            .await
+            .unwrap();
+
+        let replies = query_handle.await.unwrap().unwrap();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].key_expr, "rpc/a");
+        assert_eq!(replies[0].payload, b"{\"msg\": \"hello rpc/a\"}");
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_zenoh_wildcard_queryable_subpath_query_with_wildcard_reply_key() {
+        let manager = SessionManager::new();
+        let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
+        let q_id = Uuid::new_v4();
+
+        let (tx, mut rx) = mpsc::channel::<InboundQuery>(10);
+
+        manager
+            .declare_queryable_routed(&session_id, q_id, "rpc/**", move |inbound| {
+                let _ = tx.try_send(inbound);
+            })
+            .await
+            .unwrap();
+
+        let mgr_clone = manager.clone();
+        let query_handle = tokio::spawn(async move {
+            mgr_clone
+                .query_get(&session_id, "rpc/a", "all", 3000)
+                .await
+        });
+
+        let inbound = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("timeout")
+            .expect("channel closed");
+
+        // Even if frontend or client passes "rpc/**" (the queryable's declared key),
+        // the backend should sanitize using the actual query's key expression ("rpc/a") so the querier gets the reply
+        manager
+            .reply_query(
+                &inbound.token,
+                "rpc/**",
+                b"{\"msg\": \"hello rpc/a\"}".to_vec(),
+                "application/json",
+            )
+            .await
+            .unwrap();
+
+        let replies = query_handle.await.unwrap().unwrap();
+        assert_eq!(replies.len(), 1, "expected 1 reply for rpc/a");
+        assert_eq!(replies[0].key_expr, "rpc/a");
+        assert_eq!(replies[0].payload, b"{\"msg\": \"hello rpc/a\"}");
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
 }
+
 

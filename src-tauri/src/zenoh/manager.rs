@@ -529,11 +529,19 @@ impl SessionManager {
             let on_query = on_query_arc.clone();
             async move {
                 let token = handle.token;
+                let effective_key = if !handle.key_expr.contains('*') && !handle.key_expr.contains('$') && !handle.key_expr.is_empty() {
+                    handle.key_expr.clone()
+                } else if !handle.queryable_key_expr.contains('*') && !handle.queryable_key_expr.contains('$') && !handle.queryable_key_expr.is_empty() {
+                    handle.queryable_key_expr.clone()
+                } else {
+                    handle.key_expr.clone()
+                };
+
                 let inbound = InboundQuery {
                     token,
                     session_id: handle.session_id,
                     queryable_id: handle.queryable_id,
-                    key_expr: handle.key_expr.clone(),
+                    key_expr: effective_key,
                     parameters: handle.parameters.clone(),
                     payload: handle.payload.clone(),
                     encoding: handle.encoding.clone(),

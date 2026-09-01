@@ -56,19 +56,34 @@ pub struct QueryHandle {
 }
 
 /// Sanitizes a key expression for query reply by stripping query parameters and wildcards if present,
-/// ensuring Zenoh receives a valid non-wildcard concrete key expression.
-pub fn sanitize_reply_key_expr(key_expr: &str, fallback_key: &str) -> String {
+/// prioritizing concrete subkeys from the query, queryable endpoint, or caller.
+pub fn sanitize_reply_key_expr(key_expr: &str, query_key: &str, queryable_key: &str) -> String {
     let base = key_expr.split('?').next().unwrap_or(key_expr).trim();
     if !base.contains('*') && !base.contains('$') && !base.is_empty() {
         return base.to_string();
     }
 
-    let fallback_base = fallback_key.split('?').next().unwrap_or(fallback_key).trim();
-    if !fallback_base.contains('*') && !fallback_base.contains('$') && !fallback_base.is_empty() {
-        return fallback_base.to_string();
+    let q_base = query_key.split('?').next().unwrap_or(query_key).trim();
+    if !q_base.contains('*') && !q_base.contains('$') && !q_base.is_empty() {
+        return q_base.to_string();
     }
 
-    let mut clean = fallback_base
+    let qable_base = queryable_key.split('?').next().unwrap_or(queryable_key).trim();
+    if !qable_base.contains('*') && !qable_base.contains('$') && !qable_base.is_empty() {
+        return qable_base.to_string();
+    }
+
+    let target = if !q_base.is_empty() && q_base != "*" && q_base != "**" {
+        q_base
+    } else if !qable_base.is_empty() && qable_base != "*" && qable_base != "**" {
+        qable_base
+    } else if !base.is_empty() {
+        base
+    } else {
+        "reply"
+    };
+
+    let mut clean = target
         .replace("/**", "")
         .replace("/*", "")
         .replace('*', "");
@@ -98,12 +113,20 @@ impl QueryHandle {
         let encoding = query.encoding().map(|e| e.to_string());
         let timestamp = chrono::Utc::now().timestamp_millis();
 
-        // InboundQuery key_expr uses the concrete queryable_key_expr so frontend can reply accurately
+        // InboundQuery key_expr prioritizes concrete key expressions for accurate frontend replies
+        let effective_key = if !key_expr.contains('*') && !key_expr.contains('$') && !key_expr.is_empty() {
+            key_expr.clone()
+        } else if !queryable_key_expr.contains('*') && !queryable_key_expr.contains('$') && !queryable_key_expr.is_empty() {
+            queryable_key_expr.clone()
+        } else {
+            key_expr.clone()
+        };
+
         let inbound = InboundQuery {
             token,
             session_id,
             queryable_id,
-            key_expr: queryable_key_expr.clone(),
+            key_expr: effective_key,
             parameters: parameters.clone(),
             payload: payload.clone(),
             encoding: encoding.clone(),
@@ -141,7 +164,7 @@ impl QueryHandle {
         let query_opt = self.query.lock().take();
         if let Some(query) = query_opt {
             let enc = parse_encoding(encoding);
-            let clean_key = sanitize_reply_key_expr(key_expr, &self.queryable_key_expr);
+            let clean_key = sanitize_reply_key_expr(key_expr, &self.key_expr, &self.queryable_key_expr);
             query
                 .reply(&clean_key, payload)
                 .encoding(enc)
@@ -171,7 +194,7 @@ impl QueryHandle {
     pub async fn reply_del(&self, key_expr: &str) -> Result<(), String> {
         let query_opt = self.query.lock().take();
         if let Some(query) = query_opt {
-            let clean_key = sanitize_reply_key_expr(key_expr, &self.queryable_key_expr);
+            let clean_key = sanitize_reply_key_expr(key_expr, &self.key_expr, &self.queryable_key_expr);
             query
                 .reply_del(&clean_key)
                 .await

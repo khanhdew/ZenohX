@@ -380,6 +380,66 @@ describe('Query / RPC Store Operations & Reply Timeline Data', () => {
     assert.equal(edited?.replyMode, 'script');
     assert.equal(edited?.scriptCode, 'return "hello from edit";');
   });
+
+  test('auto-replies with subpath key expression when queryable is declared with wildcards (rpc/**)', async () => {
+    let autoReplyToken = '';
+    let autoReplyKey = '';
+    let autoReplyPayload = '';
+    let capturedHandler: ((event: { payload: InboundQuery }) => void) | null = null;
+
+    mockInvokeHandler = async (cmd, args) => {
+      if (cmd === 'declare_queryable') return undefined;
+      if (cmd === 'plugin:event|listen') {
+        capturedHandler = args?.handler as (event: { payload: InboundQuery }) => void;
+        return 1;
+      }
+      if (cmd === 'reply_query') {
+        autoReplyToken = args?.token as string;
+        autoReplyKey = args?.keyExpr as string;
+        autoReplyPayload = Buffer.from(args?.payload as number[]).toString('utf-8');
+        return undefined;
+      }
+      return undefined;
+    };
+
+    // Declare queryable on rpc/** with autoReply enabled
+    const qId = await useQueryStore.getState().declareQueryable(
+      'sess-100',
+      'rpc/**',
+      true,
+      JSON.stringify({ status: 'ok', data: 'subpath_reply' }),
+      'json',
+      'prof-1'
+    );
+
+    assert.ok(qId);
+
+    // Initialize listener
+    await useQueryStore.getState().initListener();
+
+    // Simulate inbound query on subpath "rpc/a"
+    const inboundEvent: InboundQuery = {
+      token: 'tok-subpath-123',
+      session_id: 'sess-100',
+      queryable_id: qId,
+      key_expr: 'rpc/a',
+      parameters: '',
+      payload: null,
+      encoding: 'json',
+      timestamp: Date.now(),
+    };
+
+    assert.ok(capturedHandler, 'event listener handler should be registered');
+    capturedHandler({ payload: inboundEvent });
+
+    // Wait microtask tick for async auto-reply
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Verify reply was sent on the queried key "rpc/a" instead of wildcard "rpc/**"
+    assert.equal(autoReplyToken, 'tok-subpath-123');
+    assert.equal(autoReplyKey, 'rpc/a');
+    assert.equal(autoReplyPayload, JSON.stringify({ status: 'ok', data: 'subpath_reply' }));
+  });
 });
 
 

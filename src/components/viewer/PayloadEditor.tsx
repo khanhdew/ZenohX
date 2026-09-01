@@ -435,29 +435,34 @@ export const PayloadEditor: React.FC<PayloadEditorProps> = ({
     >
         {/* Header Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-3 py-1.5 shrink-0">
-          {/* Encoding Selector Pills */}
+          {/* Encoding Dropdown Selector */}
           {showEncodingSelector && onEncodingChange ? (
-            <div className="flex items-center space-x-1">
-              {encodings.map((enc) => {
-                const Icon = enc.icon;
-                const isActive = currentEncoding === enc.id;
-                return (
-                  <button
-                    key={enc.id}
-                    onClick={() => onEncodingChange(enc.id)}
-                    disabled={disabled}
-                    type="button"
-                    className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
-                      isActive
-                        ? 'bg-background text-foreground shadow-xs'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-                    }`}
-                  >
-                    <Icon className="w-3 h-3" />
-                    {enc.label}
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-1.5">
+              <Select
+                value={currentEncoding}
+                onValueChange={(val) => onEncodingChange(val as EncodingType)}
+                disabled={disabled}
+              >
+                <SelectTrigger
+                  className="h-6 text-[11px] font-medium min-w-[95px] px-2 py-0 bg-background"
+                  title={`Payload format: ${encodings.find((e) => e.id === currentEncoding)?.label || currentEncoding}`}
+                >
+                  <SelectValue placeholder="Format" />
+                </SelectTrigger>
+                <SelectContent>
+                  {encodings.map((enc) => {
+                    const Icon = enc.icon;
+                    return (
+                      <SelectItem key={enc.id} value={enc.id} className="text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span>{enc.label}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase">

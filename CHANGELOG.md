@@ -10,6 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.5.5] - 2026-09-01
+
+### 🐛 Fixed
+- **query,ui:** fix wildcard queryable subpath replies and convert format buttons to dropdown
+
+### ⚡ Changed & Refactored
+- ci(release): fix ReleaseAsset already_exists error with 3-stage draft workflow
+
+### 🔧 Maintenance
+- update README with recent features
+
+---
 ## [v0.5.4] - 2026-08-30
 
 ### 🐛 Fixed

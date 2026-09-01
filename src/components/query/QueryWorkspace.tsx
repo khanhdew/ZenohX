@@ -50,6 +50,20 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
     storageKey: 'zenohx_query_querier_width',
   });
 
+  // Resizable Client Sub-tab 'both' vertical split (Querier vs Timeline)
+  const {
+    size: clientBothTopHeight,
+    isDragging: isClientBothDragging,
+    startDragging: startClientBothDragging,
+    resetToDefault: resetClientBothHeight,
+  } = useResizable({
+    initialSize: 280,
+    minSize: 140,
+    maxSize: 600,
+    direction: 'vertical',
+    storageKey: 'zenohx_query_client_both_top_height',
+  });
+
   // Resizable Split Stage Ratio (Percentage: 25% to 75%, default 50% balanced)
   const splitContainerRef = React.useRef<HTMLDivElement>(null);
   const [splitRatio, setSplitRatio] = useState<number>(() => {
@@ -366,14 +380,23 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({ className = '' }
               {/* Client Body View */}
               {clientSubTab === 'both' && (
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                  <div className="h-1/2 min-h-[160px] border-b border-border overflow-y-auto">
+                  <div
+                    style={{ height: `${clientBothTopHeight}px` }}
+                    className="shrink-0 border-b border-border overflow-y-auto min-h-[120px]"
+                  >
                     <QuerierPanel
                       sessionId={sessionId}
                       profileId={profile?.id}
                       className="h-full"
                     />
                   </div>
-                  <div className="h-1/2 min-h-[160px] overflow-hidden">
+                  <ResizeHandle
+                    direction="vertical"
+                    isDragging={isClientBothDragging}
+                    onMouseDown={startClientBothDragging}
+                    onReset={resetClientBothHeight}
+                  />
+                  <div className="flex-1 min-h-[120px] overflow-hidden">
                     <ReplyTimeline
                       sessionId={sessionId}
                       className="h-full"

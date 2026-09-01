@@ -439,7 +439,9 @@ export const QueryablePanel: React.FC<QueryablePanelProps> = ({
       <div
         className={`flex-1 min-h-0 overflow-hidden ${
           viewMode === 'all'
-            ? 'grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border'
+            ? compact
+              ? 'grid grid-cols-1 divide-y divide-border overflow-y-auto'
+              : 'grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border'
             : 'flex flex-col'
         }`}
       >

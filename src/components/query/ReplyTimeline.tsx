@@ -24,9 +24,13 @@ import {
   Minimize2,
   X,
   AlertCircle,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
+import { ResizeHandle } from '../ui/resize-handle';
+import { useResizable } from '../../hooks/useResizable';
 import { PayloadViewer } from '../viewer/PayloadViewer';
 import { useQueryStore } from '../../stores/queryStore';
 import { formatByteSize, formatTimeWithMs, getPayloadSnippet } from '../../lib/formatters';
@@ -51,6 +55,21 @@ export const ReplyTimeline: React.FC<ReplyTimelineProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortMode, setSortMode] = useState<SortMode>('latency-asc');
   const [inspectorExpanded, setInspectorExpanded] = useState<boolean>(false);
+  const [copiedKey, setCopiedKey] = useState<boolean>(false);
+
+  // Resizable Inspector Right Panel
+  const {
+    size: inspectorWidth,
+    isDragging: isInspectorDragging,
+    startDragging: startInspectorDragging,
+    resetToDefault: resetInspectorWidth,
+  } = useResizable({
+    initialSize: 380,
+    minSize: 260,
+    maxSize: 700,
+    reverse: true,
+    storageKey: 'zenohx_query_reply_inspector_width',
+  });
 
   // Active replies list
   const replies = useMemo(() => {
@@ -251,7 +270,7 @@ export const ReplyTimeline: React.FC<ReplyTimelineProps> = ({
 
         {/* Aggregated Statistics Metrics Bar */}
         {activeExecution && replies.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 pt-1 border-t text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 pt-1 border-t text-xs">
             <div className="rounded bg-muted/40 p-1.5 px-2">
               <div className="text-[10px] uppercase font-semibold text-muted-foreground">
                 Replies
@@ -445,125 +464,158 @@ export const ReplyTimeline: React.FC<ReplyTimelineProps> = ({
 
         {/* Right: Reply Inspector Panel (Payload & Metadata) */}
         {selectedReply && (
-          <div
-            className={`border-l border-border bg-card flex flex-col shrink-0 h-full transition-all duration-200 ${
-              inspectorExpanded ? 'w-[580px]' : 'w-[380px]'
-            }`}
-          >
-            {/* Inspector Header */}
-            <div className="flex items-center justify-between p-2.5 border-b bg-muted/20">
-              <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                <span className="font-semibold text-xs text-foreground truncate">
-                  Reply Inspector
-                </span>
-              </div>
-
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setInspectorExpanded(!inspectorExpanded)}
-                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                  title={inspectorExpanded ? 'Narrow inspector' : 'Widen inspector'}
-                >
-                  {inspectorExpanded ? (
-                    <Minimize2 className="w-3.5 h-3.5" />
-                  ) : (
-                    <Maximize2 className="w-3.5 h-3.5" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedReplyIndex(null)}
-                  className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
-                  title="Close inspector"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Reply Overview Metadata */}
-            <div className="p-3 border-b bg-muted/10 space-y-2 text-xs">
-              {/* Replying Key Expression */}
-              <div>
-                <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                  Key Expression
-                </div>
-                <div className="font-mono text-xs font-medium text-foreground break-all bg-muted/40 p-1.5 rounded border">
-                  {selectedReply.key_expr}
-                </div>
-              </div>
-
-              {/* Grid: Latency, Replier, Encoding, Size */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <div>
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                    Latency
-                  </div>
-                  <div className="font-mono text-xs font-medium text-foreground">
-                    {selectedReply.latency_ms} ms
-                  </div>
+          <>
+            <ResizeHandle
+              isDragging={isInspectorDragging}
+              onMouseDown={startInspectorDragging}
+              onReset={resetInspectorWidth}
+              className="hidden md:flex"
+            />
+            <div
+              style={{ width: `${inspectorExpanded ? Math.max(580, inspectorWidth) : inspectorWidth}px` }}
+              className="border-l border-border bg-card flex flex-col shrink-0 h-full overflow-hidden max-md:fixed max-md:inset-0 max-md:z-50 max-md:w-full max-w-full md:max-w-[75vw] min-w-[260px]"
+            >
+              {/* Inspector Header */}
+              <div className="flex items-center justify-between p-2.5 border-b bg-muted/20 shrink-0">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <Activity className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="font-semibold text-xs text-foreground truncate">
+                    Reply Inspector
+                  </span>
                 </div>
 
-                <div>
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                    Replier Node
-                  </div>
-                  <div className="font-mono text-xs text-foreground truncate bg-muted/30 p-1 rounded border">
-                    {selectedReply.replier_id || 'Anonymous'}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                    Payload Size
-                  </div>
-                  <div className="font-mono text-xs font-medium text-foreground">
-                    {formatByteSize(selectedReply.payload?.length || 0)}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
-                    Status
-                  </div>
-                  <div>
-                    {selectedReply.is_err ? (
-                      <Badge variant="destructive" className="text-[10px] px-1.5 py-0 uppercase">
-                        Error
-                      </Badge>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setInspectorExpanded(!inspectorExpanded)}
+                    className="hidden md:inline-flex p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title={inspectorExpanded ? 'Narrow inspector' : 'Widen inspector'}
+                  >
+                    {inspectorExpanded ? (
+                      <Minimize2 className="w-3.5 h-3.5" />
                     ) : (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 uppercase">
-                        OK
-                      </Badge>
+                      <Maximize2 className="w-3.5 h-3.5" />
                     )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReplyIndex(null)}
+                    className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title="Close inspector"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Inspector Body (Metadata Overview + Payload Viewer) */}
+              <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+                {/* Reply Overview Metadata */}
+                <div className="p-3 border-b bg-muted/10 space-y-2 text-xs shrink-0">
+                  {/* Replying Key Expression */}
+                  <div>
+                    <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5 flex items-center justify-between">
+                      <span>Key Expression</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(selectedReply.key_expr);
+                          setCopiedKey(true);
+                          setTimeout(() => setCopiedKey(false), 2000);
+                        }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                        title="Copy key expression"
+                      >
+                        {copiedKey ? (
+                          <>
+                            <Check className="w-2.5 h-2.5 text-emerald-500" />
+                            <span className="text-emerald-500">Copied</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-2.5 h-2.5" />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <div className="font-mono text-xs font-medium text-foreground break-all bg-muted/40 p-1.5 rounded border">
+                      {selectedReply.key_expr}
+                    </div>
                   </div>
+
+                  {/* Grid: Latency, Replier, Encoding, Size */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
+                        Latency
+                      </div>
+                      <div className="font-mono text-xs font-medium text-foreground">
+                        {selectedReply.latency_ms} ms
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
+                        Replier Node
+                      </div>
+                      <div className="font-mono text-xs text-foreground truncate bg-muted/30 p-1 rounded border">
+                        {selectedReply.replier_id || 'Anonymous'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
+                        Payload Size
+                      </div>
+                      <div className="font-mono text-xs font-medium text-foreground">
+                        {formatByteSize(selectedReply.payload?.length || 0)}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-0.5">
+                        Status
+                      </div>
+                      <div>
+                        {selectedReply.is_err ? (
+                          <Badge variant="destructive" className="text-[10px] px-1.5 py-0 uppercase">
+                            Error
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 uppercase">
+                            OK
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedReply.is_err && selectedReply.error_message && (
+                    <div className="rounded bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
+                      <span className="font-semibold">Error: </span>
+                      {selectedReply.error_message}
+                    </div>
+                  )}
+                </div>
+
+                {/* Payload Viewer Container */}
+                <div className="flex-1 min-h-0 flex flex-col p-3 space-y-1.5">
+                  <div className="text-[10px] uppercase font-semibold text-muted-foreground">
+                    Reply Payload Content
+                  </div>
+                  <PayloadViewer
+                    payload={selectedReply.payload}
+                    encoding={selectedReply.encoding}
+                    showMetrics={true}
+                    maxHeight="100%"
+                    className="flex-1"
+                  />
                 </div>
               </div>
-
-              {selectedReply.is_err && selectedReply.error_message && (
-                <div className="rounded bg-destructive/10 border border-destructive/20 p-2 text-xs text-destructive">
-                  <span className="font-semibold">Error: </span>
-                  {selectedReply.error_message}
-                </div>
-              )}
             </div>
-
-            {/* Payload Viewer */}
-            <div className="flex-1 overflow-y-auto p-3">
-              <div className="text-[10px] uppercase font-semibold text-muted-foreground mb-1.5">
-                Reply Payload Content
-              </div>
-              <PayloadViewer
-                payload={selectedReply.payload}
-                encoding={selectedReply.encoding}
-                showMetrics={true}
-                maxHeight="480px"
-              />
-            </div>
-          </div>
+          </>
         )}
       </div>
     </div>

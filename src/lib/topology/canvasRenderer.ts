@@ -364,7 +364,7 @@ export function renderTopologyCanvas(
       const textWidth = ctx.measureText(infoText).width;
       const pillW = textWidth + 10;
       const pillH = 15;
-      const pillY = midY - 14;
+      const pillY = midY;
 
       ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
       ctx.strokeStyle = '#3b82f6';
@@ -384,30 +384,6 @@ export function renderTopologyCanvas(
       ctx.fillText(infoText, midX, pillY);
     }
 
-    // Protocol label pill at midpoint
-    const protocolText = edge.protocol.toUpperCase();
-
-    ctx.font = '9px monospace';
-    const textWidth = ctx.measureText(protocolText).width;
-    const pillW = textWidth + 8;
-    const pillH = 14;
-
-    ctx.fillStyle = isDark ? '#1e293b' : '#f1f5f9';
-    ctx.strokeStyle = isDark ? '#334155' : '#cbd5e1';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(midX - pillW / 2, midY - pillH / 2, pillW, pillH, 4);
-    } else {
-      ctx.rect(midX - pillW / 2, midY - pillH / 2, pillW, pillH);
-    }
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = isDark ? '#94a3b8' : '#475569';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(protocolText, midX, midY);
     ctx.restore();
   }
 
@@ -474,17 +450,6 @@ export function renderTopologyCanvas(
 
     // Node Role Vector Icon (Server for router, Share2 for peer, Laptop for client)
     drawNodeRoleIcon(ctx, node.x, node.y, node.radius, node.type, roleColors.iconStroke);
-
-    // Node Status Dot Badge (Emerald = connected, Amber = connecting, Blue = scouted, Red = offline/disconnected)
-    const statusColor = getNodeStatusColor(node.status);
-
-    ctx.beginPath();
-    ctx.arc(node.x + node.radius * 0.7, node.y - node.radius * 0.7, 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = statusColor;
-    ctx.fill();
-    ctx.strokeStyle = isDark ? '#0f172a' : '#ffffff';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
 
     // Node Label under node
     ctx.font = isSelected ? 'bold 11px sans-serif' : '10px sans-serif';

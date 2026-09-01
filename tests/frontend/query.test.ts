@@ -440,6 +440,38 @@ describe('Query / RPC Store Operations & Reply Timeline Data', () => {
     assert.equal(autoReplyKey, 'rpc/a');
     assert.equal(autoReplyPayload, JSON.stringify({ status: 'ok', data: 'subpath_reply' }));
   });
+
+  test('formats reply sample payload details and errors accurately', () => {
+    const okReply: ReplySample = {
+      session_id: 'sess-1',
+      key_expr: 'demo/status',
+      payload: Array.from(Buffer.from('{"ready": true, "code": 200}')),
+      encoding: 'json',
+      replier_id: 'zid-node-abc',
+      latency_ms: 15,
+      timestamp: Date.now(),
+      is_err: false,
+    };
+
+    const errReply: ReplySample = {
+      session_id: 'sess-1',
+      key_expr: 'demo/status',
+      payload: [],
+      encoding: 'text',
+      replier_id: 'zid-node-xyz',
+      latency_ms: 150,
+      timestamp: Date.now(),
+      is_err: true,
+      error_message: 'Timeout waiting for sensor response',
+    };
+
+    const okSnippet = getPayloadSnippet(okReply.payload, okReply.encoding);
+    assert.ok(okSnippet.includes('"ready":true'));
+
+    assert.equal(okReply.is_err, false);
+    assert.equal(errReply.is_err, true);
+    assert.equal(errReply.error_message, 'Timeout waiting for sensor response');
+  });
 });
 
 

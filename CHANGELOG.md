@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.5.6] - 2026-09-02
+
+### 🐛 Fixed
+- **query:** make message detail in split stage responsive and scrollable
+
+### 🔧 Maintenance
+- **deps:** update @tauri-apps/plugin-updater to ^2.11.0 to match Rust crate version
+
+---
 ## [v0.5.5] - 2026-09-01
 
 ### 🐛 Fixed

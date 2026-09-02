@@ -17,7 +17,7 @@
  */
 
 import * as tauri from './tauri';
-import type { SessionInfo } from '../types/zenoh';
+import type { SessionInfo, MdnsStatus } from '../types/zenoh';
 
 export function isTauriAvailable(): boolean {
   return typeof window !== 'undefined' && (
@@ -33,4 +33,48 @@ export async function connectNodeByZid(zid: string): Promise<SessionInfo> {
   throw new Error('Tauri IPC is not available');
 }
 
+export async function getMdnsStatus(): Promise<MdnsStatus> {
+  if (isTauriAvailable()) {
+    return tauri.getMdnsStatus();
+  }
+  return {
+    enabled: true,
+    active_hostname: 'zenohx.local',
+    configured_hostname: 'zenohx',
+    port: 7447,
+    addresses: ['127.0.0.1'],
+    is_conflict: false,
+  };
+}
+
+export async function setMdnsConfig(enabled: boolean, hostname: string): Promise<MdnsStatus> {
+  if (isTauriAvailable()) {
+    return tauri.setMdnsConfig(enabled, hostname);
+  }
+  const cleanHost = hostname.replace(/\.local\.?$/i, '').trim() || 'zenohx';
+  return {
+    enabled,
+    active_hostname: `${cleanHost}.local`,
+    configured_hostname: cleanHost,
+    port: 7447,
+    addresses: ['127.0.0.1'],
+    is_conflict: false,
+  };
+}
+
+export async function refreshMdnsInterfaces(): Promise<MdnsStatus> {
+  if (isTauriAvailable()) {
+    return tauri.refreshMdnsInterfaces();
+  }
+  return {
+    enabled: true,
+    active_hostname: 'zenohx.local',
+    configured_hostname: 'zenohx',
+    port: 7447,
+    addresses: ['127.0.0.1'],
+    is_conflict: false,
+  };
+}
+
 export * from './tauri';
+

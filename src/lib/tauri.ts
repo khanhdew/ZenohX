@@ -42,6 +42,7 @@ import type {
   SubscribeOptions,
   StreamGeneratorConfig,
   NodeConfigurationResult,
+  MdnsStatus,
 } from '../types/zenoh';
 import type { AdminSpaceEntry } from '../types/topology';
 
@@ -500,5 +501,33 @@ export async function openProfileInNewWindow(profile: ConnectionProfile): Promis
       window.open(`/?profileId=${encodeURIComponent(profile.id)}`, '_blank');
     }
   }
+}
+
+// ============================================================================
+// mDNS Responder IPC Commands
+// ============================================================================
+
+/**
+ * Retrieves current mDNS responder runtime status, active hostname, and bound addresses.
+ */
+export async function getMdnsStatus(): Promise<MdnsStatus> {
+  return invoke<MdnsStatus>('get_mdns_status');
+}
+
+/**
+ * Updates mDNS responder configuration (enabled/disabled state and advertised hostname).
+ */
+export async function setMdnsConfig(
+  enabled: boolean,
+  hostname: string
+): Promise<MdnsStatus> {
+  return invoke<MdnsStatus>('set_mdns_config', { enabled, hostname });
+}
+
+/**
+ * Forces a scan of local network interfaces and re-registers the mDNS responder.
+ */
+export async function refreshMdnsInterfaces(): Promise<MdnsStatus> {
+  return invoke<MdnsStatus>('refresh_mdns_interfaces');
 }
 

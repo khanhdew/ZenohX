@@ -424,3 +424,20 @@ export interface QueryExecution {
   error?: string | null;
 }
 
+/**
+ * Authoritative mDNS responder runtime status and configuration.
+ */
+export interface MdnsStatus {
+  enabled: boolean;
+  active_hostname: string;
+  configured_hostname: string;
+  port: number;
+  addresses: string[];
+  is_conflict: boolean;
+  running?: boolean;
+  hostname?: string;
+  advertised_name?: string;
+  bound_ips?: string[];
+  error?: string | null;
+}
+

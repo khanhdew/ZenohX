@@ -184,6 +184,7 @@ export function App() {
     initStatusListener();
     useMessageStore.getState().initListener();
     useQueryStore.getState().initListener();
+    useSettingsStore.getState().fetchMdnsStatus();
     return () => {
       cleanupStatusListener();
       useMessageStore.getState().cleanupListener();

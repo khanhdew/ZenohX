@@ -14,7 +14,8 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { EncodingType } from '../types/zenoh';
+import type { EncodingType, MdnsStatus } from '../types/zenoh';
+import { getMdnsStatus, setMdnsConfig, refreshMdnsInterfaces, isTauriAvailable } from '../lib/ipc';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 export type UpdateChannel = 'stable' | 'beta' | 'nightly';
@@ -40,6 +41,14 @@ export interface SettingsState {
   // Privacy & Telemetry
   anonymousTelemetry: boolean;
 
+  // mDNS Responder Configuration & Runtime Status
+  mdnsEnabled: boolean;
+  mdnsHostname: string;
+  mdnsStatus: MdnsStatus | null;
+  isMdnsLoading: boolean;
+  isLoadingMdns: boolean;
+  mdnsError: string | null;
+
   // Actions
   setTheme: (theme: ThemeMode) => void;
   setCompactMode: (compact: boolean) => void;
@@ -52,6 +61,12 @@ export interface SettingsState {
   setMaxMessageBuffer: (bufferSize: number) => void;
   setDefaultQueryTimeoutMs: (timeoutMs: number) => void;
   setAnonymousTelemetry: (enabled: boolean) => void;
+  setMdnsEnabled: (enabled: boolean) => void;
+  setMdnsHostname: (hostname: string) => void;
+  fetchMdnsStatus: () => Promise<void>;
+  updateMdnsConfig: (enabled: boolean, hostname: string) => Promise<void>;
+  updateMdnsSettings: (enabled: boolean, hostname: string) => Promise<void>;
+  refreshMdnsInterfaces: () => Promise<void>;
   resetToDefaults: () => void;
 }
 
@@ -67,6 +82,12 @@ const DEFAULT_SETTINGS = {
   maxMessageBuffer: 1000,
   defaultQueryTimeoutMs: 3000,
   anonymousTelemetry: true,
+  mdnsEnabled: true,
+  mdnsHostname: 'zenohx',
+  mdnsStatus: null as MdnsStatus | null,
+  isMdnsLoading: false,
+  isLoadingMdns: false,
+  mdnsError: null as string | null,
 };
 
 export function applyThemeToDom(theme: ThemeMode) {
@@ -96,7 +117,7 @@ export function applyThemeToDom(theme: ThemeMode) {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DEFAULT_SETTINGS,
 
       setTheme: (theme) => {
@@ -124,6 +145,80 @@ export const useSettingsStore = create<SettingsState>()(
 
       setAnonymousTelemetry: (anonymousTelemetry) => set({ anonymousTelemetry }),
 
+      setMdnsEnabled: (mdnsEnabled) => set({ mdnsEnabled }),
+
+      setMdnsHostname: (mdnsHostname) => set({ mdnsHostname }),
+
+      fetchMdnsStatus: async () => {
+        set({ isMdnsLoading: true, isLoadingMdns: true, mdnsError: null });
+        try {
+          const status = await getMdnsStatus();
+          set({
+            mdnsStatus: status,
+            mdnsEnabled: status.enabled,
+            mdnsHostname: status.configured_hostname || get().mdnsHostname,
+            isMdnsLoading: false,
+            isLoadingMdns: false,
+            mdnsError: null,
+          });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          set({
+            isMdnsLoading: false,
+            isLoadingMdns: false,
+            mdnsError: errMsg,
+          });
+        }
+      },
+
+      updateMdnsConfig: async (enabled: boolean, hostname: string) => {
+        set({ isMdnsLoading: true, isLoadingMdns: true, mdnsError: null });
+        try {
+          const status = await setMdnsConfig(enabled, hostname);
+          set({
+            mdnsEnabled: status.enabled,
+            mdnsHostname: status.configured_hostname,
+            mdnsStatus: status,
+            isMdnsLoading: false,
+            isLoadingMdns: false,
+            mdnsError: null,
+          });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          set({
+            isMdnsLoading: false,
+            isLoadingMdns: false,
+            mdnsError: errMsg,
+          });
+          throw err;
+        }
+      },
+
+      updateMdnsSettings: async (enabled: boolean, hostname: string) => {
+        return get().updateMdnsConfig(enabled, hostname);
+      },
+
+      refreshMdnsInterfaces: async () => {
+        set({ isMdnsLoading: true, isLoadingMdns: true, mdnsError: null });
+        try {
+          const status = await refreshMdnsInterfaces();
+          set({
+            mdnsStatus: status,
+            isMdnsLoading: false,
+            isLoadingMdns: false,
+            mdnsError: null,
+          });
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          set({
+            isMdnsLoading: false,
+            isLoadingMdns: false,
+            mdnsError: errMsg,
+          });
+          throw err;
+        }
+      },
+
       resetToDefaults: () => {
         applyThemeToDom(DEFAULT_SETTINGS.theme);
         set(DEFAULT_SETTINGS);
@@ -135,7 +230,11 @@ export const useSettingsStore = create<SettingsState>()(
         if (state?.theme) {
           applyThemeToDom(state.theme);
         }
+        if (typeof window !== 'undefined' && isTauriAvailable()) {
+          state?.fetchMdnsStatus?.().catch(() => {});
+        }
       },
     }
   )
 );
+

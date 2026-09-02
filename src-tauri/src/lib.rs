@@ -14,16 +14,19 @@
 
 pub mod commands;
 pub mod db;
+pub mod mdns;
 pub mod zenoh;
 
 use commands::*;
 use db::Database;
+use mdns::MdnsManager;
 use tauri::{Emitter, Manager};
 use zenoh::SessionManager;
 
 pub struct AppState {
     pub session_manager: SessionManager,
     pub db: Database,
+    pub mdns_manager: MdnsManager,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -71,9 +74,15 @@ pub fn run() {
                 .or_else(|_| Database::new_in_memory())
                 .expect("failed to initialize SQLite database");
 
+            let mdns_manager = MdnsManager::new("zenohx", 7447);
+            if let Err(e) = mdns_manager.start() {
+                eprintln!("Failed to auto-start mDNS manager: {e}");
+            }
+
             app.manage(AppState {
                 session_manager: sm_clone.clone(),
                 db,
+                mdns_manager,
             });
 
             let sm = sm_clone.clone();
@@ -122,7 +131,11 @@ pub fn run() {
             save_message,
             clear_message_history,
             delete_message,
+            get_mdns_status,
+            set_mdns_config,
+            refresh_mdns_interfaces,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

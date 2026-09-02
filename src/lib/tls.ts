@@ -620,7 +620,7 @@ export function isLinkLocalLocator(locator: string): boolean {
 /**
  * Checks if a locator contains a loopback, link-local, or wildcard address.
  */
-export function isExcludedLocator(locator: string): boolean {
+export function isExcludedLocator(locator: string, allowPortZero: boolean = false): boolean {
   if (!locator || typeof locator !== 'string') return true;
   const lower = locator.toLowerCase().trim();
 
@@ -630,7 +630,7 @@ export function isExcludedLocator(locator: string): boolean {
   }
 
   // 1. Dynamic port 0 placeholder (e.g. tcp/0.0.0.0:0, tcp/127.0.0.1:0)
-  if (lower.endsWith(':0') || lower.includes(':0/')) {
+  if (!allowPortZero && (lower.endsWith(':0') || lower.includes(':0/'))) {
     return true;
   }
 
@@ -687,10 +687,10 @@ export function isEphemeralPortLocator(locator: string): boolean {
  * Filters locators to strictly preserve real reachable IPv4 and real IPv6 addresses (and unix sockets),
  * dropping loopback ([::1], 127.0.0.1), port 0 (:0), and link-local (fe80::, 169.254.) addresses.
  */
-export function filterRealLocators(locators: string[]): string[] {
+export function filterRealLocators(locators: string[], allowPortZero: boolean = false): string[] {
   if (!Array.isArray(locators)) return [];
   return locators.filter(
-    (loc) => typeof loc === 'string' && loc.trim().length > 0 && !isExcludedLocator(loc)
+    (loc) => typeof loc === 'string' && loc.trim().length > 0 && !isExcludedLocator(loc, allowPortZero)
   );
 }
 
@@ -735,7 +735,10 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
   }
 
   if (mode === 'router') {
-    const listenLocs = filterRealLocators(config.listen_locators || []);
+    let listenLocs = filterRealLocators(config.listen_locators || [], true);
+    if (listenLocs.length === 0 && config.listen_locators && config.listen_locators.length > 0) {
+      listenLocs = cleanLocators(config.listen_locators);
+    }
     if (listenLocs.length > 0) {
       result.listen = {
         endpoints: listenLocs,
@@ -804,7 +807,10 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
       } else if (k === 'listen') {
         if (mode === 'router' && v && typeof v === 'object' && !Array.isArray(v)) {
           result.listen = { ...(v as any), ...result.listen };
-          const listenLocs = filterRealLocators(config.listen_locators || []);
+          let listenLocs = filterRealLocators(config.listen_locators || [], true);
+          if (listenLocs.length === 0 && config.listen_locators && config.listen_locators.length > 0) {
+            listenLocs = cleanLocators(config.listen_locators);
+          }
           if (listenLocs.length > 0) {
             result.listen.endpoints = listenLocs;
           }
@@ -832,7 +838,12 @@ export function generateZenohJson5(config: Partial<ConnectionProfile> | Record<s
   }
 
   if (result.listen && Array.isArray(result.listen.endpoints)) {
-    result.listen.endpoints = filterRealLocators(result.listen.endpoints);
+    const filtered = filterRealLocators(result.listen.endpoints, true);
+    if (filtered.length > 0) {
+      result.listen.endpoints = filtered;
+    } else if (result.listen.endpoints.length > 0) {
+      result.listen.endpoints = cleanLocators(result.listen.endpoints);
+    }
   }
   if (result.connect && Array.isArray(result.connect.endpoints)) {
     result.connect.endpoints = cleanLocators(result.connect.endpoints);

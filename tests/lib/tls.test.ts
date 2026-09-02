@@ -155,6 +155,18 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.equal(parsed.scouting?.gossip?.enabled, true);
   });
 
+  it('preserves ephemeral port 0 (auto allocate) in router listen endpoints', async () => {
+    const { generateZenohJson5 } = await import('../../src/lib/tls');
+    const routerJson = generateZenohJson5({
+      mode: 'router',
+      listen_locators: ['tcp/0.0.0.0:0'],
+    });
+
+    const parsed = JSON.parse(routerJson);
+    assert.equal(parsed.mode, 'router');
+    assert.deepEqual(parsed.listen?.endpoints, ['tcp/0.0.0.0:0']);
+  });
+
   it('generates valid JSON5 configuration with TLS and user auth', async () => {
     const { generateZenohJson5 } = await import('../../src/lib/tls');
     const secureJson = generateZenohJson5({

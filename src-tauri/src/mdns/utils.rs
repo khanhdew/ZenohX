@@ -31,6 +31,7 @@ pub fn sanitize_hostname(name: &str) -> String {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
         .collect();
+    cleaned = cleaned.trim_matches('-').to_string();
     if cleaned.is_empty() {
         cleaned = "zenohx".to_string();
     }
@@ -68,8 +69,10 @@ mod tests {
         assert_eq!(sanitize_hostname("zenohx"), "zenohx.local.");
         assert_eq!(sanitize_hostname("zenohx.local"), "zenohx.local.");
         assert_eq!(sanitize_hostname("ZenohX.local."), "zenohx.local.");
-        assert_eq!(sanitize_hostname("my robot!"), "my-robot-.local.");
+        assert_eq!(sanitize_hostname("my robot!"), "my-robot.local.");
+        assert_eq!(sanitize_hostname("---my robot!---"), "my-robot.local.");
         assert_eq!(sanitize_hostname(""), "zenohx.local.");
+        assert_eq!(sanitize_hostname("---"), "zenohx.local.");
     }
 
     #[test]

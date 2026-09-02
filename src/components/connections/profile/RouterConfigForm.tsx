@@ -248,9 +248,19 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                       <div className="flex-1">
                         <Input
                           value={ep.host}
-                          onChange={(e) =>
-                            updateListenEndpoint(ep.id, { host: e.target.value })
-                          }
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val.includes(':') && !val.startsWith('[')) {
+                              const colonIdx = val.lastIndexOf(':');
+                              const h = val.slice(0, colonIdx).trim();
+                              const p = val.slice(colonIdx + 1).trim();
+                              if (/^\d+$/.test(p)) {
+                                updateListenEndpoint(ep.id, { host: h, port: p });
+                                return;
+                              }
+                            }
+                            updateListenEndpoint(ep.id, { host: val });
+                          }}
                           placeholder="0.0.0.0 or [::]"
                           className="h-8 text-xs font-mono bg-background"
                         />

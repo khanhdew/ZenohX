@@ -93,7 +93,7 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
       setClientLocator(`${protoId}/${parsed.host}:${targetPort}`);
     } else {
       const protoMeta = CLIENT_PROTOCOLS.find((p) => p.id === protoId);
-      setClientLocator(`${protoId}/127.0.0.1:${protoMeta?.defaultPort || '7447'}`);
+      setClientLocator(`${protoId}/zenohx.local:${protoMeta?.defaultPort || '7447'}`);
     }
   };
 
@@ -115,7 +115,7 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
 
       {/* Upstream Router Locator Input (Unified Single Input) */}
       <div className="space-y-1.5">
-        <SimpleTooltip content="Enter complete locator (e.g. tcp/172.66.1.1:7447, tls/cloud.zenoh.io:7446, or unixpipe//tmp/zenoh.sock).">
+        <SimpleTooltip content="Enter complete locator (e.g. tcp/zenohx.local:7447, tls/cloud.zenoh.io:7446, or unixpipe//tmp/zenoh.sock).">
           <Label htmlFor="client-locator" className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
             <Radio className="w-3.5 h-3.5 text-sky-500" />
             <span>Upstream Router Locator</span> <span className="text-destructive">*</span>
@@ -126,13 +126,24 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
           id="client-locator"
           value={clientLocator}
           onChange={(e) => setClientLocator(e.target.value)}
-          placeholder="tcp/172.66.1.1:7447 or tls/router.zenoh.io:7446"
+          placeholder="tcp/zenohx.local:7447 or tls/router.zenoh.io:7446"
           className="h-8 text-xs font-mono bg-background"
         />
 
         {/* Quick Fill suggestions */}
         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           <span className="text-[9px] text-muted-foreground">Quick Fill:</span>
+          <button
+            type="button"
+            onClick={() => setClientLocator('tcp/zenohx.local:7447')}
+            className={`text-[9px] px-1.5 py-0.5 rounded border ${
+              clientLocator === 'tcp/zenohx.local:7447'
+                ? 'border-primary text-primary bg-primary/5 font-semibold'
+                : 'border-border text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            tcp/zenohx.local:7447
+          </button>
           <button
             type="button"
             onClick={() => setClientLocator('tcp/127.0.0.1:7447')}

@@ -327,9 +327,14 @@ describe('Connection Manager Integration & Helpers', () => {
     );
   });
 
-  test('saveAndConnect does NOT store profile if connection fails', async () => {
-    mockInvokeHandler = async (cmd) => {
+  test('saveAndConnect does NOT store profile and rolls back DB if connection fails', async () => {
+    let deleteProfileCalledWith: string | null = null;
+    mockInvokeHandler = async (cmd, args: any) => {
       if (cmd === 'save_profile') {
+        return undefined;
+      }
+      if (cmd === 'delete_profile') {
+        deleteProfileCalledWith = args?.profileId || args?.profile_id;
         return undefined;
       }
       if (cmd === 'connect_node_by_zid' || cmd === 'connect_session') {
@@ -359,9 +364,68 @@ describe('Connection Manager Integration & Helpers', () => {
       /Unable to connect to the Zenoh router/
     );
 
-    // Verify profile was NOT saved into store
+    // Verify profile was NOT saved into store and was purged from database
     assert.equal(useConnectionStore.getState().profiles.length, 0);
     assert.equal(Object.keys(useConnectionStore.getState().activeSessions).length, 0);
+    assert.equal(deleteProfileCalledWith, 'prof-fail');
+  });
+
+  test('saveAndConnect rolls back existing profile in DB when modified connection fails', async () => {
+    const originalProfile: ConnectionProfile = {
+      id: 'prof-orig',
+      name: 'Original Router',
+      mode: 'client',
+      connect_locators: ['tcp/127.0.0.1:7447'],
+      listen_locators: [],
+      scout_multicast: false,
+      user_auth: null,
+      tls_config: {},
+      custom_config: null,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    useConnectionStore.setState({
+      profiles: [originalProfile],
+      selectedProfileId: 'prof-orig',
+      activeSessions: {},
+      connectingProfileIds: {},
+    });
+
+    let revertSavedProfile: ConnectionProfile | null = null;
+    let saveCount = 0;
+    mockInvokeHandler = async (cmd, args: any) => {
+      if (cmd === 'save_profile') {
+        saveCount++;
+        if (saveCount > 1) {
+          revertSavedProfile = args?.profile;
+        }
+        return undefined;
+      }
+      if (cmd === 'connect_node_by_zid' || cmd === 'connect_session') {
+        throw new Error('failed to open zenoh session: invalid locator');
+      }
+      return undefined;
+    };
+
+    const updatedBrokenProfile: ConnectionProfile = {
+      ...originalProfile,
+      name: 'Broken Locator Update',
+      connect_locators: ['tcp/invalid-host:99999'],
+    };
+
+    await assert.rejects(
+      async () => {
+        await useConnectionStore.getState().saveAndConnect(updatedBrokenProfile);
+      },
+      /invalid locator/
+    );
+
+    // Verify DB was reverted to original profile
+    assert.ok(revertSavedProfile);
+    assert.equal((revertSavedProfile as any).name, 'Original Router');
+    assert.equal((revertSavedProfile as any).connect_locators[0], 'tcp/127.0.0.1:7447');
+    useConnectionStore.setState({ profiles: [] });
   });
 
   test('saveAndConnect fails if persistence fails', async () => {
@@ -707,6 +771,47 @@ describe('Connection Manager Integration & Helpers', () => {
     assert.equal(isValidUnixPath('tmp/zenoh.sock'), false);
     assert.equal(isValidUnixPath(''), false);
     assert.equal(isValidUnixPath('   '), false);
+  });
+
+  test('validateLocator validates Zenoh locators and rejects invalid formats, protocols, hosts, and ports', async () => {
+    const { validateLocator, isValidProtocol } = await import('../../src/lib/tls');
+
+    // Valid locators
+    assert.equal(validateLocator('tcp/127.0.0.1:7447').valid, true);
+    assert.equal(validateLocator('tcp/zenohx.local:7447').valid, true);
+    assert.equal(validateLocator('tls/my-robot.local:7446').valid, true);
+    assert.equal(validateLocator('quic/station-1.local:7447').valid, true);
+    assert.equal(validateLocator('tls/router.example.com:7446').valid, true);
+    assert.equal(validateLocator('quic/10.0.0.1:7448').valid, true);
+    assert.equal(validateLocator('udp/192.168.1.100:7449').valid, true);
+    assert.equal(validateLocator('ws/0.0.0.0:8080').valid, true);
+    assert.equal(validateLocator('wss/secure.router.com:8443').valid, true);
+    assert.equal(validateLocator('unixpipe//tmp/zenoh.sock').valid, true);
+    assert.equal(validateLocator('tcp/[::1]:7447').valid, true);
+
+    // Invalid locators
+    assert.equal(validateLocator('').valid, false);
+    assert.equal(validateLocator('   ').valid, false);
+    assert.equal(validateLocator('invalidproto/127.0.0.1:7447').valid, false);
+    assert.equal(validateLocator('http/127.0.0.1:7447').valid, false);
+    assert.equal(validateLocator('tcp/:7447').valid, false);
+    assert.equal(validateLocator('tcp/127.0.0.1:999999').valid, false);
+    assert.equal(validateLocator('tcp/127.0.0.1:abc').valid, false);
+    assert.equal(validateLocator('unixpipe/').valid, false);
+    assert.equal(validateLocator('unixpipe/   ').valid, false);
+
+    // Protocol checks
+    assert.equal(isValidProtocol('tcp'), true);
+    assert.equal(isValidProtocol('tls'), true);
+    assert.equal(isValidProtocol('quic'), true);
+    assert.equal(isValidProtocol('udp'), true);
+    assert.equal(isValidProtocol('ws'), true);
+    assert.equal(isValidProtocol('wss'), true);
+    assert.equal(isValidProtocol('unix'), true);
+    assert.equal(isValidProtocol('unixpipe'), true);
+    assert.equal(isValidProtocol('http'), false);
+    assert.equal(isValidProtocol('ftp'), false);
+    assert.equal(isValidProtocol(''), false);
   });
 
   test('PresetSelector, ClientConfigForm, PeerConfigForm, and RouterConfigForm render correctly', async () => {

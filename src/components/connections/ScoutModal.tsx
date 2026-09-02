@@ -245,8 +245,16 @@ export const ScoutModal: React.FC<ScoutModalProps> = ({
       }
 
       const newProfile = buildProfile(node);
-      await saveProfile(newProfile);
-      await connectSession(newProfile.id);
+      const isNew = !profiles.some((p) => p.id === newProfile.id);
+      try {
+        await saveProfile(newProfile);
+        await connectSession(newProfile.id);
+      } catch (connectErr) {
+        if (isNew) {
+          await useConnectionStore.getState().deleteProfile(newProfile.id).catch(() => {});
+        }
+        throw connectErr;
+      }
 
       setActionLoadingZid(null);
       onClose();

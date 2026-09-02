@@ -25,6 +25,10 @@ import {
   detectProfilePreset,
   getSuggestedRouterPort,
   generateZenohJson5,
+  validateLocator,
+  isValidProtocol,
+  isValidPortNumber,
+  isValidUnixSocketPath,
   type TransportProtocol,
   type ConnectionPreset,
 } from '../../../lib/tls';
@@ -39,17 +43,11 @@ export interface UseProfileFormProps {
 }
 
 export function isValidPort(port: string): boolean {
-  if (!port || typeof port !== 'string') return false;
-  const trimmed = port.trim();
-  if (!/^\d+$/.test(trimmed)) return false;
-  const num = parseInt(trimmed, 10);
-  return !isNaN(num) && num >= 0 && num <= 65535;
+  return isValidPortNumber(port);
 }
 
 export function isValidUnixPath(path: string): boolean {
-  if (!path || typeof path !== 'string') return false;
-  const trimmed = path.trim();
-  return trimmed.length > 0 && trimmed.startsWith('/');
+  return isValidUnixSocketPath(path);
 }
 
 const DEFAULT_RECONNECT_RETRY_CONFIG: ReconnectRetryConfig = {
@@ -72,7 +70,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
 
   // Client Mode Form State
   const [clientName, setClientName] = useState<string>('Edge Client');
-  const [clientLocator, setClientLocator] = useState<string>('tcp/127.0.0.1:7447');
+  const [clientLocator, setClientLocator] = useState<string>('tcp/zenohx.local:7447');
   const [enableReconnectRetry, setEnableReconnectRetry] = useState<boolean>(true);
 
   // Peer Mode Form State
@@ -145,7 +143,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         if (profile.connect_locators && profile.connect_locators.length > 0) {
           setClientLocator(profile.connect_locators[0]);
         } else {
-          setClientLocator('tcp/127.0.0.1:7447');
+          setClientLocator('tcp/zenohx.local:7447');
         }
         setClientName(profile.name || 'Client Router');
 
@@ -192,7 +190,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setShowAdvanced(false);
 
         setClientName('Edge Client');
-        setClientLocator('tcp/127.0.0.1:7447');
+        setClientLocator('tcp/zenohx.local:7447');
         setEnableReconnectRetry(true);
 
         setPeerName('Local Peer');
@@ -316,13 +314,9 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setValidationError('Upstream Router Locator is required (e.g. tcp/172.66.1.1:7447).');
         return false;
       }
-      const parsed = parseLocator(trimmedLoc);
-      if (!parsed) {
-        setValidationError('Invalid Zenoh locator format (e.g. tcp/172.66.1.1:7447).');
-        return false;
-      }
-      if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
-        setValidationError('Unix socket path must start with "/" (e.g. unixpipe//tmp/zenoh.sock).');
+      const locRes = validateLocator(trimmedLoc);
+      if (!locRes.valid) {
+        setValidationError(locRes.error || 'Invalid Zenoh locator format (e.g. tcp/172.66.1.1:7447).');
         return false;
       }
     } else if (preset === 'peer') {
@@ -333,17 +327,9 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       for (let i = 0; i < connectLocators.length; i++) {
         const loc = connectLocators[i].trim();
         if (loc) {
-          const parsed = parseLocator(loc);
-          if (!parsed) {
-            setValidationError(`Direct link #${i + 1} "${loc}" is not a valid Zenoh locator.`);
-            return false;
-          }
-          if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
-            setValidationError(`Direct link #${i + 1} Unix socket path must start with "/".`);
-            return false;
-          }
-          if (parsed.protocol !== 'unix' && parsed.port && !isValidPort(parsed.port)) {
-            setValidationError(`Direct link #${i + 1} port "${parsed.port}" must be between 0 and 65535.`);
+          const locRes = validateLocator(loc);
+          if (!locRes.valid) {
+            setValidationError(`Direct link #${i + 1}: ${locRes.error}`);
             return false;
           }
         }
@@ -351,17 +337,9 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       for (let i = 0; i < listenLocators.length; i++) {
         const loc = listenLocators[i].trim();
         if (loc) {
-          const parsed = parseLocator(loc);
-          if (!parsed) {
-            setValidationError(`Listen endpoint #${i + 1} "${loc}" is not a valid Zenoh locator.`);
-            return false;
-          }
-          if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
-            setValidationError(`Listen endpoint #${i + 1} Unix socket path must start with "/".`);
-            return false;
-          }
-          if (parsed.protocol !== 'unix' && parsed.port && !isValidPort(parsed.port)) {
-            setValidationError(`Listen endpoint #${i + 1} port "${parsed.port}" must be between 0 and 65535.`);
+          const locRes = validateLocator(loc);
+          if (!locRes.valid) {
+            setValidationError(`Listen endpoint #${i + 1}: ${locRes.error}`);
             return false;
           }
         }
@@ -377,6 +355,10 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       }
       for (let i = 0; i < routerListenEndpoints.length; i++) {
         const ep = routerListenEndpoints[i];
+        if (!isValidProtocol(ep.protocol)) {
+          setValidationError(`Endpoint #${i + 1} has unsupported protocol "${ep.protocol}". Supported protocols: tcp, tls, quic, udp, ws, wss, unix.`);
+          return false;
+        }
         if (ep.protocol === 'unix') {
           if (!ep.host.trim()) {
             setValidationError(`Endpoint #${i + 1} Unix socket path is required (e.g. /tmp/zenoh.sock).`);
@@ -387,6 +369,10 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
             return false;
           }
         } else {
+          if (!ep.host.trim()) {
+            setValidationError(`Endpoint #${i + 1} bind host is required (e.g. 0.0.0.0).`);
+            return false;
+          }
           if (!isValidPort(ep.port)) {
             setValidationError(`Endpoint #${i + 1} port "${ep.port}" must be a valid integer between 0 and 65535 (use 0 for auto).`);
             return false;
@@ -396,20 +382,25 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
       for (let i = 0; i < routerConnectLocators.length; i++) {
         const loc = routerConnectLocators[i].trim();
         if (loc) {
-          const parsed = parseLocator(loc);
-          if (!parsed) {
-            setValidationError(`Upstream router #${i + 1} "${loc}" is not a valid Zenoh locator.`);
-            return false;
-          }
-          if (parsed.protocol === 'unix' && !isValidUnixPath(parsed.host)) {
-            setValidationError(`Upstream router #${i + 1} Unix socket path must start with "/".`);
-            return false;
-          }
-          if (parsed.protocol !== 'unix' && parsed.port && !isValidPort(parsed.port)) {
-            setValidationError(`Upstream router #${i + 1} port "${parsed.port}" must be between 0 and 65535.`);
+          const locRes = validateLocator(loc);
+          if (!locRes.valid) {
+            setValidationError(`Upstream router #${i + 1}: ${locRes.error}`);
             return false;
           }
         }
+      }
+    }
+
+    if (useCustomTls) {
+      const hasClientCert = Boolean(clientCert.trim());
+      const hasClientKey = Boolean(clientKey.trim());
+      if (hasClientCert && !hasClientKey) {
+        setValidationError('Client private key is required when client certificate is specified (mTLS).');
+        return false;
+      }
+      if (hasClientKey && !hasClientCert) {
+        setValidationError('Client certificate is required when client private key is specified (mTLS).');
+        return false;
       }
     }
 
@@ -901,12 +892,12 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     clientPort: parsedClient?.port || '7447',
     setClientPort: (port: string) => {
       const p = parseLocator(clientLocator);
-      setClientLocator(`${p?.protocol || 'tcp'}/${p?.host || '127.0.0.1'}:${port}`);
+      setClientLocator(`${p?.protocol || 'tcp'}/${p?.host || 'zenohx.local'}:${port}`);
     },
     clientProtocol: (parsedClient?.protocol as TransportProtocol) || 'tcp',
     setClientProtocol: (proto: TransportProtocol) => {
       const p = parseLocator(clientLocator);
-      setClientLocator(`${proto}/${p?.host || '127.0.0.1'}:${p?.port || '7447'}`);
+      setClientLocator(`${proto}/${p?.host || 'zenohx.local'}:${p?.port || '7447'}`);
     },
     cloudName: clientName,
     setCloudName: setClientName,
@@ -918,12 +909,12 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
     cloudPort: parsedClient?.port || '7447',
     setCloudPort: (port: string) => {
       const p = parseLocator(clientLocator);
-      setClientLocator(`${p?.protocol || 'tcp'}/${p?.host || '127.0.0.1'}:${port}`);
+      setClientLocator(`${p?.protocol || 'tcp'}/${p?.host || 'zenohx.local'}:${port}`);
     },
     cloudProtocol: (parsedClient?.protocol as TransportProtocol) || 'tcp',
     setCloudProtocol: (proto: TransportProtocol) => {
       const p = parseLocator(clientLocator);
-      setClientLocator(`${proto}/${p?.host || '127.0.0.1'}:${p?.port || '7447'}`);
+      setClientLocator(`${proto}/${p?.host || 'zenohx.local'}:${p?.port || '7447'}`);
     },
     localName: peerName,
     setLocalName: setPeerName,

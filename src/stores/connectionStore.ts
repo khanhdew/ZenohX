@@ -171,6 +171,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       }
     }
 
+    const isNew = !get().profiles.some((p) => p.id === profile.id);
+    const prevProfile = get().profiles.find((p) => p.id === profile.id);
+
     set((state) => ({
       connectingProfileIds: { ...state.connectingProfileIds, [profile.id]: true },
       error: null,
@@ -188,12 +191,19 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         useConnectionJsonStore.getState().fetchNodeConfiguration(sessionInfo.zid).catch(() => {});
       }
 
+      const wasEphemeral =
+        profile.mode === 'router' &&
+        (profile.listen_locators.length === 0 || profile.listen_locators.some((l) => l.includes(':0') || l.endsWith('/0')));
+      const updatedProfile = wasEphemeral && sessionInfo?.bound_locators?.length
+        ? { ...profile, listen_locators: sessionInfo.bound_locators }
+        : profile;
+
       set((state) => {
         const index = state.profiles.findIndex((p) => p.id === profile.id);
         const newProfiles =
           index >= 0
-            ? state.profiles.map((p) => (p.id === profile.id ? profile : p))
-            : [...state.profiles, profile];
+            ? state.profiles.map((p) => (p.id === profile.id ? updatedProfile : p))
+            : [...state.profiles, updatedProfile];
         return {
           profiles: newProfiles,
           selectedProfileId: profile.id,
@@ -211,6 +221,14 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
       return sessionId;
     } catch (err) {
+      if (isNew) {
+        // Rollback newly inserted profile from SQLite database so failed/invalid profile is never persisted
+        await deleteProfileIpc(profile.id).catch(() => {});
+      } else if (prevProfile) {
+        // Rollback updated profile in SQLite database to previous valid state
+        await saveProfileIpc(prevProfile).catch(() => {});
+      }
+
       const friendly = formatFriendlyError(err, 'Connection Failed').fullMessage;
       console.error('Session connection failed:', err);
       set((state) => ({

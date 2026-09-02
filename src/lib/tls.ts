@@ -79,7 +79,7 @@ export const PRODUCTION_PRESETS: ProductionPreset[] = [
     mode: 'client',
     defaultProtocol: 'tcp',
     defaultPort: '7447',
-    suggestedLocators: ['tcp/127.0.0.1:7447'],
+    suggestedLocators: ['tcp/zenohx.local:7447'],
     scoutMulticast: false,
     scoutGossip: false,
   },
@@ -177,6 +177,7 @@ export function parseLocator(locator: string): ParsedLocator | null {
 
   if (trimmed.startsWith('unixpipe/')) {
     const path = trimmed.slice('unixpipe/'.length).trim();
+    if (!path) return null;
     return { protocol: 'unix', host: path.startsWith('/') ? path : `/${path}`, port: '' };
   }
 
@@ -218,6 +219,7 @@ export function parseLocator(locator: string): ParsedLocator | null {
   const hostAndPort = trimmed.slice(slashIdx + 1).trim();
 
   if (protocol === 'unix') {
+    if (!hostAndPort) return null;
     return { protocol: 'unix', host: hostAndPort.startsWith('/') ? hostAndPort : `/${hostAndPort}`, port: '' };
   }
 
@@ -265,6 +267,105 @@ export function parseLocator(locator: string): ParsedLocator | null {
 
   return { protocol, host, port };
 }
+
+export const VALID_TRANSPORT_PROTOCOLS = ['tcp', 'tls', 'quic', 'udp', 'ws', 'wss', 'unix', 'unixpipe'] as const;
+
+/**
+ * Checks whether a given string is a supported Zenoh transport protocol.
+ */
+export function isValidProtocol(proto?: string | null): boolean {
+  if (!proto || typeof proto !== 'string') return false;
+  const p = proto.trim().toLowerCase();
+  return (VALID_TRANSPORT_PROTOCOLS as readonly string[]).includes(p);
+}
+
+/**
+ * Checks whether a port string/number is a valid TCP/UDP port (0 - 65535).
+ */
+export function isValidPortNumber(port?: string | number | null): boolean {
+  if (port === undefined || port === null) return false;
+  const str = String(port).trim();
+  if (!/^\d+$/.test(str)) return false;
+  const num = parseInt(str, 10);
+  return !isNaN(num) && num >= 0 && num <= 65535;
+}
+
+/**
+ * Checks whether a path string is a valid Unix domain socket path (starts with / and contains path).
+ */
+export function isValidUnixSocketPath(path?: string | null): boolean {
+  if (!path || typeof path !== 'string') return false;
+  const trimmed = path.trim();
+  return trimmed.length > 1 && trimmed.startsWith('/');
+}
+
+/**
+ * Checks whether a host string is a valid IPv4, IPv6, or domain/hostname (including mDNS .local).
+ */
+export function isValidHost(host?: string | null): boolean {
+  if (!host || typeof host !== 'string') return false;
+  const trimmed = host.trim();
+  if (!trimmed) return false;
+
+  // Bracketed IPv6: [::1], [2001:db8::1], [::]
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    const inner = trimmed.slice(1, -1);
+    return inner.length > 0 && (inner.includes(':') || inner === '');
+  }
+
+  // IPv4 or hostname / FQDN (including .local, letters, digits, hyphens, dots, underscores)
+  const hostRegex = /^[a-zA-Z0-9_.-]+$/;
+  return hostRegex.test(trimmed);
+}
+
+export interface LocatorValidationResult {
+  valid: boolean;
+  error?: string;
+  parsed?: ParsedLocator;
+}
+
+/**
+ * Validates a Zenoh locator string completely, verifying protocol, host, port or unix socket path.
+ */
+export function validateLocator(locator: string): LocatorValidationResult {
+  if (!locator || typeof locator !== 'string' || !locator.trim()) {
+    return { valid: false, error: 'Locator cannot be empty.' };
+  }
+  const trimmed = locator.trim();
+  const parsed = parseLocator(trimmed);
+  if (!parsed) {
+    return {
+      valid: false,
+      error: `Invalid Zenoh locator format: "${trimmed}". Expected format: protocol/host:port (e.g. tcp/zenohx.local:7447).`,
+    };
+  }
+  if (!isValidProtocol(parsed.protocol)) {
+    return {
+      valid: false,
+      error: `Unsupported transport protocol "${parsed.protocol}" in locator "${trimmed}". Supported protocols: tcp, tls, quic, udp, ws, wss, unix.`,
+    };
+  }
+  if (parsed.protocol === 'unix') {
+    if (!isValidUnixSocketPath(parsed.host)) {
+      return {
+        valid: false,
+        error: `Unix socket path must start with "/" (e.g. unixpipe//tmp/zenoh.sock), got "${parsed.host}".`,
+      };
+    }
+    return { valid: true, parsed };
+  }
+  if (!isValidHost(parsed.host)) {
+    return { valid: false, error: `Invalid host "${parsed.host}" in locator "${trimmed}".` };
+  }
+  if (!isValidPortNumber(parsed.port)) {
+    return {
+      valid: false,
+      error: `Invalid port "${parsed.port}" in locator "${trimmed}". Port must be an integer between 0 and 65535.`,
+    };
+  }
+  return { valid: true, parsed };
+}
+
 
 /**
  * Checks whether a bound locator was dynamically assigned from an ephemeral port (e.g. port 0).
@@ -329,25 +430,17 @@ export function buildLocator(protocol: string, host: string, port: string): stri
       }
     }
   } else if (cleanHost.includes(':')) {
-    // Unbracketed IPv6 (e.g. ::, ::1, 2001:db8::1, or 2001:db8::1:7447)
+    // Unbracketed IPv6 (e.g. ::, ::1, 2001:db8::1)
     const colons = cleanHost.split(':');
     if (colons.length > 2) {
-      const lastColon = cleanHost.lastIndexOf(':');
-      const lastSeg = cleanHost.slice(lastColon + 1).trim();
-      if (/^\d+$/.test(lastSeg) && colons.length > 3 && !cleanPort) {
-        const ip = cleanHost.slice(0, lastColon).trim();
-        cleanHost = `[${ip}]`;
-        cleanPort = lastSeg;
-      } else {
-        cleanHost = `[${cleanHost}]`;
-      }
+      cleanHost = `[${cleanHost}]`;
     } else {
-      // Single colon (IPv4 with port like 127.0.0.1:7447)
+      // Single colon (IPv4 with port like 127.0.0.1:7447 or 0.0.0.0:0)
       const colonIdx = cleanHost.lastIndexOf(':');
       const ip = cleanHost.slice(0, colonIdx).trim();
       const p = cleanHost.slice(colonIdx + 1).trim();
       cleanHost = ip;
-      if (p && !cleanPort) cleanPort = p;
+      if (!cleanPort && p !== '') cleanPort = p;
     }
   }
 

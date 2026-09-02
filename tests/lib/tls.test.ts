@@ -82,6 +82,10 @@ describe('Transport Protocol & Locator Utilities', () => {
   it('correctly builds network locators when host already includes protocol or port', () => {
     assert.equal(buildLocator('tcp', 'tcp/127.0.0.1:7447', ''), 'tcp/127.0.0.1:7447');
     assert.equal(buildLocator('ws', 'tcp/127.0.0.1:7447', '8080'), 'ws/127.0.0.1:8080');
+    assert.equal(buildLocator('tcp', '0.0.0.0:0', ''), 'tcp/0.0.0.0:0');
+    assert.equal(buildLocator('tcp', '0.0.0.0', '0'), 'tcp/0.0.0.0:0');
+    assert.equal(buildLocator('tcp', '[::]:0', ''), 'tcp/[::]:0');
+    assert.equal(buildLocator('tcp', '::', '0'), 'tcp/[::]:0');
   });
 
   it('correctly builds unix domain socket locators', () => {
@@ -245,6 +249,37 @@ describe('Transport Protocol & Locator Utilities', () => {
     assert.deepEqual(parsed.connect?.endpoints, ['tcp/192.168.1.10:7447']);
     assert.equal(parsed.scouting?.multicast?.enabled, true);
     assert.equal(parsed.scouting?.gossip?.enabled, true);
+  });
+
+  it('correctly parses and validates locators with mDNS .local hostnames', async () => {
+    const { validateLocator, isValidHost } = await import('../../src/lib/tls');
+
+    // parseLocator
+    assert.deepEqual(parseLocator('tcp/zenohx.local:7447'), { protocol: 'tcp', host: 'zenohx.local', port: '7447' });
+    assert.deepEqual(parseLocator('tls/my-robot.local:7446'), { protocol: 'tls', host: 'my-robot.local', port: '7446' });
+    assert.deepEqual(parseLocator('quic/station-1.local:7447'), { protocol: 'quic', host: 'station-1.local', port: '7447' });
+    assert.deepEqual(parseLocator('ws/zenohx.local:8080'), { protocol: 'ws', host: 'zenohx.local', port: '8080' });
+
+    // isValidHost
+    assert.equal(isValidHost('zenohx.local'), true);
+    assert.equal(isValidHost('my-robot.local'), true);
+    assert.equal(isValidHost('station-1.local'), true);
+    assert.equal(isValidHost('127.0.0.1'), true);
+    assert.equal(isValidHost('[::1]'), true);
+    assert.equal(isValidHost(''), false);
+    assert.equal(isValidHost('   '), false);
+    assert.equal(isValidHost('invalid host with spaces'), false);
+
+    // validateLocator
+    assert.equal(validateLocator('tcp/zenohx.local:7447').valid, true);
+    assert.equal(validateLocator('tls/my-robot.local:7446').valid, true);
+    assert.equal(validateLocator('quic/station-1.local:7447').valid, true);
+    assert.equal(validateLocator('ws/zenohx.local:8080').valid, true);
+    assert.equal(validateLocator('wss/secure-node.local:8443').valid, true);
+
+    // client production preset
+    const clientPreset = PRODUCTION_PRESETS.find((p) => p.role === 'client');
+    assert.deepEqual(clientPreset?.suggestedLocators, ['tcp/zenohx.local:7447']);
   });
 });
 

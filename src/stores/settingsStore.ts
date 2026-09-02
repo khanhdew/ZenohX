@@ -238,3 +238,21 @@ export const useSettingsStore = create<SettingsState>()(
   )
 );
 
+/**
+ * Resolves the active mDNS hostname (.local) from current settings state.
+ */
+export function getActiveMdnsHost(state: Pick<SettingsState, 'mdnsHostname' | 'mdnsStatus'>): string {
+  if (state.mdnsStatus?.active_hostname) {
+    return state.mdnsStatus.active_hostname;
+  }
+  const name = state.mdnsHostname || 'zenohx';
+  return name.endsWith('.local') ? name : `${name}.local`;
+}
+
+/**
+ * React hook to retrieve the active mDNS hostname.
+ */
+export const useActiveMdnsHost = (): string => {
+  return useSettingsStore((s) => getActiveMdnsHost(s));
+};
+

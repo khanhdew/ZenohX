@@ -28,10 +28,9 @@ import { Input } from '../../ui/input';
 import { SimpleTooltip } from '../../ui/tooltip';
 import {
   type TransportProtocol,
-  SUPPORTED_TRANSPORT_PROTOCOLS,
   parseLocator,
 } from '../../../lib/tls';
-import { useSettingsStore } from '../../../stores/settingsStore';
+import { useActiveMdnsHost } from '../../../stores/settingsStore';
 
 export interface ClientConfigFormProps {
   clientName: string;
@@ -44,27 +43,20 @@ export interface ClientConfigFormProps {
   setPassword: (val: string) => void;
 }
 
-function getProtocolIcon(protocol: TransportProtocol) {
-  switch (protocol) {
-    case 'tcp':
-      return Globe;
-    case 'tls':
-      return Lock;
-    case 'quic':
-      return Zap;
-    case 'ws':
-      return Wifi;
-    case 'wss':
-      return ShieldCheck;
-    case 'unix':
-      return HardDrive;
-    default:
-      return Globe;
-  }
-}
-
-// Client supports upstream router connections across standard unicast transports
-const CLIENT_PROTOCOLS = SUPPORTED_TRANSPORT_PROTOCOLS.filter((p) => p.id !== 'udp');
+const CLIENT_PROTOCOLS: {
+  id: TransportProtocol;
+  label: string;
+  defaultPort: string;
+  icon: React.ComponentType<{ className?: string }>;
+}[] = [
+  { id: 'tcp', label: 'TCP', defaultPort: '7447', icon: Globe },
+  { id: 'tls', label: 'TLS', defaultPort: '7446', icon: Lock },
+  { id: 'ws', label: 'WebSocket', defaultPort: '8080', icon: Wifi },
+  { id: 'wss', label: 'WSS', defaultPort: '8443', icon: ShieldCheck },
+  { id: 'quic', label: 'QUIC', defaultPort: '7448', icon: Zap },
+  { id: 'udp', label: 'UDP', defaultPort: '7449', icon: Radio },
+  { id: 'unix', label: 'Unix Socket', defaultPort: '', icon: HardDrive },
+];
 
 export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
   clientName,
@@ -76,11 +68,7 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
   password,
   setPassword,
 }) => {
-  const mdnsHostname = useSettingsStore((s) => s.mdnsHostname);
-  const mdnsStatus = useSettingsStore((s) => s.mdnsStatus);
-  const activeMdnsHost =
-    mdnsStatus?.active_hostname ||
-    (mdnsHostname ? (mdnsHostname.endsWith('.local') ? mdnsHostname : `${mdnsHostname}.local`) : 'zenohx.local');
+  const activeMdnsHost = useActiveMdnsHost();
 
   const parsed = parseLocator(clientLocator);
   const activeProtocol: TransportProtocol = (parsed?.protocol as TransportProtocol) || 'tcp';
@@ -241,7 +229,7 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
         </SimpleTooltip>
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
           {CLIENT_PROTOCOLS.map((p) => {
-            const Icon = getProtocolIcon(p.id);
+            const Icon = p.icon;
             const isSelected = activeProtocol === p.id;
             return (
               <button

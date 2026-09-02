@@ -23,6 +23,7 @@ import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { SimpleTooltip } from '../../ui/tooltip';
+import { useActiveMdnsHost } from '../../../stores/settingsStore';
 
 export interface PeerConfigFormProps {
   peerName: string;
@@ -65,6 +66,8 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
   updateListenLocator,
   removeListenLocator,
 }) => {
+  const activeMdnsHost = useActiveMdnsHost();
+
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Profile Name */}
@@ -110,11 +113,11 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                 type="button"
                 onClick={() => {
                   addConnectLocator();
-                  setTimeout(() => updateConnectLocator(0, 'tcp/127.0.0.1:7447'), 0);
+                  setTimeout(() => updateConnectLocator(0, `tcp/${activeMdnsHost}:7447`), 0);
                 }}
                 className="text-[10px] font-medium text-primary hover:underline"
               >
-                + Link Local Router
+                + Link Local Router ({activeMdnsHost})
               </button>
             </div>
           </div>
@@ -125,7 +128,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                 <Input
                   value={loc}
                   onChange={(e) => updateConnectLocator(idx, e.target.value)}
-                  placeholder="tcp/127.0.0.1:7447 or tls/peer.domain.com:7446"
+                  placeholder={`tcp/${activeMdnsHost}:7447 or tls/peer.domain.com:7446`}
                   className="h-8 text-xs font-mono bg-background flex-1"
                 />
                 <Button
@@ -140,6 +143,25 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                 </Button>
               </div>
             ))}
+
+            {/* Quick Fill suggestions */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[9px] text-muted-foreground">Quick Fill:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (connectLocators.length === 0) {
+                    addConnectLocator();
+                    setTimeout(() => updateConnectLocator(0, `tcp/${activeMdnsHost}:7447`), 0);
+                  } else {
+                    updateConnectLocator(connectLocators.length - 1, `tcp/${activeMdnsHost}:7447`);
+                  }
+                }}
+                className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground font-mono"
+              >
+                tcp/{activeMdnsHost}:7447
+              </button>
+            </div>
           </div>
         )}
       </div>

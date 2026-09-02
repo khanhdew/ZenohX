@@ -30,6 +30,7 @@ import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { SimpleTooltip } from '../../ui/tooltip';
 import { type TransportProtocol, SUPPORTED_TRANSPORT_PROTOCOLS } from '../../../lib/tls';
+import { useActiveMdnsHost } from '../../../stores/settingsStore';
 
 export interface RouterListenEndpoint {
   id: string;
@@ -88,6 +89,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
   updateRouterConnectLocator,
   removeRouterConnectLocator,
 }) => {
+  const activeMdnsHost = useActiveMdnsHost();
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
       {/* Profile Name */}
@@ -283,6 +285,17 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                         <span className="text-[9px] text-muted-foreground">Quick Hosts:</span>
                         <button
                           type="button"
+                          onClick={() => updateListenEndpoint(ep.id, { host: activeMdnsHost })}
+                          className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                            ep.host === activeMdnsHost
+                              ? 'border-primary text-primary bg-primary/5 font-semibold'
+                              : 'border-border text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {activeMdnsHost} (mDNS)
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => updateListenEndpoint(ep.id, { host: '0.0.0.0' })}
                           className={`text-[9px] px-1.5 py-0.5 rounded border ${
                             ep.host === '0.0.0.0'
@@ -338,7 +351,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                               : 'border-border text-muted-foreground hover:text-foreground'
                           }`}
                         >
-                          7447
+                          7447 Default
                         </button>
                         <button
                           type="button"
@@ -370,6 +383,17 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
             );
           })}
         </div>
+
+        {/* mDNS Hostname broadcast indicator */}
+        <div className="p-2.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-[11px] text-sky-700 dark:text-sky-300 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Radio className="w-3.5 h-3.5 text-sky-500 shrink-0" />
+            <span>
+              LAN mDNS Active: Advertised as <code className="font-mono font-semibold text-foreground px-1 py-0.5 rounded bg-background/50 border border-border/50">{activeMdnsHost}:{listenEndpoints[0]?.port || '7447'}</code>
+            </span>
+          </div>
+          <span className="text-[10px] text-muted-foreground font-medium">Resolvable on LAN</span>
+        </div>
       </div>
 
       {/* Upstream Router Connect Locators */}
@@ -393,8 +417,18 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
         </div>
 
         {routerConnectLocators.length === 0 ? (
-          <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground text-center">
-            Operating as standalone root router (no upstream router links).
+          <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
+            <span>Operating as standalone root router (no upstream router links).</span>
+            <button
+              type="button"
+              onClick={() => {
+                addRouterConnectLocator();
+                setTimeout(() => updateRouterConnectLocator(0, `tcp/${activeMdnsHost}:7447`), 0);
+              }}
+              className="text-[10px] font-medium text-primary hover:underline ml-2 whitespace-nowrap"
+            >
+              + Link {activeMdnsHost}
+            </button>
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -403,7 +437,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                 <Input
                   value={loc}
                   onChange={(e) => updateRouterConnectLocator(idx, e.target.value)}
-                  placeholder="tcp/cloud.router.zenoh.io:7447"
+                  placeholder={`tcp/${activeMdnsHost}:7447 or tcp/cloud.router.zenoh.io:7447`}
                   className="h-8 text-xs font-mono bg-background flex-1"
                 />
                 <Button

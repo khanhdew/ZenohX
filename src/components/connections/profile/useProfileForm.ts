@@ -15,6 +15,7 @@
 import { useState, useEffect } from 'react';
 import { useConnectionStore } from '../../../stores/connectionStore';
 import { useConnectionJsonStore } from '../../../stores/connectionJsonStore';
+import { useActiveMdnsHost } from '../../../stores/settingsStore';
 import type { ConnectionMode, ConnectionProfile, SessionConfig, ReconnectRetryConfig, UserAuth } from '../../../types/zenoh';
 import {
   hasCustomTlsConfig,
@@ -63,6 +64,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   const testConnectionIpc = useConnectionStore((state) => state.testConnection);
 
   const isEditing = Boolean(profile?.id);
+  const activeMdnsHost = useActiveMdnsHost();
 
   // Preset Selection: 'client' | 'peer' | 'router'
   const [preset, setPreset] = useState<ConnectionPreset>('client');
@@ -70,7 +72,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
 
   // Client Mode Form State
   const [clientName, setClientName] = useState<string>('Edge Client');
-  const [clientLocator, setClientLocator] = useState<string>('tcp/zenohx.local:7447');
+  const [clientLocator, setClientLocator] = useState<string>(`tcp/${activeMdnsHost}:7447`);
   const [enableReconnectRetry, setEnableReconnectRetry] = useState<boolean>(true);
 
   // Peer Mode Form State
@@ -143,7 +145,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         if (profile.connect_locators && profile.connect_locators.length > 0) {
           setClientLocator(profile.connect_locators[0]);
         } else {
-          setClientLocator('tcp/zenohx.local:7447');
+          setClientLocator(`tcp/${activeMdnsHost}:7447`);
         }
         setClientName(profile.name || 'Client Router');
 
@@ -190,7 +192,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         setShowAdvanced(false);
 
         setClientName('Edge Client');
-        setClientLocator('tcp/zenohx.local:7447');
+        setClientLocator(`tcp/${activeMdnsHost}:7447`);
         setEnableReconnectRetry(true);
 
         setPeerName('Local Peer');

@@ -22,6 +22,7 @@ pub async fn save_profile(
     state: State<'_, AppState>,
     profile: ConnectionProfile,
 ) -> Result<(), String> {
+    profile.validate()?;
     state
         .db
         .save_profile(&profile)

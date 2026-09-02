@@ -275,4 +275,49 @@ mod tests {
         let empty_history = db.get_query_history(Some(&profile_id), 10, 0).expect("load history after delete");
         assert_eq!(empty_history.len(), 0);
     }
+
+    #[test]
+    fn test_invalid_profile_validation_and_rejection() {
+        let db = Database::new_in_memory().expect("failed to open in-memory db");
+        db.init_tables().expect("failed to init tables");
+
+        // 1. Empty ID rejected
+        let mut prof = ConnectionProfile {
+            id: "".to_string(),
+            name: "Valid Name".to_string(),
+            mode: "client".to_string(),
+            connect_locators: vec!["tcp/127.0.0.1:7447".to_string()],
+            listen_locators: vec![],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+            created_at: 1000,
+            updated_at: 1000,
+        };
+        assert!(db.save_profile(&prof).is_err());
+
+        // 2. Empty name rejected
+        prof.id = "p-1".to_string();
+        prof.name = "   ".to_string();
+        assert!(db.save_profile(&prof).is_err());
+
+        // 3. Invalid mode rejected
+        prof.name = "Test Profile".to_string();
+        prof.mode = "invalid_mode".to_string();
+        assert!(db.save_profile(&prof).is_err());
+
+        // 4. Invalid protocol in connect_locators rejected
+        prof.mode = "client".to_string();
+        prof.connect_locators = vec!["badprotocol/127.0.0.1:7447".to_string()];
+        assert!(db.save_profile(&prof).is_err());
+
+        // 5. Invalid unix socket path without slash rejected
+        prof.connect_locators = vec!["unixpipe/no_slash_path.sock".to_string()];
+        assert!(db.save_profile(&prof).is_err());
+
+        // 6. Valid profile accepted
+        prof.connect_locators = vec!["tcp/127.0.0.1:7447".to_string()];
+        assert!(db.save_profile(&prof).is_ok());
+    }
 }

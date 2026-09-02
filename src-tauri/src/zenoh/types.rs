@@ -129,24 +129,43 @@ fn normalize_locator(loc: &str) -> String {
     if loc.is_empty() {
         return String::new();
     }
-    if let Some((proto, addr)) = loc.split_once('/') {
-        let proto_lower = proto.to_lowercase();
-        if proto_lower == "unixpipe" || proto_lower == "unix" {
-            return loc.to_string();
-        }
-        if !addr.starts_with('[') && addr.matches(':').count() > 1 {
-            // Unbracketed IPv6: e.g. "tcp/::1:7447", "tcp/2001:db8::1:7447", "tcp/::"
-            if let Some(last_colon) = addr.rfind(':') {
-                let last_seg = &addr[last_colon + 1..];
-                if last_seg.chars().all(|c| c.is_ascii_digit()) && !last_seg.is_empty() {
-                    let ip = &addr[..last_colon];
-                    return format!("{proto}/[{ip}]:{last_seg}");
-                }
+    let (proto, addr) = if let Some((p, a)) = loc.split_once('/') {
+        (p.to_lowercase(), a.trim())
+    } else {
+        ("tcp".to_string(), loc)
+    };
+
+    if proto == "unixpipe" || proto == "unix" {
+        return if addr.starts_with('/') {
+            format!("unixpipe/{addr}")
+        } else {
+            format!("unixpipe//{addr}")
+        };
+    }
+
+    if !addr.starts_with('[') && addr.matches(':').count() > 1 {
+        // Unbracketed IPv6: e.g. "tcp/::1:7447", "tcp/2001:db8::1:7447", "tcp/::"
+        if let Some(last_colon) = addr.rfind(':') {
+            let last_seg = &addr[last_colon + 1..];
+            if last_seg.chars().all(|c| c.is_ascii_digit()) && !last_seg.is_empty() {
+                let ip = &addr[..last_colon];
+                return format!("{proto}/[{ip}]:{last_seg}");
             }
-            return format!("{proto}/[{addr}]:7447");
+        }
+        return format!("{proto}/[{addr}]:7447");
+    }
+
+    if let Some((host, port)) = addr.rsplit_once(':') {
+        if port.chars().all(|c| c.is_ascii_digit()) && !port.is_empty() {
+            return format!("{proto}/{host}:{port}");
         }
     }
-    loc.to_string()
+
+    if addr.contains(':') {
+        format!("{proto}/{addr}")
+    } else {
+        format!("{proto}/{addr}:7447")
+    }
 }
 
 impl SessionConfig {
@@ -226,9 +245,10 @@ impl SessionConfig {
             }
         }
 
-        // Only router mode sets listen endpoints from configuration.
-        // Peer and client modes do NOT load or configure fixed listen endpoints from JSON5/config.
-        if mode_str == "router" {
+        // 3. Listen Endpoints
+        // Router and Peer modes set listen endpoints from configuration.
+        // Client mode does NOT listen for incoming connections.
+        if mode_str == "router" || mode_str == "peer" {
             if !self.listen_locators.is_empty() {
                 let normalized_listen: Vec<String> = self
                     .listen_locators
@@ -241,13 +261,21 @@ impl SessionConfig {
                 config
                     .insert_json5("listen/endpoints", &json)
                     .map_err(|e| format!("failed to set listen endpoints: {e}"))?;
-            } else {
+            } else if mode_str == "router" {
                 let default_router_listen = vec!["tcp/0.0.0.0:7447".to_string()];
                 let json = serde_json::to_string(&default_router_listen)
                     .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
                 config
                     .insert_json5("listen/endpoints", &json)
                     .map_err(|e| format!("failed to set router listen endpoints: {e}"))?;
+            } else if mode_str == "peer" {
+                // Peer mode with no explicit listen endpoints defaults to ephemeral port 0 so the OS allocates a free random port
+                let default_peer_listen = vec!["tcp/0.0.0.0:0".to_string()];
+                let json = serde_json::to_string(&default_peer_listen)
+                    .map_err(|e| format!("failed to serialize listen_locators: {e}"))?;
+                config
+                    .insert_json5("listen/endpoints", &json)
+                    .map_err(|e| format!("failed to set peer listen endpoints: {e}"))?;
             }
         }
 

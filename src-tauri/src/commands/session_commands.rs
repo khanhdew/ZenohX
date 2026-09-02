@@ -71,22 +71,23 @@ pub async fn connect_node_by_zid(
     let session_id = state.session_manager.connect(config).await?;
     let session_info = state.session_manager.get_session_info(&session_id).await?;
 
-    // Authoritative Post-Connect Update:
-    // - For router: Take real bound IP, port, and locators from the connected Zenoh node and save to database.
-    // - For peer & client: Do not save listen endpoints.
+    // Post-Connect: If router was configured with ephemeral listen endpoints (:0 or empty),
+    // retain the newly allocated bound IP:port in SQLite database so subsequent
+    // reconnects reuse the allocated port.
     let mut updated_profile = profile.clone();
     if profile.mode.to_lowercase() == "router" {
         if !session_info.bound_locators.is_empty() {
-            updated_profile.listen_locators = session_info.bound_locators.clone();
-        }
-    } else {
-        updated_profile.listen_locators = vec![];
-        if let Some(custom_obj) = updated_profile.custom_config.as_mut().and_then(|v| v.as_object_mut()) {
-            custom_obj.remove("listen");
-            custom_obj.remove("listen/endpoints");
+            let was_ephemeral = profile.listen_locators.is_empty()
+                || profile
+                    .listen_locators
+                    .iter()
+                    .any(|l| l.contains(":0") || l.ends_with("/0"));
+            if was_ephemeral {
+                updated_profile.listen_locators = session_info.bound_locators.clone();
+                let _ = state.db.save_profile(&updated_profile);
+            }
         }
     }
-    let _ = state.db.save_profile(&updated_profile);
 
     Ok(session_info)
 }

@@ -60,6 +60,9 @@ impl Database {
 
     /// Saves or updates a connection profile.
     pub fn save_profile(&self, profile: &ConnectionProfile) -> Result<()> {
+        profile
+            .validate()
+            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))?;
         let conn = self.conn.lock();
         let connect_locators_json = serde_json::to_string(&profile.connect_locators)
             .unwrap_or_else(|_| "[]".to_string());

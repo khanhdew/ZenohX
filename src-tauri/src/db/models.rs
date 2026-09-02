@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 pub struct ConnectionProfile {
     pub id: String,
     pub name: String,
-    pub mode: String, // "peer" | "client"
+    pub mode: String, // "peer" | "client" | "router"
     pub connect_locators: Vec<String>,
     pub listen_locators: Vec<String>,
     pub scout_multicast: bool,
@@ -27,6 +27,57 @@ pub struct ConnectionProfile {
     pub custom_config: Option<serde_json::Value>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+fn validate_locator_str(loc: &str) -> Result<(), String> {
+    let loc = loc.trim();
+    if loc.is_empty() {
+        return Err("Locator cannot be empty".to_string());
+    }
+    if let Some((proto, rest)) = loc.split_once('/') {
+        let proto_lower = proto.to_lowercase();
+        let valid_protos = ["tcp", "tls", "quic", "udp", "ws", "wss", "unix", "unixpipe"];
+        if !valid_protos.contains(&proto_lower.as_str()) {
+            return Err(format!("Unsupported transport protocol '{proto}' in locator '{loc}'. Supported: tcp, tls, quic, udp, ws, wss, unix."));
+        }
+        if proto_lower == "unix" || proto_lower == "unixpipe" {
+            if !rest.starts_with('/') && !loc.starts_with("unixpipe//") {
+                return Err(format!("Unix socket path must start with '/' in locator '{loc}'"));
+            }
+            return Ok(());
+        }
+        if rest.trim().is_empty() {
+            return Err(format!("Host and port cannot be empty in locator '{loc}'"));
+        }
+    } else {
+        return Err(format!("Invalid Zenoh locator format '{loc}'. Expected 'protocol/host:port'"));
+    }
+    Ok(())
+}
+
+impl ConnectionProfile {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.id.trim().is_empty() {
+            return Err("Profile ID cannot be empty".to_string());
+        }
+        if self.name.trim().is_empty() {
+            return Err("Profile name cannot be empty".to_string());
+        }
+        let mode_lower = self.mode.trim().to_lowercase();
+        if mode_lower != "client" && mode_lower != "peer" && mode_lower != "router" {
+            return Err(format!(
+                "Invalid connection mode '{}'. Expected 'client', 'peer', or 'router'",
+                self.mode
+            ));
+        }
+        for loc in &self.connect_locators {
+            validate_locator_str(loc)?;
+        }
+        for loc in &self.listen_locators {
+            validate_locator_str(loc)?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

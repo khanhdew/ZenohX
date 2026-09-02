@@ -936,11 +936,13 @@ mod tests {
         let listen_eps = router_parsed["listen"]["endpoints"].as_array().expect("listen endpoints array");
         assert_eq!(listen_eps[0].as_str(), Some("tcp/0.0.0.0:7447"));
 
-        // 4. to_zenoh_config should NOT load listen endpoints for peer or client
-        let peer_zenoh_cfg = peer_config.to_zenoh_config().expect("to_zenoh_config peer");
+        // 4. to_zenoh_config should NOT load listen endpoints from custom_config for peer or client
+        let mut peer_no_listen = peer_config.clone();
+        peer_no_listen.listen_locators = vec![];
+        let peer_zenoh_cfg = peer_no_listen.to_zenoh_config().expect("to_zenoh_config peer");
         let peer_cfg_debug = format!("{:?}", peer_zenoh_cfg);
-        // The peer config should not have configured listen endpoints from listen_locators or custom_config
-        assert!(!peer_cfg_debug.contains("43219"), "Peer must not load persisted listen endpoint IP:port");
+        // The peer config should not have configured listen endpoints from custom_config
+        assert!(!peer_cfg_debug.contains("43219"), "Peer must not load listen endpoint from custom_config");
 
         let client_zenoh_cfg = client_config.to_zenoh_config().expect("to_zenoh_config client");
         let client_cfg_debug = format!("{:?}", client_zenoh_cfg);
@@ -982,6 +984,110 @@ mod tests {
         assert!(parsed_router_json5.get("listen").is_some(), "Router node configuration JSON5 MUST contain 'listen'");
 
         manager.disconnect(&router_id).await.expect("disconnect router");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_router_ephemeral_listen_locator_allocates_random_port() {
+        let manager = SessionManager::new();
+
+        // Configure router with ephemeral port 0 (tcp/0.0.0.0:0)
+        let mut router_cfg = SessionConfig::default();
+        router_cfg.mode = "router".to_string();
+        router_cfg.listen_locators = vec!["tcp/0.0.0.0:0".to_string()];
+
+        let router_id = manager.connect(router_cfg).await.expect("connect router on ephemeral port");
+        let router_info = manager.get_session_info(&router_id).await.expect("get router info");
+
+        // The bound locator should have been assigned a non-zero port
+        assert!(!router_info.bound_locators.is_empty());
+        let bound = &router_info.bound_locators[0];
+        assert!(!bound.contains(":0"), "Bound locator should resolve to actual allocated port, got: {bound}");
+
+        manager.disconnect(&router_id).await.expect("disconnect router");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_router_creation_allocates_random_port_and_retains_for_reconnect() {
+        let db = Database::new_in_memory().expect("failed to init in-memory db");
+        db.init_tables().expect("failed to init tables");
+        let manager = Arc::new(SessionManager::new());
+
+        let profile_id = "test-ephemeral-router".to_string();
+        let profile = ConnectionProfile {
+            id: profile_id.clone(),
+            name: "Ephemeral Router".to_string(),
+            mode: "router".to_string(),
+            connect_locators: vec![],
+            listen_locators: vec!["tcp/0.0.0.0:0".to_string()],
+            scout_multicast: false,
+            user_auth: None,
+            tls_config: None,
+            custom_config: None,
+            created_at: 1000,
+            updated_at: 1000,
+        };
+        db.save_profile(&profile).expect("failed to save profile");
+
+        // Step 1: First connect -> loads tcp/0.0.0.0:0 -> Zenoh allocates random port
+        let loaded = db.get_profile_by_id(&profile_id).unwrap().unwrap();
+        let config = SessionConfig {
+            profile_id: Some(loaded.id.clone()),
+            mode: loaded.mode.clone(),
+            connect_locators: loaded.connect_locators.clone(),
+            listen_locators: loaded.listen_locators.clone(),
+            scout_multicast: loaded.scout_multicast,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: loaded.custom_config.clone(),
+        };
+
+        let session_id = manager.connect(config).await.expect("connect on ephemeral port");
+        let session_info = manager.get_session_info(&session_id).await.expect("get session info");
+
+        assert!(!session_info.bound_locators.is_empty());
+        let allocated_bound = session_info.bound_locators[0].clone();
+        assert!(!allocated_bound.contains(":0"));
+
+        // Simulate connect_node_by_zid post-connect retention
+        let mut updated = loaded.clone();
+        if updated.listen_locators.iter().any(|l| l.contains(":0")) {
+            updated.listen_locators = session_info.bound_locators.clone();
+            db.save_profile(&updated).expect("retain allocated port in db");
+        }
+
+        manager.disconnect(&session_id).await.expect("disconnect first session");
+
+        // Step 2: Verify retained in SQLite
+        let retained_profile = db.get_profile_by_id(&profile_id).unwrap().unwrap();
+        let mut expected_sorted = session_info.bound_locators.clone();
+        expected_sorted.sort();
+        let mut retained_sorted = retained_profile.listen_locators.clone();
+        retained_sorted.sort();
+        assert_eq!(retained_sorted, expected_sorted);
+
+        // Step 3: Reconnect -> uses the retained IP:Port
+        let reconnect_config = SessionConfig {
+            profile_id: Some(retained_profile.id.clone()),
+            mode: retained_profile.mode.clone(),
+            connect_locators: retained_profile.connect_locators.clone(),
+            listen_locators: retained_profile.listen_locators.clone(),
+            scout_multicast: retained_profile.scout_multicast,
+            scout_gossip: true,
+            reconnect_retry: None,
+            user_auth: None,
+            tls_config: None,
+            custom_config: retained_profile.custom_config.clone(),
+        };
+
+        let reconnect_id = manager.connect(reconnect_config).await.expect("reconnect on retained port");
+        let reconnect_info = manager.get_session_info(&reconnect_id).await.expect("get reconnect info");
+
+        let mut reconnect_sorted = reconnect_info.bound_locators.clone();
+        reconnect_sorted.sort();
+        assert_eq!(reconnect_sorted, expected_sorted);
+        manager.disconnect(&reconnect_id).await.expect("disconnect reconnect session");
     }
 }
 

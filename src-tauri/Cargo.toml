@@ -32,3 +32,6 @@ ciborium = "0.2"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 parking_lot = "0.12"
+mdns-sd = "0.21.1"
+if-addrs = "0.13"
+

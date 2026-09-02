@@ -12,6 +12,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.6.0] - 2026-09-02
+
+### 🚀 Added & Enhanced
+- **mdns:** add mdns-sd dependency, types, and utility functions
+- **mdns:** implement MdnsManager lifecycle and service registration
+- **mdns:** expose Tauri IPC commands and register MdnsManager in AppState
+- **ui:** update default client locators to tcp/zenohx.local:7447
+- **settings:** integrate mDNS status and configuration in settingsStore and IPC
+- **ui:** add Network & mDNS section to settings workspace and quick fill helpers
+- **ui:** display active mDNS hostname on add and edit connection forms
+- **router:** rename Listen Endpoints to Listen Locators and show active mDNS placeholder
+- **backend:** support router ephemeral port retention and locator normalization
+
+### 🐛 Fixed
+- **ci:** pass resolved tag name to tauri-action to fix latest.json asset URLs
+- **router:** preserve ephemeral port 0 and explicit listen endpoints during profile creation
+
+### 🔧 Maintenance
+- **mdns:** add integration tests for mDNS responder
+
+---
 ## [v0.5.6] - 2026-09-02
 
 ### 🐛 Fixed

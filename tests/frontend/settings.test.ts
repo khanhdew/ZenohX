@@ -291,5 +291,24 @@ describe('Settings Store', () => {
       (globalThis.window as any).__TAURI_INTERNALS__ = originalInternals;
     }
   });
+
+  test('sanitizeHostname removes .local suffix and cleans input', async () => {
+    const { sanitizeHostname } = await import('../../src/components/settings/tabs/NetworkTab');
+    assert.equal(sanitizeHostname('zenohx.local'), 'zenohx');
+    assert.equal(sanitizeHostname('my-robot.local'), 'my-robot');
+    assert.equal(sanitizeHostname('  ROBOT-NODE.local  '), 'robot-node');
+    assert.equal(sanitizeHostname('node-1'), 'node-1');
+  });
+
+  test('validateHostname enforces RFC 1123 naming rules', async () => {
+    const { validateHostname } = await import('../../src/components/settings/tabs/NetworkTab');
+    assert.equal(validateHostname('zenohx').isValid, true);
+    assert.equal(validateHostname('robot-1').isValid, true);
+    assert.equal(validateHostname('').isValid, false);
+    assert.equal(validateHostname('-invalid').isValid, false);
+    assert.equal(validateHostname('invalid-').isValid, false);
+    assert.equal(validateHostname('invalid_char').isValid, false);
+    assert.equal(validateHostname('has space').isValid, false);
+  });
 });
 

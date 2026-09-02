@@ -25,6 +25,7 @@ import {
 } from '../../ui/select';
 import { useSettingsStore, type CodeFont } from '../../../stores/settingsStore';
 import type { EncodingType } from '../../../types/zenoh';
+import { NetworkTab } from './NetworkTab';
 
 export const PreferencesTab: React.FC = () => {
   const {
@@ -269,6 +270,9 @@ export const PreferencesTab: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Network & Local Discovery (mDNS) Section */}
+      <NetworkTab isEmbedded />
 
       {/* Privacy & Analytics Section */}
       <section className="space-y-4">

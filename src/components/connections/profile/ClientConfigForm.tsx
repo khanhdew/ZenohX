@@ -31,6 +31,7 @@ import {
   SUPPORTED_TRANSPORT_PROTOCOLS,
   parseLocator,
 } from '../../../lib/tls';
+import { useSettingsStore } from '../../../stores/settingsStore';
 
 export interface ClientConfigFormProps {
   clientName: string;
@@ -75,6 +76,12 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
   password,
   setPassword,
 }) => {
+  const mdnsHostname = useSettingsStore((s) => s.mdnsHostname);
+  const mdnsStatus = useSettingsStore((s) => s.mdnsStatus);
+  const activeMdnsHost =
+    mdnsStatus?.active_hostname ||
+    (mdnsHostname ? (mdnsHostname.endsWith('.local') ? mdnsHostname : `${mdnsHostname}.local`) : 'zenohx.local');
+
   const parsed = parseLocator(clientLocator);
   const activeProtocol: TransportProtocol = (parsed?.protocol as TransportProtocol) || 'tcp';
 
@@ -93,7 +100,7 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
       setClientLocator(`${protoId}/${parsed.host}:${targetPort}`);
     } else {
       const protoMeta = CLIENT_PROTOCOLS.find((p) => p.id === protoId);
-      setClientLocator(`${protoId}/zenohx.local:${protoMeta?.defaultPort || '7447'}`);
+      setClientLocator(`${protoId}/${activeMdnsHost}:${protoMeta?.defaultPort || '7447'}`);
     }
   };
 
@@ -126,24 +133,49 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
           id="client-locator"
           value={clientLocator}
           onChange={(e) => setClientLocator(e.target.value)}
-          placeholder="tcp/zenohx.local:7447 or tls/router.zenoh.io:7446"
+          placeholder={`tcp/${activeMdnsHost}:7447 or tls/router.zenoh.io:7446`}
           className="h-8 text-xs font-mono bg-background"
         />
+
+        {/* mDNS Resolution Helper */}
+        <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
+          <span>Enter upstream router locator or use local mDNS.</span>
+          <button
+            type="button"
+            onClick={() => setClientLocator(`tcp/${activeMdnsHost}:7447`)}
+            className="text-primary hover:underline font-mono text-[10px]"
+          >
+            Use {activeMdnsHost}
+          </button>
+        </div>
 
         {/* Quick Fill suggestions */}
         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           <span className="text-[9px] text-muted-foreground">Quick Fill:</span>
           <button
             type="button"
-            onClick={() => setClientLocator('tcp/zenohx.local:7447')}
+            onClick={() => setClientLocator(`tcp/${activeMdnsHost}:7447`)}
             className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === 'tcp/zenohx.local:7447'
+              clientLocator === `tcp/${activeMdnsHost}:7447`
                 ? 'border-primary text-primary bg-primary/5 font-semibold'
                 : 'border-border text-muted-foreground hover:text-foreground'
             }`}
           >
-            tcp/zenohx.local:7447
+            tcp/{activeMdnsHost}:7447
           </button>
+          {activeMdnsHost !== 'zenohx.local' && (
+            <button
+              type="button"
+              onClick={() => setClientLocator('tcp/zenohx.local:7447')}
+              className={`text-[9px] px-1.5 py-0.5 rounded border ${
+                clientLocator === 'tcp/zenohx.local:7447'
+                  ? 'border-primary text-primary bg-primary/5 font-semibold'
+                  : 'border-border text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              tcp/zenohx.local:7447
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setClientLocator('tcp/127.0.0.1:7447')}

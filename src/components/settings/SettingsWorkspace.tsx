@@ -19,13 +19,16 @@ import {
   Sliders,
   Keyboard,
   FileCode2,
+  Radio,
 } from 'lucide-react';
 import { clearMessageHistory, queryMessages } from '../../lib/tauri';
 import { useUpdateStore } from '../../stores/updateStore';
 import { useProtoStore } from '../../stores/protoStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import type { StoredMessage } from '../../types/zenoh';
 
 import { PreferencesTab } from './tabs/PreferencesTab';
+import { NetworkTab } from './tabs/NetworkTab';
 import { UpdatesTab } from './tabs/UpdatesTab';
 import { HistoryTab } from './tabs/HistoryTab';
 import { ShortcutsTab } from './tabs/ShortcutsTab';
@@ -35,13 +38,14 @@ export interface SettingsWorkspaceProps {
   className?: string;
 }
 
-type TabType = 'preferences' | 'updates' | 'protobuf' | 'history' | 'shortcuts';
+type TabType = 'preferences' | 'network' | 'protobuf' | 'updates' | 'history' | 'shortcuts';
 
 export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className = '' }) => {
   const [activeTab, setActiveTab] = useState<TabType>('preferences');
 
   const updateStatus = useUpdateStore((state) => state.status);
   const schemasCount = useProtoStore((state) => state.schemas.length);
+  const mdnsEnabled = useSettingsStore((state) => state.mdnsEnabled);
 
   // History SQLite States
   const [historyProfileId, setHistoryProfileId] = useState<string>('');
@@ -127,6 +131,21 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('network')}
+            className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
+              activeTab === 'network'
+                ? 'bg-background text-foreground shadow-xs'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5 text-emerald-500" />
+            <span>Network & mDNS</span>
+            {mdnsEnabled && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            )}
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('protobuf')}
             className={`inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-colors ${
               activeTab === 'protobuf'
@@ -187,6 +206,8 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
       {/* Main Content Area */}
       <main className="flex-1 min-h-0 overflow-y-auto">
         {activeTab === 'preferences' && <PreferencesTab />}
+
+        {activeTab === 'network' && <NetworkTab />}
 
         {activeTab === 'protobuf' && <ProtobufTab />}
 

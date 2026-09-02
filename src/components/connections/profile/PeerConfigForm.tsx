@@ -173,7 +173,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
             <SimpleTooltip content="Allow inbound direct connections from non-multicast peers. If empty, Zenoh automatically binds to an ephemeral dynamic port.">
               <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
                 <Radio className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Listen Endpoints (Optional / Dynamic)</span>
+                <span>Listen Locators (Optional / Dynamic)</span>
               </Label>
             </SimpleTooltip>
             <Button
@@ -184,7 +184,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
               className="h-7 text-xs gap-1"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Add Listener</span>
+              <span>Add Locator</span>
             </Button>
           </div>
 

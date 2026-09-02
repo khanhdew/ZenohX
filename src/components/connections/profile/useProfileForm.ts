@@ -85,7 +85,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
   // Router Mode Form State
   const [routerName, setRouterName] = useState<string>('Local Router');
   const [routerListenEndpoints, setRouterListenEndpoints] = useState<RouterListenEndpoint[]>([
-    { id: 'ep-1', protocol: 'tcp', host: '0.0.0.0', port: '7447' },
+    { id: 'ep-1', protocol: 'tcp', host: '', port: '7447' },
   ]);
   const [routerScoutMulticast, setRouterScoutMulticast] = useState<boolean>(true);
   const [routerScoutGossip, setRouterScoutGossip] = useState<boolean>(true);
@@ -204,7 +204,7 @@ export function useProfileForm({ isOpen, profile, onClose, onSaved }: UseProfile
         const suggestedPort = getSuggestedRouterPort(useConnectionStore.getState().profiles);
         setRouterName('Local Router');
         setRouterListenEndpoints([
-          { id: `ep-1`, protocol: 'tcp', host: '0.0.0.0', port: suggestedPort },
+          { id: `ep-1`, protocol: 'tcp', host: '', port: suggestedPort },
         ]);
         setRouterScoutMulticast(true);
         setRouterScoutGossip(true);

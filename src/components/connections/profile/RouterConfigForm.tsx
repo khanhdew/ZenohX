@@ -106,13 +106,13 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
         />
       </div>
 
-      {/* Customizable Listen Endpoints Section */}
+      {/* Customizable Listen Locators Section */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <SimpleTooltip content="Bind multi-transport network interfaces (TCP, TLS, WebSocket, Unix Socket, QUIC) for incoming node connections.">
+          <SimpleTooltip content="Configure network interface locators (TCP, TLS, WebSocket, Unix Socket, QUIC) for incoming node connections.">
             <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
               <Server className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Listen Endpoints ({listenEndpoints.length})</span>
+              <span>Listen Locators ({listenEndpoints.length})</span>
             </Label>
           </SimpleTooltip>
           <Button
@@ -123,7 +123,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
             className="h-7 text-xs gap-1"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add Endpoint</span>
+            <span>Add Locator</span>
           </Button>
         </div>
 
@@ -263,7 +263,7 @@ export const RouterConfigForm: React.FC<RouterConfigFormProps> = ({
                             }
                             updateListenEndpoint(ep.id, { host: val });
                           }}
-                          placeholder="0.0.0.0 or [::]"
+                          placeholder={`${activeMdnsHost} or 0.0.0.0`}
                           className="h-8 text-xs font-mono bg-background"
                         />
                       </div>

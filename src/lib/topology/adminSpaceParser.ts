@@ -183,6 +183,7 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
         zid: cleanZid,
         whatami: fallbackType,
         locators: [],
+        connectLocators: [],
         neighbors: [],
         links: [],
       };
@@ -334,6 +335,11 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
           node.links.push(linkInfo);
 
           if (dst) {
+            const expandedDst = expandBoundLocator(dst, interfaces);
+            node.connectLocators = filterRealLocators(
+              Array.from(new Set([...node.connectLocators, ...expandedDst]))
+            );
+
             links.push({
               sourceZid: targetZid,
               targetZid: remoteZid,
@@ -344,6 +350,33 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
               interfaces,
             });
           }
+        }
+      }
+    }
+    // 6. Handle Config (@/<zid>/config)
+    else if (category === 'config' || key.includes('/config')) {
+      if (payloadObj) {
+        const rawConnects: string[] = [];
+        if (Array.isArray(payloadObj.connect_locators)) {
+          payloadObj.connect_locators.forEach((c) => {
+            if (typeof c === 'string') rawConnects.push(c);
+          });
+        }
+        if (Array.isArray(payloadObj.connect)) {
+          payloadObj.connect.forEach((c) => {
+            if (typeof c === 'string') rawConnects.push(c);
+          });
+        }
+        const cfg = payloadObj.connect as Record<string, unknown> | undefined;
+        if (cfg && typeof cfg === 'object' && Array.isArray(cfg.endpoints)) {
+          cfg.endpoints.forEach((ep) => {
+            if (typeof ep === 'string') rawConnects.push(ep);
+          });
+        }
+        if (rawConnects.length > 0) {
+          node.connectLocators = filterRealLocators(
+            Array.from(new Set([...node.connectLocators, ...rawConnects]))
+          );
         }
       }
     }

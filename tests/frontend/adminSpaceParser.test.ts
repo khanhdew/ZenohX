@@ -237,6 +237,105 @@ describe('Admin Space Parser', () => {
     assert.ok(routerNode.locators.includes('quic/192.168.1.100:7448'));
     assert.ok(routerNode.locators.includes('ws/192.168.1.100:8080'));
   });
+
+  it('parses connect locators from session link and config entries', () => {
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: '@/remote-node-1/session/info',
+        zid: 'remote-node-1',
+        category: 'info',
+        payloadJson: JSON.stringify({
+          zid: 'remote-node-1',
+          whatami: 'Peer',
+          locators: ['tcp/192.168.1.50:7447'],
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: '@/remote-node-1/session/link/0',
+        zid: 'remote-node-1',
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tcp/192.168.1.50:52134',
+          dst: 'tcp/10.0.0.1:7447',
+          is_streamed: true,
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: '@/remote-node-1/config',
+        zid: 'remote-node-1',
+        category: 'config',
+        payloadJson: JSON.stringify({
+          connect: {
+            endpoints: ['tls/cloud.zenoh.io:7447'],
+          },
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    const node = parsed.nodes.get('remote-node-1');
+    assert.ok(node);
+    assert.ok(node.connectLocators.includes('tcp/10.0.0.1:7447'));
+    assert.ok(node.connectLocators.includes('tls/cloud.zenoh.io:7447'));
+  });
+
+  it('parses connect locators from connect_locators array and connect string array in config', () => {
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: '@/remote-node-2/session/info',
+        zid: 'remote-node-2',
+        category: 'info',
+        payloadJson: JSON.stringify({ zid: 'remote-node-2', whatami: 'Router' }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: '@/remote-node-2/config',
+        zid: 'remote-node-2',
+        category: 'config',
+        payloadJson: JSON.stringify({
+          connect_locators: ['tcp/10.20.30.40:7447'],
+          connect: ['quic/10.20.30.41:7448'],
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    const node = parsed.nodes.get('remote-node-2');
+    assert.ok(node);
+    assert.ok(node.connectLocators.includes('tcp/10.20.30.40:7447'));
+    assert.ok(node.connectLocators.includes('quic/10.20.30.41:7448'));
+  });
+
+  it('does not add listen sockets to connectLocators', () => {
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: '@/remote-node-3/session/info',
+        zid: 'remote-node-3',
+        category: 'info',
+        payloadJson: JSON.stringify({ zid: 'remote-node-3', whatami: 'Router' }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: '@/remote-node-3/session/link/unicast/listen/0',
+        zid: 'remote-node-3',
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tcp/0.0.0.0:7447',
+          dst: '',
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    const node = parsed.nodes.get('remote-node-3');
+    assert.ok(node);
+    assert.deepEqual(node.connectLocators, []);
+  });
 });
 
 

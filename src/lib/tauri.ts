@@ -119,6 +119,21 @@ export async function queryAdminSpace(
 }
 
 /**
+ * Discovers Zenoh Admin Space entries recursively across remote connect locators.
+ */
+export async function discoverAdminTopology(
+  sessionId: string,
+  maxDepth: number = 3,
+  timeoutMs: number = 2000
+): Promise<AdminSpaceEntry[]> {
+  return invoke<AdminSpaceEntry[]>('discover_admin_topology', {
+    sessionId,
+    maxDepth,
+    timeoutMs,
+  });
+}
+
+/**
  * Retrieves authoritative node configuration (JSON5) by ZID directly from the Rust backend.
  */
 export async function getNodeConfiguration(zid: string): Promise<NodeConfigurationResult> {

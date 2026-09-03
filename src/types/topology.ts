@@ -90,6 +90,7 @@ export interface AdminRemoteNode {
   whatami: 'router' | 'peer' | 'client';
   version?: string;
   locators: string[];
+  connectLocators: string[];
   neighbors: string[];
   links: SessionLinkInfo[];
   rawInfo?: Record<string, unknown>;

@@ -746,6 +746,21 @@ export function buildTopologyGraph({
     });
   }
 
+  if (adminData && adminData.nodes) {
+    const admNodes = adminData.nodes instanceof Map ? Array.from(adminData.nodes.values()) : Array.isArray(adminData.nodes) ? adminData.nodes : [];
+    admNodes.forEach((admNode: any) => {
+      if (!admNode.zid || !Array.isArray(admNode.neighbors)) return;
+      const srcNode = nodeMap.get(admNode.zid.toLowerCase());
+      if (!srcNode) return;
+      admNode.neighbors.forEach((nbrZid: string) => {
+        const dstNode = nodeMap.get(nbrZid.toLowerCase());
+        if (dstNode) {
+          addEdge(srcNode, dstNode, 'active');
+        }
+      });
+    });
+  }
+
   const nodes = Array.from(nodeMap.values()).filter(
     (n) =>
       Boolean(n.zid && typeof n.zid === 'string' && n.zid.trim().length > 0) &&

@@ -1415,6 +1415,69 @@ describe('Topology Data Builder', () => {
     assert.ok(node.connectLocators?.includes('tcp/127.0.0.1:7447'), 'local node must retain loopback connect locator');
     assert.ok(node.connectLocators?.includes('tcp/10.0.0.2:7447'), 'local node should also gain new connect locator');
   });
+
+  it('creates remote client node and edge to router from Zenoh admin space transport and link data', () => {
+    const routerZid = 'a5dbc51858315285b3fad82d9f78e521';
+    const clientZid = 'aedda2e79de1506ea1f3338f44cd78cf';
+
+    const adminData: AdminTopologyData = {
+      nodes: new Map([
+        [
+          routerZid,
+          {
+            zid: routerZid,
+            whatami: 'router',
+            locators: ['tcp/192.168.1.100:7447'],
+            connectLocators: [],
+            neighbors: [clientZid],
+            links: [],
+          },
+        ],
+        [
+          clientZid,
+          {
+            zid: clientZid,
+            whatami: 'client',
+            locators: [],
+            connectLocators: ['tcp/192.168.1.100:7447'],
+            neighbors: [routerZid],
+            links: [],
+          },
+        ],
+      ]),
+      links: [
+        {
+          sourceZid: routerZid,
+          targetZid: clientZid,
+          srcLocator: 'tcp/192.168.1.100:7447',
+          dstLocator: 'tcp/192.168.1.50:42804',
+          isStreamed: true,
+        },
+      ],
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {},
+      profiles: [],
+      adminData,
+    });
+
+    const routerNode = nodes.find((n) => n.zid === routerZid);
+    const clientNode = nodes.find((n) => n.zid === clientZid);
+
+    assert.ok(routerNode, 'router node must exist');
+    assert.ok(clientNode, 'client node must exist');
+    assert.equal(clientNode.type, 'client');
+    assert.ok(clientNode.connectLocators?.includes('tcp/192.168.1.100:7447'));
+
+    const edge = edges.find(
+      (e) =>
+        (e.source === routerNode.id && e.target === clientNode.id) ||
+        (e.target === routerNode.id && e.source === clientNode.id)
+    );
+    assert.ok(edge, 'Edge must connect router and client');
+  });
 });
 
 

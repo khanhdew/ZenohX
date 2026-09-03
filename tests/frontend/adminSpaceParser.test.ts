@@ -377,6 +377,56 @@ describe('Admin Space Parser', () => {
     assert.equal(node.connectLocators.includes('tcp/192.168.1.50:49152'), false);
     assert.equal(parsed.links.length, 2);
   });
+
+  it('parses Zenoh transport and link paths with peer ZID in path (@/<zid>/session/transport/unicast/<peer_zid>/link/<hash>)', () => {
+    const routerZid = 'a5dbc51858315285b3fad82d9f78e521';
+    const clientZid = 'aedda2e79de1506ea1f3338f44cd78cf';
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: `@/${routerZid}/session/transport/unicast/${clientZid}`,
+        zid: routerZid,
+        category: 'transport',
+        payloadJson: JSON.stringify({
+          zid: clientZid,
+          whatami: 'client',
+          is_qos: true,
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: `@/${routerZid}/session/transport/unicast/${clientZid}/link/16852510730545110870`,
+        zid: routerZid,
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tcp/192.168.1.100:7447',
+          dst: 'tcp/192.168.1.50:42804',
+          group: null,
+          mtu: 49152,
+          is_streamed: true,
+          interfaces: ['eth0'],
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    assert.equal(parsed.nodes.size, 2);
+    const routerNode = parsed.nodes.get(routerZid);
+    const clientNode = parsed.nodes.get(clientZid);
+
+    assert.ok(routerNode, 'router node should exist');
+    assert.ok(clientNode, 'client node should exist');
+    assert.equal(clientNode.whatami, 'client');
+    assert.ok(routerNode.neighbors.includes(clientZid));
+    assert.ok(clientNode.neighbors.includes(routerZid));
+    assert.ok(clientNode.connectLocators.includes('tcp/192.168.1.100:7447'), 'client should have router listen locator as upstream connect locator');
+
+    assert.equal(parsed.links.length, 1);
+    assert.equal(parsed.links[0].sourceZid, routerZid);
+    assert.equal(parsed.links[0].targetZid, clientZid);
+    assert.equal(parsed.links[0].srcLocator, 'tcp/192.168.1.100:7447');
+    assert.equal(parsed.links[0].dstLocator, 'tcp/192.168.1.50:42804');
+  });
 });
 
 

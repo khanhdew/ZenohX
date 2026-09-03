@@ -876,7 +876,7 @@ impl SessionManager {
                         }
                     }
                 }
-            } else if entry.key_expr.contains("/session/link") {
+            } else if entry.key_expr.contains("/link") {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
                     if let Some(dst) = v.get("dst").and_then(|v| v.as_str()) {
                         if !dst.is_empty()
@@ -1009,7 +1009,7 @@ impl SessionManager {
                 }
             }
 
-            let category = if key.contains("/session/link") {
+            let category = if key.contains("/link") {
                 "link"
             } else if key.contains("/session/transport") {
                 "transport"
@@ -1037,7 +1037,8 @@ impl SessionManager {
         Ok(entries)
     }
 
-    /// Recursively discovers admin space topology across connected routers and peers up to max_depth waves.
+    /// Recursively discovers Zenoh Admin Space topology by starting with a root query (`@/**`)
+    /// and expanding child waves up to `max_depth` (BFS traversal) with cycle protection.
     pub async fn discover_admin_topology(
         &self,
         session_id: &Uuid,
@@ -1056,10 +1057,19 @@ impl SessionManager {
             if let Some(ref zid) = entry.zid {
                 visited_zids.insert(zid.to_lowercase());
             }
-            // Extract neighbor/sub-node ZIDs from entry
+            // Extract neighbor/sub-node ZIDs from entry:
+            // a) Router neighbor paths: @/<zid>/router/<neighbor_zid>
+            // b) Transport paths: @/<zid>/session/transport/unicast/<peer_zid>
+            let parts: Vec<&str> = entry.key_expr.split('/').collect();
             if entry.key_expr.contains("/router/") {
-                let parts: Vec<&str> = entry.key_expr.split('/').collect();
                 if let Some(idx) = parts.iter().position(|&p| p == "router") {
+                    if idx + 1 < parts.len() {
+                        next_wave_zids.push(parts[idx + 1].to_lowercase());
+                    }
+                }
+            }
+            if entry.key_expr.contains("/session/transport/unicast/") {
+                if let Some(idx) = parts.iter().position(|&p| p == "unicast") {
                     if idx + 1 < parts.len() {
                         next_wave_zids.push(parts[idx + 1].to_lowercase());
                     }
@@ -1099,9 +1109,19 @@ impl SessionManager {
             for entries_res in wave_results {
                 if let Ok(entries) = entries_res {
                     for entry in entries {
+                        let parts: Vec<&str> = entry.key_expr.split('/').collect();
                         if entry.key_expr.contains("/router/") {
-                            let parts: Vec<&str> = entry.key_expr.split('/').collect();
                             if let Some(idx) = parts.iter().position(|&p| p == "router") {
+                                if idx + 1 < parts.len() {
+                                    let sub = parts[idx + 1].to_lowercase();
+                                    if !visited_zids.contains(&sub) {
+                                        next_wave_zids.push(sub);
+                                    }
+                                }
+                            }
+                        }
+                        if entry.key_expr.contains("/session/transport/unicast/") {
+                            if let Some(idx) = parts.iter().position(|&p| p == "unicast") {
                                 if idx + 1 < parts.len() {
                                     let sub = parts[idx + 1].to_lowercase();
                                     if !visited_zids.contains(&sub) {

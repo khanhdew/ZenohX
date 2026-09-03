@@ -251,13 +251,116 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
         node.rawInfo = payloadObj;
       }
     }
-    // 4. Handle Transports / Listen Endpoints (@/<zid>/session/transport/unicast/listen/...)
+    // 4. Handle Links (@/<zid>/session/transport/unicast/<peer_zid>/link/<link_hash> OR @/<zid>/session/link/...)
+    else if (category === 'link' || key.includes('/link')) {
+      if (payloadObj) {
+        const src = typeof payloadObj.src === 'string' ? payloadObj.src : '';
+        const dst = typeof payloadObj.dst === 'string' ? payloadObj.dst : '';
+        const isStreamed = typeof payloadObj.is_streamed === 'boolean' ? payloadObj.is_streamed : undefined;
+        const mtu = typeof payloadObj.mtu === 'number' ? payloadObj.mtu : undefined;
+        const interfaces = Array.isArray(payloadObj.interfaces)
+          ? payloadObj.interfaces.filter((i): i is string => typeof i === 'string')
+          : [];
+
+        let remoteZid =
+          typeof payloadObj.zid === 'string' && isLikelyZid(payloadObj.zid)
+            ? payloadObj.zid.toLowerCase()
+            : undefined;
+
+        // If remoteZid not in payload, extract from key path: .../unicast/<peer_zid>/link/...
+        if (!remoteZid) {
+          const transportIdx = parts.findIndex((p) => p === 'unicast' || p === 'multicast');
+          if (transportIdx !== -1 && transportIdx + 1 < parts.length && isLikelyZid(parts[transportIdx + 1])) {
+            remoteZid = parts[transportIdx + 1].toLowerCase();
+          }
+        }
+
+        const isListenSocket = key.includes('/listen');
+
+        if (isListenSocket) {
+          // Listen socket - extract local listen locator for the router node
+          if (src) {
+            const expanded = expandBoundLocator(src, interfaces);
+            node.locators = filterRealLocators(
+              Array.from(new Set([...node.locators, ...expanded]))
+            );
+          }
+        } else {
+          // Active connection link to an external peer or router
+          let peerNode: AdminRemoteNode | undefined;
+          if (remoteZid && remoteZid !== targetZid.toLowerCase()) {
+            peerNode = getOrCreateNode(remoteZid);
+            if (!node.neighbors.includes(remoteZid)) node.neighbors.push(remoteZid);
+            if (!peerNode.neighbors.includes(targetZid.toLowerCase())) peerNode.neighbors.push(targetZid.toLowerCase());
+          }
+
+          const linkInfo: SessionLinkInfo = {
+            zid: remoteZid || targetZid,
+            whatami:
+              typeof payloadObj.whatami === 'string'
+                ? normalizeNodeType(payloadObj.whatami)
+                : node.whatami,
+            src,
+            dst,
+            is_streamed: Boolean(isStreamed),
+            mtu,
+            interfaces,
+          };
+          node.links.push(linkInfo);
+
+          if (dst) {
+            if (!isEphemeralPortLocator(dst)) {
+              const expandedDst = expandBoundLocator(dst, interfaces);
+              node.connectLocators = filterRealLocators(
+                Array.from(new Set([...node.connectLocators, ...expandedDst]))
+              );
+            } else if (peerNode && src && !isEphemeralPortLocator(src)) {
+              // Inbound client connection: src is the listening address of this node,
+              // and peerNode is the inbound client connecting to it.
+              const expandedSrc = expandBoundLocator(src, interfaces);
+              peerNode.connectLocators = filterRealLocators(
+                Array.from(new Set([...peerNode.connectLocators, ...expandedSrc]))
+              );
+            }
+
+            links.push({
+              sourceZid: targetZid.toLowerCase(),
+              targetZid: remoteZid,
+              srcLocator: src,
+              dstLocator: dst,
+              isStreamed,
+              mtu,
+              interfaces,
+            });
+          }
+        }
+      }
+    }
+    // 5. Handle Transports / Listen Endpoints (@/<zid>/session/transport/unicast/<peer_zid> OR .../listen/...)
     else if (
       category === 'transport' ||
       key.includes('/session/transport') ||
       key.includes('/transport/')
     ) {
       if (payloadObj) {
+        // Handle remote peer transport entry: @/<zid>/session/transport/unicast/<peer_zid>
+        const transportIdx = parts.findIndex((p) => p === 'unicast' || p === 'multicast');
+        if (transportIdx !== -1 && transportIdx + 1 < parts.length) {
+          const peerZid = parts[transportIdx + 1];
+          if (isLikelyZid(peerZid) && peerZid.toLowerCase() !== targetZid.toLowerCase()) {
+            const role =
+              typeof payloadObj.whatami === 'string'
+                ? normalizeNodeType(payloadObj.whatami)
+                : 'client';
+            const peerNode = getOrCreateNode(peerZid.toLowerCase(), role);
+            if (payloadObj.whatami) {
+              peerNode.whatami = role;
+            }
+            if (!node.neighbors.includes(peerNode.zid)) node.neighbors.push(peerNode.zid);
+            if (!peerNode.neighbors.includes(node.zid)) peerNode.neighbors.push(node.zid);
+          }
+        }
+
         const rawLocators: string[] = [];
         if (typeof payloadObj.locator === 'string' && payloadObj.locator) {
           rawLocators.push(payloadObj.locator);
@@ -290,68 +393,6 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
           node.locators = filterRealLocators(
             Array.from(new Set([...node.locators, ...expandedLocators]))
           );
-        }
-      }
-    }
-    // 5. Handle Links (@/<zid>/session/link/...)
-    else if (category === 'link' || key.includes('/session/link')) {
-      if (payloadObj) {
-        const src = typeof payloadObj.src === 'string' ? payloadObj.src : '';
-        const dst = typeof payloadObj.dst === 'string' ? payloadObj.dst : '';
-        const isStreamed = typeof payloadObj.is_streamed === 'boolean' ? payloadObj.is_streamed : undefined;
-        const mtu = typeof payloadObj.mtu === 'number' ? payloadObj.mtu : undefined;
-        const interfaces = Array.isArray(payloadObj.interfaces)
-          ? payloadObj.interfaces.filter((i): i is string => typeof i === 'string')
-          : [];
-        const remoteZid =
-          typeof payloadObj.zid === 'string' && isLikelyZid(payloadObj.zid)
-            ? payloadObj.zid.toLowerCase()
-            : undefined;
-
-        const isListenSocket = key.includes('/listen');
-
-        if (isListenSocket) {
-          // Listen socket - extract local listen locator for the router node
-          if (src) {
-            const expanded = expandBoundLocator(src, interfaces);
-            node.locators = filterRealLocators(
-              Array.from(new Set([...node.locators, ...expanded]))
-            );
-          }
-        } else {
-          // Active connection link to an external peer or router
-          const linkInfo: SessionLinkInfo = {
-            zid: remoteZid || targetZid,
-            whatami:
-              typeof payloadObj.whatami === 'string'
-                ? normalizeNodeType(payloadObj.whatami)
-                : node.whatami,
-            src,
-            dst,
-            is_streamed: Boolean(isStreamed),
-            mtu,
-            interfaces,
-          };
-          node.links.push(linkInfo);
-
-          if (dst) {
-            if (!isEphemeralPortLocator(dst)) {
-              const expandedDst = expandBoundLocator(dst, interfaces);
-              node.connectLocators = filterRealLocators(
-                Array.from(new Set([...node.connectLocators, ...expandedDst]))
-              );
-            }
-
-            links.push({
-              sourceZid: targetZid,
-              targetZid: remoteZid,
-              srcLocator: src,
-              dstLocator: dst,
-              isStreamed,
-              mtu,
-              interfaces,
-            });
-          }
         }
       }
     }

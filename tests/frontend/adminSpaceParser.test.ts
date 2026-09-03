@@ -427,6 +427,84 @@ describe('Admin Space Parser', () => {
     assert.equal(parsed.links[0].srcLocator, 'tcp/192.168.1.100:7447');
     assert.equal(parsed.links[0].dstLocator, 'tcp/192.168.1.50:42804');
   });
+
+  it('parses Zenoh @/<router_zid>/router entry containing sessions array with connected peers/clients and links', () => {
+    const routerZid = 'b2e5805197a5b6c37245c63ff5bc6882';
+    const client1Zid = '579b636048e466b9803d39c2f006c37';
+    const client2Zid = '89e3fe305f2d27d154bac010b07c9d97';
+
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: `@/${routerZid}/router`,
+        zid: routerZid,
+        category: 'router',
+        payloadJson: JSON.stringify({
+          locators: ['tcp/172.17.0.2:7447'],
+          metadata: null,
+          plugins: {},
+          sessions: [
+            {
+              links: [
+                {
+                  dst: 'tcp/104.28.222.74:64517',
+                  src: 'tcp/172.17.0.2:7447',
+                },
+              ],
+              peer: client1Zid,
+              region: 'south:0:client',
+              shm: false,
+              weight: null,
+              whatami: 'client',
+            },
+            {
+              links: [
+                {
+                  dst: 'tcp/104.28.222.74:64963',
+                  src: 'tcp/172.17.0.2:7447',
+                },
+              ],
+              peer: client2Zid,
+              region: 'south:0:client',
+              shm: false,
+              weight: null,
+              whatami: 'client',
+            },
+          ],
+          version: 'v1.10.0',
+          zid: routerZid,
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    assert.equal(parsed.nodes.size, 3);
+    const routerNode = parsed.nodes.get(routerZid);
+    const client1 = parsed.nodes.get(client1Zid);
+    const client2 = parsed.nodes.get(client2Zid);
+
+    assert.ok(routerNode);
+    assert.ok(client1);
+    assert.ok(client2);
+
+    assert.equal(routerNode.whatami, 'router');
+    assert.equal(client1.whatami, 'client');
+    assert.equal(client2.whatami, 'client');
+
+    assert.ok(routerNode.neighbors.includes(client1Zid));
+    assert.ok(routerNode.neighbors.includes(client2Zid));
+    assert.ok(client1.neighbors.includes(routerZid));
+    assert.ok(client2.neighbors.includes(routerZid));
+
+    assert.ok(client1.connectLocators.includes('tcp/172.17.0.2:7447'));
+    assert.ok(client2.connectLocators.includes('tcp/172.17.0.2:7447'));
+
+    assert.equal(parsed.links.length, 2);
+    assert.equal(parsed.links[0].sourceZid, routerZid);
+    assert.equal(parsed.links[0].targetZid, client1Zid);
+    assert.equal(parsed.links[1].sourceZid, routerZid);
+    assert.equal(parsed.links[1].targetZid, client2Zid);
+  });
 });
 
 

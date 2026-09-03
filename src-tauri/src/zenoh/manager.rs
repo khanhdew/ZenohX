@@ -1075,6 +1075,17 @@ impl SessionManager {
                     }
                 }
             }
+            if entry.key_expr.ends_with("/router") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                    if let Some(sessions) = v.get("sessions").and_then(|s| s.as_array()) {
+                        for sess in sessions {
+                            if let Some(peer) = sess.get("peer").and_then(|p| p.as_str()) {
+                                next_wave_zids.push(peer.to_lowercase());
+                            }
+                        }
+                    }
+                }
+            }
             if key_set.insert(entry.key_expr.clone()) {
                 all_entries.push(entry);
             }
@@ -1126,6 +1137,20 @@ impl SessionManager {
                                     let sub = parts[idx + 1].to_lowercase();
                                     if !visited_zids.contains(&sub) {
                                         next_wave_zids.push(sub);
+                                    }
+                                }
+                            }
+                        }
+                        if entry.key_expr.ends_with("/router") {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                                if let Some(sessions) = v.get("sessions").and_then(|s| s.as_array()) {
+                                    for sess in sessions {
+                                        if let Some(peer) = sess.get("peer").and_then(|p| p.as_str()) {
+                                            let sub = peer.to_lowercase();
+                                            if !visited_zids.contains(&sub) {
+                                                next_wave_zids.push(sub);
+                                            }
+                                        }
                                     }
                                 }
                             }

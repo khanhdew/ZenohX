@@ -212,8 +212,8 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
       targetZid = payloadObj.zid;
     }
 
-    // 2. Handle Router Neighbor Linkages (@/<zid>/router/<neighbor_zid>)
-    if (category === 'router' || key.includes('/router/')) {
+    // 2. Handle Router Entries (@/<zid>/router or @/<zid>/router/<neighbor_zid>)
+    if (category === 'router' || key.includes('/router')) {
       const routerIndex = parts.findIndex((p) => p.toLowerCase() === 'router');
       if (routerIndex !== -1 && routerIndex + 1 < parts.length) {
         const rootZid = parts[0];
@@ -224,8 +224,66 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
           if (!nodeA.neighbors.includes(nodeB.zid)) nodeA.neighbors.push(nodeB.zid);
           if (!nodeB.neighbors.includes(nodeA.zid)) nodeB.neighbors.push(nodeA.zid);
         }
+        continue;
       }
-      continue;
+
+      // Exact @/<zid>/router entry with locators and sessions array
+      if (targetZid && (parts.length === routerIndex + 1 || key.endsWith('/router'))) {
+        const routerNode = getOrCreateNode(targetZid, 'router');
+        if (payloadObj) {
+          if (Array.isArray(payloadObj.locators)) {
+            const locs = payloadObj.locators.filter((l): l is string => typeof l === 'string');
+            routerNode.locators = filterRealLocators(Array.from(new Set([...routerNode.locators, ...locs])));
+          }
+          if (typeof payloadObj.version === 'string') {
+            routerNode.version = payloadObj.version;
+          }
+          if (Array.isArray(payloadObj.sessions)) {
+            for (const sess of payloadObj.sessions) {
+              if (!sess || typeof sess !== 'object') continue;
+              const sessObj = sess as Record<string, unknown>;
+              const peerZid = typeof sessObj.peer === 'string' && isLikelyZid(sessObj.peer) ? sessObj.peer.toLowerCase() : undefined;
+              if (!peerZid || peerZid === targetZid.toLowerCase()) continue;
+              const peerRole = typeof sessObj.whatami === 'string' ? normalizeNodeType(sessObj.whatami) : 'client';
+              const peerNode = getOrCreateNode(peerZid, peerRole);
+              if (sessObj.whatami) peerNode.whatami = peerRole;
+
+              if (!routerNode.neighbors.includes(peerZid)) routerNode.neighbors.push(peerZid);
+              if (!peerNode.neighbors.includes(targetZid.toLowerCase())) peerNode.neighbors.push(targetZid.toLowerCase());
+
+              if (Array.isArray(sessObj.links)) {
+                for (const lk of sessObj.links) {
+                  if (!lk || typeof lk !== 'object') continue;
+                  const lkObj = lk as Record<string, unknown>;
+                  const src = typeof lkObj.src === 'string' ? lkObj.src : '';
+                  const dst = typeof lkObj.dst === 'string' ? lkObj.dst : '';
+                  if (src && !isEphemeralPortLocator(src)) {
+                    peerNode.connectLocators = filterRealLocators(
+                      Array.from(new Set([...peerNode.connectLocators, src]))
+                    );
+                    routerNode.locators = filterRealLocators(
+                      Array.from(new Set([...routerNode.locators, src]))
+                    );
+                  }
+                  if (dst && !isEphemeralPortLocator(dst)) {
+                    routerNode.connectLocators = filterRealLocators(
+                      Array.from(new Set([...routerNode.connectLocators, dst]))
+                    );
+                  }
+                  links.push({
+                    sourceZid: targetZid.toLowerCase(),
+                    targetZid: peerZid,
+                    srcLocator: src,
+                    dstLocator: dst,
+                    isStreamed: true,
+                  });
+                }
+              }
+            }
+          }
+        }
+        continue;
+      }
     }
 
     if (!targetZid) {

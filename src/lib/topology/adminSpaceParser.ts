@@ -270,6 +270,27 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
                       Array.from(new Set([...routerNode.connectLocators, dst]))
                     );
                   }
+
+                  const peerLink: SessionLinkInfo = {
+                    zid: targetZid.toLowerCase(),
+                    whatami: 'router',
+                    src: dst,
+                    dst: src,
+                    is_streamed: true,
+                    interfaces: [],
+                  };
+                  peerNode.links.push(peerLink);
+
+                  const routerLink: SessionLinkInfo = {
+                    zid: peerZid,
+                    whatami: peerRole,
+                    src,
+                    dst,
+                    is_streamed: true,
+                    interfaces: [],
+                  };
+                  routerNode.links.push(routerLink);
+
                   links.push({
                     sourceZid: targetZid.toLowerCase(),
                     targetZid: peerZid,

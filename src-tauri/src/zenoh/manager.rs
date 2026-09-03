@@ -851,7 +851,12 @@ impl SessionManager {
 
             if let Some(id) = session_id {
                 let selector = format!("@/{clean_zid}/**");
-                self.query_admin_space(&id, Some(&selector), 1500).await.unwrap_or_default()
+                let direct = self.query_admin_space(&id, Some(&selector), 1500).await.unwrap_or_default();
+                if !direct.is_empty() {
+                    direct
+                } else {
+                    self.query_admin_space(&id, Some("@/**"), 1500).await.unwrap_or_default()
+                }
             } else {
                 Vec::new()
             }
@@ -885,6 +890,33 @@ impl SessionManager {
                             && !is_ephemeral_port_locator(dst)
                         {
                             remote_connect_locs.push(dst.to_string());
+                        }
+                    }
+                }
+            } else if entry.key_expr.ends_with("/router") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                    if let Some(sessions) = v.get("sessions").and_then(|s| s.as_array()) {
+                        for sess in sessions {
+                            if let Some(peer) = sess.get("peer").and_then(|p| p.as_str()) {
+                                if peer.eq_ignore_ascii_case(&clean_zid) {
+                                    if let Some(what) = sess.get("whatami").and_then(|w| w.as_str()) {
+                                        remote_mode = what.to_lowercase();
+                                    }
+                                    if let Some(links) = sess.get("links").and_then(|l| l.as_array()) {
+                                        for lk in links {
+                                            if let Some(src) = lk.get("src").and_then(|s| s.as_str()) {
+                                                if !src.is_empty()
+                                                    && !src.contains("127.0.0.1")
+                                                    && !src.ends_with(":0")
+                                                    && !is_ephemeral_port_locator(src)
+                                                {
+                                                    remote_connect_locs.push(src.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

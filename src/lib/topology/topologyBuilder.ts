@@ -761,6 +761,29 @@ export function buildTopologyGraph({
     });
   }
 
+  // Populate connectedRouters and connectedPeers on all nodes from graph edges
+  edges.forEach((edge) => {
+    let sNode: TopologyNode | undefined;
+    let tNode: TopologyNode | undefined;
+    for (const node of nodeMap.values()) {
+      if (node.id === edge.source) sNode = node;
+      if (node.id === edge.target) tNode = node;
+      if (sNode && tNode) break;
+    }
+    if (sNode && tNode) {
+      if (tNode.type === 'router') {
+        if (!sNode.connectedRouters.includes(tNode.zid)) sNode.connectedRouters.push(tNode.zid);
+      } else {
+        if (!sNode.connectedPeers.includes(tNode.zid)) sNode.connectedPeers.push(tNode.zid);
+      }
+      if (sNode.type === 'router') {
+        if (!tNode.connectedRouters.includes(sNode.zid)) tNode.connectedRouters.push(sNode.zid);
+      } else {
+        if (!tNode.connectedPeers.includes(sNode.zid)) tNode.connectedPeers.push(sNode.zid);
+      }
+    }
+  });
+
   const nodes = Array.from(nodeMap.values()).filter(
     (n) =>
       Boolean(n.zid && typeof n.zid === 'string' && n.zid.trim().length > 0) &&

@@ -146,18 +146,26 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_zenoh_query_undeclare_queryable() {
         let manager = SessionManager::new();
-        let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
+        let mut config = SessionConfig::default_peer();
+        config.scout_multicast = false;
+        config.scout_gossip = false;
+        let session_id = manager.connect(config).await.unwrap();
         let q_id = Uuid::new_v4();
+        let test_key = format!("service/unreg/{}", Uuid::new_v4().simple());
 
+        let reply_key = test_key.clone();
         manager
-            .declare_queryable(&session_id, q_id, "service/unreg", |query| async move {
-                query.reply("service/unreg", b"active".to_vec()).await.unwrap();
+            .declare_queryable(&session_id, q_id, &test_key, move |query| {
+                let k = reply_key.clone();
+                async move {
+                    query.reply(&k, b"active".to_vec()).await.unwrap();
+                }
             })
             .await
             .unwrap();
 
         let replies = manager
-            .query_get(&session_id, "service/unreg", "all", 1000)
+            .query_get(&session_id, &test_key, "all", 1000)
             .await
             .unwrap();
         assert_eq!(replies.len(), 1);
@@ -165,12 +173,25 @@ mod tests {
         // Undeclare queryable
         manager.undeclare_queryable(&session_id, q_id).await.unwrap();
 
-        // Second query should receive 0 replies
-        let replies_after = manager
-            .query_get(&session_id, "service/unreg", "all", 300)
-            .await
-            .unwrap();
-        assert_eq!(replies_after.len(), 0);
+        // Allow Zenoh runtime to propagate undeclaration, then verify 0 replies using condition-based waiting
+        let mut replies_after = Vec::new();
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            replies_after = manager
+                .query_get(&session_id, &test_key, "all", 300)
+                .await
+                .unwrap();
+            if replies_after.is_empty() {
+                break;
+            }
+        }
+        assert_eq!(
+            replies_after.len(),
+            0,
+            "expected 0 replies after undeclare, got: {:?}",
+            replies_after
+        );
 
         manager.disconnect(&session_id).await.unwrap();
     }

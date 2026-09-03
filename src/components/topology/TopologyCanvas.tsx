@@ -323,7 +323,7 @@ export const TopologyCanvas: React.FC<TopologyCanvasProps> = ({
           </div>
           <h3 className="text-sm font-semibold text-foreground mb-1">No Active Nodes or Connections</h3>
           <p className="text-xs text-muted-foreground max-w-sm">
-            Click <strong>Scout LAN</strong> in the toolbar to discover Zenoh routers and peers, or connect to a profile to view the network topology.
+            Connect to a profile or router to view the network topology and introspect mesh routers.
           </p>
         </div>
       )}

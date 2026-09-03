@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Radio,
   RefreshCw,
@@ -99,7 +99,10 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
     (mdnsHostname ? (mdnsHostname.endsWith('.local') ? mdnsHostname : `${mdnsHostname}.local`) : 'zenohx.local');
 
   const defaultLocator = `tcp/${activeHostname}:7447`;
-  const boundAddresses = mdnsStatus?.addresses || mdnsStatus?.bound_ips || ['127.0.0.1'];
+  const boundAddresses = useMemo(() => {
+    const raw = mdnsStatus?.addresses || mdnsStatus?.bound_ips || ['127.0.0.1'];
+    return Array.from(new Set(raw));
+  }, [mdnsStatus?.addresses, mdnsStatus?.bound_ips]);
   const isConflict = Boolean(mdnsStatus?.is_conflict);
   const isRunning = mdnsEnabled && (mdnsStatus?.running !== false);
 
@@ -171,13 +174,13 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
       {/* Header */}
       {!isEmbedded && (
         <div>
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-            <Radio className="w-4 h-4 text-emerald-500" />
+          <h3
+            className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+            title="Configure the local mDNS responder (.local) for zero-configuration discovery across your local network."
+          >
+            <Radio className="w-4 h-4" />
             Network & Local Discovery (mDNS)
           </h3>
-          <p className="text-xs text-muted-foreground">
-            Configure the local mDNS responder (<span className="font-mono">.local</span>) for zero-configuration discovery across your local network.
-          </p>
         </div>
       )}
 
@@ -193,27 +196,25 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
       <section className="space-y-4">
         {isEmbedded && (
           <div>
-            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Radio className="w-4 h-4 text-emerald-500" />
+            <h3
+              className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+              title="Advertise your Zenoh router on the local LAN without static IP configuration."
+            >
+              <Radio className="w-4 h-4" />
               Network & Local Discovery (mDNS)
             </h3>
-            <p className="text-xs text-muted-foreground">
-              Advertise your Zenoh router on the local LAN without static IP configuration.
-            </p>
           </div>
         )}
 
         <div className="rounded-xl border bg-card divide-y shadow-xs">
           {/* Toggle: Enable mDNS Responder */}
           <div className="p-4 flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <label className="text-xs font-medium text-foreground block">
-                Enable mDNS Responder
-              </label>
-              <span className="text-[11px] text-muted-foreground leading-relaxed block">
-                Broadcast Multicast DNS records across all active network adapters. Local peers and clients can connect directly to <span className="font-mono text-foreground font-semibold">{activeHostname}</span>.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground block cursor-help"
+              title="Broadcast Multicast DNS records across all active network adapters. Local peers and clients can connect directly to this node."
+            >
+              Enable mDNS Responder
+            </label>
             <Switch
               checked={mdnsEnabled}
               onCheckedChange={handleToggleMdns}
@@ -224,14 +225,13 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
           {/* Advertised Hostname Input & Actions */}
           <div className="p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <div>
-                <label htmlFor="mdns-hostname-input" className="text-xs font-medium text-foreground block">
-                  Advertised Hostname
-                </label>
-                <span className="text-[11px] text-muted-foreground">
-                  Base hostname advertised on the local network (resolves with <span className="font-mono">.local</span> suffix).
-                </span>
-              </div>
+              <label
+                htmlFor="mdns-hostname-input"
+                className="text-xs font-medium text-foreground block cursor-help"
+                title="Base hostname advertised on the local network (resolves with .local suffix)."
+              >
+                Advertised Hostname
+              </label>
               <SimpleTooltip content="Reset hostname to 'zenohx'">
                 <Button
                   type="button"
@@ -277,7 +277,7 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
                 {isMdnsLoading ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : saveSuccess ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <Check className="w-3.5 h-3.5 text-primary" />
                 ) : null}
                 <span>{saveSuccess ? 'Saved' : 'Save mDNS Settings'}</span>
               </Button>
@@ -297,15 +297,13 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
       {/* Live Responder Status & Network Interfaces Card */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <Globe className="w-4 h-4 text-sky-500" />
-              Live Responder Status & Interfaces
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Current runtime status, advertised locators, and detected LAN IP interfaces.
-            </p>
-          </div>
+          <h3
+            className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+            title="Current runtime status, advertised locators, and detected LAN IP interfaces."
+          >
+            <Globe className="w-4 h-4" />
+            Live Responder Status & Interfaces
+          </h3>
 
           {/* Refresh Interfaces Action */}
           <Button
@@ -339,9 +337,9 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
                 ) : (
                   <Badge
                     variant="outline"
-                    className="text-[11px] font-medium gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                    className="text-[11px] font-medium gap-1 bg-primary/10 text-primary border-primary/20"
                   >
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
                     Active as {activeHostname}
                   </Badge>
                 )
@@ -409,12 +407,12 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
               size="sm"
               onClick={handleCopyLocator}
               className={`h-7 px-2 text-xs font-mono gap-1.5 shrink-0 transition-colors ${
-                copiedLocator ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' : ''
+                copiedLocator ? 'bg-primary/10 text-primary border-primary/30' : ''
               }`}
             >
               {copiedLocator ? (
                 <>
-                  <Check className="w-3 h-3 text-emerald-500" />
+                  <Check className="w-3 h-3 text-primary" />
                   <span>Copied!</span>
                 </>
               ) : (
@@ -428,14 +426,12 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
 
           {/* Detected Network IP Addresses List */}
           <div className="space-y-2 pt-1">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-foreground block">
-                Bound IP Addresses ({boundAddresses.length})
-              </span>
-              <span className="text-[10px] text-muted-foreground">
-                Click any IP to copy locator
-              </span>
-            </div>
+            <span
+              className="text-xs font-medium text-foreground block cursor-help"
+              title="Click any IP to copy locator"
+            >
+              Bound IP Addresses ({boundAddresses.length})
+            </span>
 
             {boundAddresses.length === 0 ? (
               <div className="p-3 rounded-lg border border-dashed text-center text-xs text-muted-foreground">
@@ -455,7 +451,7 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
                       title={`Click to copy tcp/${ip}:7447`}
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-mono transition-colors ${
                         isCopied
-                          ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold'
+                          ? 'border-primary bg-primary/10 text-primary font-semibold'
                           : 'border-border bg-background hover:bg-muted/60 text-foreground'
                       }`}
                     >
@@ -467,7 +463,7 @@ export const NetworkTab: React.FC<NetworkTabProps> = ({ className = '', isEmbedd
                       </Badge>
                       <span>{ip}</span>
                       {isCopied ? (
-                        <Check className="w-3 h-3 text-emerald-500 ml-0.5 shrink-0" />
+                        <Check className="w-3 h-3 text-primary ml-0.5 shrink-0" />
                       ) : (
                         <Copy className="w-2.5 h-2.5 text-muted-foreground/50 ml-0.5 shrink-0" />
                       )}

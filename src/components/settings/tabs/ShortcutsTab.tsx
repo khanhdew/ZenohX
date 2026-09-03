@@ -19,13 +19,13 @@ export const ShortcutsTab: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
       <div>
-        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+        <h3
+          className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+          title="Speed up your workflow with global shortcuts."
+        >
           <Keyboard className="w-4 h-4" />
           Keyboard Shortcuts
         </h3>
-        <p className="text-xs text-muted-foreground">
-          Speed up your workflow with global shortcuts.
-        </p>
       </div>
 
       <div className="rounded-lg border bg-card divide-y text-xs">

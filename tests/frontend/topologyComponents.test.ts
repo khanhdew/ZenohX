@@ -60,16 +60,10 @@ describe('Topology UI Components Exports & Types', () => {
   });
 
   it('TopologyToolbar renders element tree correctly with expected structure', () => {
-    let scoutTriggered = false;
-    const element = React.createElement(TopologyToolbar, {
-      onTriggerScout: () => {
-        scoutTriggered = true;
-      },
-    });
+    const element = React.createElement(TopologyToolbar);
 
     assert.ok(React.isValidElement(element));
     assert.equal(element.type, TopologyToolbar);
-    assert.equal(typeof element.props.onTriggerScout, 'function');
   });
 
   it('TopologyControls renders element tree correctly with expected structure', () => {

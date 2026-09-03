@@ -25,7 +25,6 @@ import {
 } from '../../ui/select';
 import { useSettingsStore, type CodeFont } from '../../../stores/settingsStore';
 import type { EncodingType } from '../../../types/zenoh';
-import { NetworkTab } from './NetworkTab';
 
 export const PreferencesTab: React.FC = () => {
   const {
@@ -51,13 +50,13 @@ export const PreferencesTab: React.FC = () => {
       {/* Appearance Section */}
       <section className="space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <h3
+            className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+            title="Customize the interface theme and visual density."
+          >
             <Moon className="w-4 h-4" />
             Appearance & Theme
           </h3>
-          <p className="text-xs text-muted-foreground">
-            Customize the interface theme and visual density.
-          </p>
         </div>
 
         {/* Theme Selector Cards */}
@@ -82,9 +81,6 @@ export const PreferencesTab: React.FC = () => {
               )}
             </div>
             <span className="text-xs font-semibold text-foreground">Dark Theme</span>
-            <span className="text-[11px] text-muted-foreground mt-0.5">
-              Pure Zinc dark palette
-            </span>
           </button>
 
           <button
@@ -107,9 +103,6 @@ export const PreferencesTab: React.FC = () => {
               )}
             </div>
             <span className="text-xs font-semibold text-foreground">Light Theme</span>
-            <span className="text-[11px] text-muted-foreground mt-0.5">
-              Crisp Zinc daylight palette
-            </span>
           </button>
 
           <button
@@ -132,23 +125,18 @@ export const PreferencesTab: React.FC = () => {
               )}
             </div>
             <span className="text-xs font-semibold text-foreground">System Default</span>
-            <span className="text-[11px] text-muted-foreground mt-0.5">
-              Follows OS appearance
-            </span>
           </button>
         </div>
 
         {/* Compact Mode & Font Preferences */}
         <div className="rounded-xl border bg-card divide-y shadow-xs">
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Compact Layout Mode
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Tighten row heights in message streams and sidebar.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Tighten row heights in message streams and sidebar."
+            >
+              Compact Layout Mode
+            </label>
             <Switch
               checked={compactMode}
               onCheckedChange={setCompactMode}
@@ -156,14 +144,12 @@ export const PreferencesTab: React.FC = () => {
           </div>
 
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Payload Code Font
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Font family used in Payload Viewers and Hex editors.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Font family used in Payload Viewers and Hex editors."
+            >
+              Payload Code Font
+            </label>
             <Select value={codeFont} onValueChange={(val) => setCodeFont(val as CodeFont)}>
               <SelectTrigger className="w-48 h-8 text-xs font-mono">
                 <SelectValue />
@@ -181,26 +167,24 @@ export const PreferencesTab: React.FC = () => {
       {/* General Protocol & Buffer Defaults */}
       <section className="space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <h3
+            className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+            title="Default encoders, query timeouts, and memory limits."
+          >
             <Sliders className="w-4 h-4" />
             Protocol & Buffer Defaults
           </h3>
-          <p className="text-xs text-muted-foreground">
-            Default encoders, query timeouts, and memory limits.
-          </p>
         </div>
 
         <div className="rounded-xl border bg-card divide-y shadow-xs">
           {/* Default Payload Encoding */}
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Default Payload Encoding
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Preselected encoder for new publish and queryable panels.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Preselected encoder for new publish and queryable panels."
+            >
+              Default Payload Encoding
+            </label>
             <Select
               value={defaultPayloadEncoding}
               onValueChange={(val) => setDefaultPayloadEncoding(val as EncodingType)}
@@ -219,14 +203,12 @@ export const PreferencesTab: React.FC = () => {
 
           {/* In-Memory Ring Buffer Limit */}
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                In-Memory Message Buffer
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Maximum live messages kept per session in RAM.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Maximum live messages kept per session in RAM."
+            >
+              In-Memory Message Buffer
+            </label>
             <Select
               value={String(maxMessageBuffer)}
               onValueChange={(val) => setMaxMessageBuffer(Number(val))}
@@ -245,14 +227,12 @@ export const PreferencesTab: React.FC = () => {
 
           {/* Default Query RPC Timeout */}
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Default Query Timeout
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Default wait duration for distributed query replies.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Default wait duration for distributed query replies."
+            >
+              Default Query Timeout
+            </label>
             <Select
               value={String(defaultQueryTimeoutMs)}
               onValueChange={(val) => setDefaultQueryTimeoutMs(Number(val))}
@@ -271,31 +251,26 @@ export const PreferencesTab: React.FC = () => {
         </div>
       </section>
 
-      {/* Network & Local Discovery (mDNS) Section */}
-      <NetworkTab isEmbedded />
-
       {/* Privacy & Analytics Section */}
       <section className="space-y-4">
         <div>
-          <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <h3
+            className="text-sm font-semibold text-foreground flex items-center gap-2 cursor-help"
+            title="Manage anonymous diagnostics and active user analytics."
+          >
             <ShieldCheck className="w-4 h-4" />
             Privacy & Telemetry
           </h3>
-          <p className="text-xs text-muted-foreground">
-            Manage anonymous diagnostics and active user analytics.
-          </p>
         </div>
 
         <div className="rounded-xl border bg-card divide-y shadow-xs">
           <div className="p-4 flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <label className="text-xs font-medium text-foreground block">
-                Anonymous Usage Statistics
-              </label>
-              <span className="text-[11px] text-muted-foreground leading-relaxed block">
-                Send anonymous launch metrics (OS, app version, country) to help improve ZenohX. No personal data, IP addresses, or Zenoh message payloads are ever collected.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Send anonymous launch metrics (OS, app version, country) to help improve ZenohX. No personal data, IP addresses, or Zenoh message payloads are ever collected."
+            >
+              Anonymous Usage Statistics
+            </label>
             <Switch
               checked={anonymousTelemetry}
               onCheckedChange={setAnonymousTelemetry}

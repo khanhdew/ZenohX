@@ -14,21 +14,15 @@
 
 import React from 'react';
 import {
-  Lock,
-  Globe,
-  Zap,
-  Wifi,
-  ShieldCheck,
-  HardDrive,
   Shield,
   Radio,
 } from 'lucide-react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
-import { SimpleTooltip } from '../../ui/tooltip';
 import {
   type TransportProtocol,
   parseLocator,
+  SUPPORTED_TRANSPORT_PROTOCOLS,
 } from '../../../lib/tls';
 import { useActiveMdnsHost } from '../../../stores/settingsStore';
 
@@ -42,21 +36,6 @@ export interface ClientConfigFormProps {
   password: string;
   setPassword: (val: string) => void;
 }
-
-const CLIENT_PROTOCOLS: {
-  id: TransportProtocol;
-  label: string;
-  defaultPort: string;
-  icon: React.ComponentType<{ className?: string }>;
-}[] = [
-  { id: 'tcp', label: 'TCP', defaultPort: '7447', icon: Globe },
-  { id: 'tls', label: 'TLS', defaultPort: '7446', icon: Lock },
-  { id: 'ws', label: 'WebSocket', defaultPort: '8080', icon: Wifi },
-  { id: 'wss', label: 'WSS', defaultPort: '8443', icon: ShieldCheck },
-  { id: 'quic', label: 'QUIC', defaultPort: '7448', icon: Zap },
-  { id: 'udp', label: 'UDP', defaultPort: '7449', icon: Radio },
-  { id: 'unix', label: 'Unix Socket', defaultPort: '', icon: HardDrive },
-];
 
 export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
   clientName,
@@ -80,14 +59,14 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
     }
 
     if (parsed && parsed.protocol !== 'unix') {
-      const protoMeta = CLIENT_PROTOCOLS.find((p) => p.id === protoId);
+      const protoMeta = SUPPORTED_TRANSPORT_PROTOCOLS.find((p) => p.id === protoId);
       const defaultPort = protoMeta?.defaultPort || '7447';
-      const currentProtoMeta = CLIENT_PROTOCOLS.find((p) => p.id === parsed.protocol);
+      const currentProtoMeta = SUPPORTED_TRANSPORT_PROTOCOLS.find((p) => p.id === parsed.protocol);
       const isDefaultPort = parsed.port === currentProtoMeta?.defaultPort || parsed.port === '7447';
       const targetPort = isDefaultPort ? defaultPort : (parsed.port || defaultPort);
       setClientLocator(`${protoId}/${parsed.host}:${targetPort}`);
     } else {
-      const protoMeta = CLIENT_PROTOCOLS.find((p) => p.id === protoId);
+      const protoMeta = SUPPORTED_TRANSPORT_PROTOCOLS.find((p) => p.id === protoId);
       setClientLocator(`${protoId}/${activeMdnsHost}:${protoMeta?.defaultPort || '7447'}`);
     }
   };
@@ -108,142 +87,40 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
         />
       </div>
 
-      {/* Upstream Router Locator Input (Unified Single Input) */}
-      <div className="space-y-1.5">
-        <SimpleTooltip content="Enter complete locator (e.g. tcp/zenohx.local:7447, tls/cloud.zenoh.io:7446, or unixpipe//tmp/zenoh.sock).">
-          <Label htmlFor="client-locator" className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
-            <Radio className="w-3.5 h-3.5 text-sky-500" />
-            <span>Upstream Router Locator</span> <span className="text-destructive">*</span>
-          </Label>
-        </SimpleTooltip>
+      {/* Upstream Router Locator Input */}
+      <div className="space-y-1">
+        <Label htmlFor="client-locator" className="text-xs font-semibold flex items-center gap-1.5">
+          <Radio className="w-3.5 h-3.5 text-sky-500" />
+          <span>Upstream Router Locator</span> <span className="text-destructive">*</span>
+        </Label>
 
         <Input
           id="client-locator"
           value={clientLocator}
           onChange={(e) => setClientLocator(e.target.value)}
-          placeholder={`tcp/${activeMdnsHost}:7447 or tls/router.zenoh.io:7446`}
+          placeholder={`tcp/${activeMdnsHost}:7447`}
           className="h-8 text-xs font-mono bg-background"
         />
-
-        {/* mDNS Resolution Helper */}
-        <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-1">
-          <span>Enter upstream router locator or use local mDNS.</span>
-          <button
-            type="button"
-            onClick={() => setClientLocator(`tcp/${activeMdnsHost}:7447`)}
-            className="text-primary hover:underline font-mono text-[10px]"
-          >
-            Use {activeMdnsHost}
-          </button>
-        </div>
-
-        {/* Quick Fill suggestions */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-          <span className="text-[9px] text-muted-foreground">Quick Fill:</span>
-          <button
-            type="button"
-            onClick={() => setClientLocator(`tcp/${activeMdnsHost}:7447`)}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === `tcp/${activeMdnsHost}:7447`
-                ? 'border-primary text-primary bg-primary/5 font-semibold'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            tcp/{activeMdnsHost}:7447
-          </button>
-          {activeMdnsHost !== 'zenohx.local' && (
-            <button
-              type="button"
-              onClick={() => setClientLocator('tcp/zenohx.local:7447')}
-              className={`text-[9px] px-1.5 py-0.5 rounded border ${
-                clientLocator === 'tcp/zenohx.local:7447'
-                  ? 'border-primary text-primary bg-primary/5 font-semibold'
-                  : 'border-border text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              tcp/zenohx.local:7447
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setClientLocator('tcp/127.0.0.1:7447')}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === 'tcp/127.0.0.1:7447'
-                ? 'border-primary text-primary bg-primary/5 font-semibold'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            tcp/127.0.0.1:7447
-          </button>
-          <button
-            type="button"
-            onClick={() => setClientLocator('tcp/demo.zenoh.io:7447')}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === 'tcp/demo.zenoh.io:7447'
-                ? 'border-primary text-primary bg-primary/5 font-semibold'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            tcp/demo.zenoh.io:7447
-          </button>
-          <button
-            type="button"
-            onClick={() => setClientLocator('tls/demo.zenoh.io:7446')}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === 'tls/demo.zenoh.io:7446'
-                ? 'border-primary text-primary bg-primary/5 font-semibold'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            tls/demo.zenoh.io:7446
-          </button>
-          <button
-            type="button"
-            onClick={() => setClientLocator('ws/127.0.0.1:8080')}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === 'ws/127.0.0.1:8080'
-                ? 'border-primary text-primary bg-primary/5 font-semibold'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            ws/127.0.0.1:8080
-          </button>
-          <button
-            type="button"
-            onClick={() => setClientLocator('unixpipe//tmp/zenoh.sock')}
-            className={`text-[9px] px-1.5 py-0.5 rounded border ${
-              clientLocator === 'unixpipe//tmp/zenoh.sock'
-                ? 'border-primary text-primary bg-primary/5 font-semibold'
-                : 'border-border text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            /tmp/zenoh.sock
-          </button>
-        </div>
       </div>
 
       {/* Transport Protocol Quick Switch */}
-      <div className="space-y-1.5">
-        <SimpleTooltip content="Quickly switch transport protocol for the locator above.">
-          <Label className="text-[11px] font-medium text-muted-foreground cursor-pointer">Protocol Switcher</Label>
-        </SimpleTooltip>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-          {CLIENT_PROTOCOLS.map((p) => {
-            const Icon = p.icon;
+      <div className="space-y-1">
+        <Label className="text-[11px] font-medium text-muted-foreground">Protocol</Label>
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+          {SUPPORTED_TRANSPORT_PROTOCOLS.map((p) => {
             const isSelected = activeProtocol === p.id;
             return (
               <button
                 key={p.id}
                 type="button"
                 onClick={() => handleProtocolClick(p.id)}
-                className={`h-7 px-2 rounded-md border text-[10px] font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                className={`h-6 px-2 rounded border text-[10px] font-medium transition-colors ${
                   isSelected
-                    ? 'border-sky-500 bg-sky-500/10 text-sky-600 dark:text-sky-400 font-semibold'
+                    ? 'border-primary bg-primary/10 text-primary font-semibold'
                     : 'border-border bg-background hover:bg-muted/50 text-muted-foreground'
                 }`}
               >
-                <Icon className="w-3 h-3 shrink-0" />
-                <span>{p.id.toUpperCase()}</span>
+                {p.id.toUpperCase()}
               </button>
             );
           })}
@@ -252,12 +129,10 @@ export const ClientConfigForm: React.FC<ClientConfigFormProps> = ({
 
       {/* User Authentication */}
       <div className="space-y-2 pt-2 border-t">
-        <SimpleTooltip content="Zenoh user credentials or password token passed during session handshake.">
-          <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
-            <Shield className="w-3.5 h-3.5 text-muted-foreground" />
-            <span>User Authentication (Optional)</span>
-          </Label>
-        </SimpleTooltip>
+        <Label className="text-xs font-semibold flex items-center gap-1.5">
+          <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+          <span>User Authentication (Optional)</span>
+        </Label>
         <div className="grid grid-cols-2 gap-2">
           <Input
             value={username}

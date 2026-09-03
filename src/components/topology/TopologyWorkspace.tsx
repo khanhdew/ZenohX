@@ -105,14 +105,6 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
         (selectedNodeId && selectedNodeId.startsWith('profile-') && n.profileId === selectedNodeId.slice(8))
     ) || null;
 
-  const handleTriggerScout = async () => {
-    try {
-      await scout(3000);
-    } catch (err) {
-      console.error('Topology scout error:', err);
-    }
-  };
-
   const handleOpenProfileEditorForNode = (node: TopologyNode) => {
     const existing = findMatchingProfile(profiles, node);
     if (existing && onOpenProfileEditor) {
@@ -140,7 +132,7 @@ export const TopologyWorkspace: React.FC<TopologyWorkspaceProps> = ({
 
   return (
     <div className={`flex flex-col h-full w-full bg-background overflow-hidden relative ${className}`}>
-      <TopologyToolbar onTriggerScout={handleTriggerScout} />
+      <TopologyToolbar />
 
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
         <TopologyCanvas

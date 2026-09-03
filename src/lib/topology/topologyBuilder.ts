@@ -771,6 +771,11 @@ export function buildTopologyGraph({
       if (sNode && tNode) break;
     }
     if (sNode && tNode) {
+      sNode.connectedRouters = sNode.connectedRouters || [];
+      sNode.connectedPeers = sNode.connectedPeers || [];
+      tNode.connectedRouters = tNode.connectedRouters || [];
+      tNode.connectedPeers = tNode.connectedPeers || [];
+
       if (tNode.type === 'router') {
         if (!sNode.connectedRouters.includes(tNode.zid)) sNode.connectedRouters.push(tNode.zid);
       } else {

@@ -339,6 +339,8 @@ where
     let task_handle = tokio::spawn(async move {
         loop {
             tokio::select! {
+                biased;
+
                 _ = &mut stop_rx => {
                     let _ = queryable.undeclare().await;
                     break;

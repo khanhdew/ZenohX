@@ -22,7 +22,6 @@ import {
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
-import { SimpleTooltip } from '../../ui/tooltip';
 import { useActiveMdnsHost } from '../../../stores/settingsStore';
 
 export interface PeerConfigFormProps {
@@ -84,15 +83,13 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
         />
       </div>
 
-      {/* Optional Direct Connect Locators (to remote peers or routers) */}
+      {/* Optional Direct Connect Locators */}
       <div className="space-y-2 pt-1 border-t">
         <div className="flex items-center justify-between">
-          <SimpleTooltip content="Explicit unicast links to remote peers or upstream routers.">
-            <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
-              <Link className="w-3.5 h-3.5 text-primary" />
-              <span>Direct Connect Links (Optional)</span>
-            </Label>
-          </SimpleTooltip>
+          <Label className="text-xs font-semibold flex items-center gap-1.5">
+            <Link className="w-3.5 h-3.5 text-primary" />
+            <span>Direct Connect Links (Optional)</span>
+          </Label>
           <Button
             type="button"
             variant="outline"
@@ -106,20 +103,8 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
         </div>
 
         {connectLocators.length === 0 ? (
-          <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
-            <span>Pure multicast auto-discovery (no static outbound links).</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  addConnectLocator();
-                  setTimeout(() => updateConnectLocator(0, `tcp/${activeMdnsHost}:7447`), 0);
-                }}
-                className="text-[10px] font-medium text-primary hover:underline"
-              >
-                + Link Local Router ({activeMdnsHost})
-              </button>
-            </div>
+          <div className="p-2 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground">
+            No static links configured. Peers will discover each other via LAN multicast & gossip.
           </div>
         ) : (
           <div className="space-y-1.5">
@@ -128,7 +113,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                 <Input
                   value={loc}
                   onChange={(e) => updateConnectLocator(idx, e.target.value)}
-                  placeholder={`tcp/${activeMdnsHost}:7447 or tls/peer.domain.com:7446`}
+                  placeholder={`tcp/${activeMdnsHost}:7447`}
                   className="h-8 text-xs font-mono bg-background flex-1"
                 />
                 <Button
@@ -143,25 +128,6 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                 </Button>
               </div>
             ))}
-
-            {/* Quick Fill suggestions */}
-            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              <span className="text-[9px] text-muted-foreground">Quick Fill:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  if (connectLocators.length === 0) {
-                    addConnectLocator();
-                    setTimeout(() => updateConnectLocator(0, `tcp/${activeMdnsHost}:7447`), 0);
-                  } else {
-                    updateConnectLocator(connectLocators.length - 1, `tcp/${activeMdnsHost}:7447`);
-                  }
-                }}
-                className="text-[9px] px-1.5 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground font-mono"
-              >
-                tcp/{activeMdnsHost}:7447
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -170,12 +136,10 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
       {addListenLocator && updateListenLocator && removeListenLocator && (
         <div className="space-y-2 pt-1 border-t">
           <div className="flex items-center justify-between">
-            <SimpleTooltip content="Allow inbound direct connections from non-multicast peers. If empty, Zenoh automatically binds to an ephemeral dynamic port.">
-              <Label className="text-xs font-semibold flex items-center gap-1.5 cursor-pointer">
-                <Radio className="w-3.5 h-3.5 text-emerald-500" />
-                <span>Listen Locators (Optional / Dynamic)</span>
-              </Label>
-            </SimpleTooltip>
+            <Label className="text-xs font-semibold flex items-center gap-1.5">
+              <Radio className="w-3.5 h-3.5 text-emerald-500" />
+              <span>Listen Locators (Optional / Dynamic)</span>
+            </Label>
             <Button
               type="button"
               variant="outline"
@@ -189,20 +153,8 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
           </div>
 
           {listenLocators.length === 0 ? (
-            <div className="p-2.5 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground flex items-center justify-between">
-              <span>Dynamic ephemeral port (OS auto-assigns; peers discover via LAN multicast/gossip).</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    addListenLocator();
-                    setTimeout(() => updateListenLocator(0, 'tcp/0.0.0.0:0'), 0);
-                  }}
-                  className="text-[10px] font-medium text-primary hover:underline"
-                >
-                  + Add Custom Port
-                </button>
-              </div>
+            <div className="p-2 rounded-md bg-muted/20 border border-dashed text-[11px] text-muted-foreground">
+              Dynamic ephemeral port (default port: 0 auto-assigned by OS).
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -211,7 +163,7 @@ export const PeerConfigForm: React.FC<PeerConfigFormProps> = ({
                   <Input
                     value={loc}
                     onChange={(e) => updateListenLocator(idx, e.target.value)}
-                    placeholder="tcp/0.0.0.0:7447 or ws/0.0.0.0:8080"
+                    placeholder={`tcp/${activeMdnsHost}:0`}
                     className="h-8 text-xs font-mono bg-background flex-1"
                   />
                   <Button

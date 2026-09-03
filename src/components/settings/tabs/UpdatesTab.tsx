@@ -270,14 +270,12 @@ export const UpdatesTab: React.FC = () => {
         <div className="rounded-xl border bg-card divide-y shadow-xs">
           {/* Auto Check Updates on Launch */}
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Automatically Check for Updates
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Check for new releases in the background on startup.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Check for new releases in the background on startup."
+            >
+              Automatically Check for Updates
+            </label>
             <Switch
               checked={autoCheckUpdates}
               onCheckedChange={setAutoCheckUpdates}
@@ -286,14 +284,12 @@ export const UpdatesTab: React.FC = () => {
 
           {/* Release Channel */}
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Release Channel
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Select which release stream to receive updates from.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Select which release stream to receive updates from."
+            >
+              Release Channel
+            </label>
             <Select
               value={updateChannel}
               onValueChange={(val) => setUpdateChannel(val as UpdateChannel)}
@@ -311,14 +307,12 @@ export const UpdatesTab: React.FC = () => {
 
           {/* Auto Download Updates */}
           <div className="p-4 flex items-center justify-between">
-            <div>
-              <label className="text-xs font-medium text-foreground block">
-                Download Updates Automatically
-              </label>
-              <span className="text-[11px] text-muted-foreground">
-                Download packages silently and notify when ready to restart.
-              </span>
-            </div>
+            <label
+              className="text-xs font-medium text-foreground cursor-help"
+              title="Download packages silently and notify when ready to restart."
+            >
+              Download Updates Automatically
+            </label>
             <Switch
               checked={autoDownload}
               onCheckedChange={setAutoDownload}

@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { SimpleTooltip } from '../ui/tooltip';
 import type { ConnectionProfile } from '../../types/zenoh';
 import { useProfileForm } from './profile/useProfileForm';
 import { PresetSelector } from './profile/PresetSelector';
@@ -92,11 +91,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
             <div className="p-1.5 rounded-md bg-muted/60 text-foreground">
               <PanelRight className="w-4 h-4" />
             </div>
-            <SimpleTooltip content="Connect to a Zenoh cloud router, join a peer mesh, or run a local router.">
-              <h2 className="text-sm font-semibold text-foreground cursor-pointer">
-                {form.isEditing ? 'Edit Connection' : 'New Connection'}
-              </h2>
-            </SimpleTooltip>
+            <h2 className="text-sm font-semibold text-foreground">
+              {form.isEditing ? 'Edit Connection' : 'New Connection'}
+            </h2>
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[10px] uppercase font-mono">
@@ -197,7 +194,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
               ) : (
                 <ChevronDown className="w-3.5 h-3.5" />
               )}
-              {form.showAdvanced ? 'Hide Advanced Settings' : 'Show Advanced Settings (Mesh, mTLS, JSON5)'}
+              {form.showAdvanced ? 'Hide Advanced Settings' : 'Advanced Settings'}
             </button>
           </div>
 
@@ -216,6 +213,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
               {/* Custom TLS / Certificates (mTLS) Card */}
               <TlsConfigSection
+                enableTls={form.enableTls}
+                setEnableTls={form.setEnableTls}
                 useCustomTls={form.useCustomTls}
                 setUseCustomTls={form.setUseCustomTls}
                 tlsOnly={form.tlsOnly}

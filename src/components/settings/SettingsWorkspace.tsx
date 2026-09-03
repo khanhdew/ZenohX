@@ -22,9 +22,6 @@ import {
   Radio,
 } from 'lucide-react';
 import { clearMessageHistory, queryMessages } from '../../lib/tauri';
-import { useUpdateStore } from '../../stores/updateStore';
-import { useProtoStore } from '../../stores/protoStore';
-import { useSettingsStore } from '../../stores/settingsStore';
 import type { StoredMessage } from '../../types/zenoh';
 
 import { PreferencesTab } from './tabs/PreferencesTab';
@@ -42,10 +39,6 @@ type TabType = 'preferences' | 'network' | 'protobuf' | 'updates' | 'history' | 
 
 export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className = '' }) => {
   const [activeTab, setActiveTab] = useState<TabType>('preferences');
-
-  const updateStatus = useUpdateStore((state) => state.status);
-  const schemasCount = useProtoStore((state) => state.schemas.length);
-  const mdnsEnabled = useSettingsStore((state) => state.mdnsEnabled);
 
   // History SQLite States
   const [historyProfileId, setHistoryProfileId] = useState<string>('');
@@ -138,11 +131,8 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Radio className="w-3.5 h-3.5 text-emerald-500" />
+            <Radio className="w-3.5 h-3.5" />
             <span>Network & mDNS</span>
-            {mdnsEnabled && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            )}
           </button>
           <button
             type="button"
@@ -155,11 +145,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           >
             <FileCode2 className="w-3.5 h-3.5" />
             <span>Protobuf Manager</span>
-            {schemasCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-primary/15 text-primary text-[10px] font-semibold">
-                {schemasCount}
-              </span>
-            )}
           </button>
           <button
             type="button"
@@ -172,9 +157,6 @@ export const SettingsWorkspace: React.FC<SettingsWorkspaceProps> = ({ className 
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Updates</span>
-            {(updateStatus === 'available' || updateStatus === 'downloaded') && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            )}
           </button>
           <button
             type="button"

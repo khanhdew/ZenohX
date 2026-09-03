@@ -43,13 +43,14 @@ pub fn display_hostname(fqdn: &str) -> String {
     fqdn.trim_end_matches('.').to_string()
 }
 
-/// Collects all non-loopback local network interface IPv4 and IPv6 addresses.
+/// Collects all non-loopback local network interface IPv4 and IPv6 addresses without duplicates.
 pub fn collect_local_ip_addresses() -> Vec<IpAddr> {
     let mut ips = Vec::new();
     if let Ok(interfaces) = if_addrs::get_if_addrs() {
         for iface in interfaces {
-            if !iface.is_loopback() {
-                ips.push(iface.ip());
+            let ip = iface.ip();
+            if !iface.is_loopback() && !ips.contains(&ip) {
+                ips.push(ip);
             }
         }
     }
@@ -85,5 +86,9 @@ mod tests {
     fn test_collect_local_ip_addresses() {
         let ips = collect_local_ip_addresses();
         assert!(!ips.is_empty(), "Should return at least one IP address");
+        let mut unique_ips = ips.clone();
+        unique_ips.sort();
+        unique_ips.dedup();
+        assert_eq!(ips.len(), unique_ips.len(), "IP list should not contain duplicates");
     }
 }

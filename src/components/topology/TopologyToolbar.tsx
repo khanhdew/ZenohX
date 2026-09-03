@@ -14,45 +14,24 @@
 
 import {
   Search,
-  Radar,
   LayoutGrid,
   Sparkles,
-  ChevronDown,
-  Globe,
 } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-} from '../ui/dropdown-menu';
 import { useTopologyStore } from '../../stores/topologyStore';
-import { useConnectionStore } from '../../stores/connectionStore';
 
-export interface TopologyToolbarProps {
-  onTriggerScout: () => void;
-}
+export interface TopologyToolbarProps {}
 
-export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout }) => {
+export const TopologyToolbar: React.FC<TopologyToolbarProps> = () => {
   const nodes = useTopologyStore((s) => s.nodes);
   const searchQuery = useTopologyStore((s) => s.searchQuery);
   const filterType = useTopologyStore((s) => s.filterType);
   const layoutMode = useTopologyStore((s) => s.layoutMode);
-  const autoScoutInterval = useTopologyStore((s) => s.autoScoutInterval);
-  const adminDiscoveryEnabled = useTopologyStore((s) => s.adminDiscoveryEnabled);
-  const setAdminDiscoveryEnabled = useTopologyStore((s) => s.setAdminDiscoveryEnabled);
 
   const setSearchQuery = useTopologyStore((s) => s.setSearchQuery);
   const setFilterType = useTopologyStore((s) => s.setFilterType);
   const setLayoutMode = useTopologyStore((s) => s.setLayoutMode);
-  const setAutoScoutInterval = useTopologyStore((s) => s.setAutoScoutInterval);
-
-  const isScouting = useConnectionStore((s) => s.isScouting);
 
   const localCount = nodes.filter((n) => n.scope === 'local').length;
   const remoteCount = nodes.filter((n) => n.scope === 'remote').length;
@@ -156,7 +135,7 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
         </button>
       </div>
 
-      {/* Right: Layout Switcher, Auto-Scout Dropdown & Scout Trigger */}
+      {/* Right: Layout Switcher */}
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-md bg-muted p-0.5">
           <Button
@@ -184,91 +163,6 @@ export const TopologyToolbar: React.FC<TopologyToolbarProps> = ({ onTriggerScout
             <LayoutGrid className="w-3 h-3" />
             <span>Radial</span>
           </Button>
-        </div>
-
-        {/* Admin Space Discovery Toggle */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setAdminDiscoveryEnabled(!adminDiscoveryEnabled)}
-          className={`h-8 px-2.5 text-xs gap-1.5 font-medium border rounded-md transition-colors ${
-            adminDiscoveryEnabled
-              ? 'bg-primary/10 text-primary border-primary/30'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
-          title={
-            adminDiscoveryEnabled
-              ? 'Admin Space mesh discovery active (@/**)'
-              : 'Click to enable Admin Space mesh discovery (@/**)'
-          }
-        >
-          <Globe className="w-3.5 h-3.5" />
-          <span>Admin Space</span>
-        </Button>
-
-        {/* Unified Scout Split Button with Auto-Scout Dropdown */}
-        <div className="flex items-center rounded-md border bg-card shadow-xs overflow-hidden">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onTriggerScout}
-            disabled={isScouting}
-            className="h-8 px-2.5 text-xs gap-1.5 font-medium rounded-r-none border-r hover:bg-accent/50"
-            title="Scan local network for Zenoh routers and peers"
-          >
-            <Radar className={`w-3.5 h-3.5 ${isScouting ? 'animate-spin text-primary' : autoScoutInterval > 0 ? 'text-emerald-500' : ''}`} />
-            <span>{isScouting ? 'Scanning...' : 'Scout LAN'}</span>
-          </Button>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`h-8 px-2 text-xs gap-1 rounded-l-none hover:bg-accent/50 ${
-                  autoScoutInterval > 0
-                    ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-                    : 'text-muted-foreground'
-                }`}
-                title="Configure Auto-Scout Interval"
-              >
-                <span className="text-[11px] font-mono">
-                  {autoScoutInterval === 0
-                    ? 'Off'
-                    : autoScoutInterval >= 1000
-                    ? `${autoScoutInterval / 1000}s`
-                    : `${autoScoutInterval}ms`}
-                </span>
-                <ChevronDown className="w-3 h-3 opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-36">
-              <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                Auto Scout
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup
-                value={String(autoScoutInterval)}
-                onValueChange={(val) => setAutoScoutInterval(Number(val))}
-              >
-                <DropdownMenuRadioItem value="0" className="text-xs">
-                  Off (Manual)
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="5000" className="text-xs">
-                  Every 5s
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="10000" className="text-xs">
-                  Every 10s
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="30000" className="text-xs">
-                  Every 30s
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="60000" className="text-xs">
-                  Every 60s
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
     </div>

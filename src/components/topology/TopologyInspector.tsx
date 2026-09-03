@@ -102,6 +102,9 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
 
   if (!node || !liveNode) return null;
 
+  const connectedRouters = liveNode.connectedRouters || node.connectedRouters || [];
+  const connectedPeers = liveNode.connectedPeers || node.connectedPeers || [];
+
   const handleStartEditing = () => {
     setCustomNameInput(resolvedName);
     setIsEditingName(true);
@@ -482,12 +485,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                   <span className="flex items-center gap-1">
                     <Server className="w-3 h-3 text-indigo-500" />
-                    Connected Routers ({(liveNode.connectedRouters || node.connectedRouters)?.length || 0})
+                    Connected Routers ({connectedRouters.length})
                   </span>
                 </div>
-                {(liveNode.connectedRouters || node.connectedRouters) && (liveNode.connectedRouters || node.connectedRouters)!.length > 0 ? (
+                {connectedRouters.length > 0 ? (
                   <div className="space-y-1">
-                    {(liveNode.connectedRouters || node.connectedRouters)!.map((rZid, idx) => (
+                    {connectedRouters.map((rZid, idx) => (
                       <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
                         <span className="truncate" title={rZid}>{rZid}</span>
                         <Badge variant="outline" className="text-[8px] px-1 py-0 bg-indigo-500/10 text-indigo-500 border-indigo-500/20">
@@ -506,12 +509,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                   <span className="flex items-center gap-1">
                     <Share2 className="w-3 h-3 text-emerald-500" />
-                    Connected Peers ({(liveNode.connectedPeers || node.connectedPeers)?.length || 0})
+                    Connected Peers ({connectedPeers.length})
                   </span>
                 </div>
-                {(liveNode.connectedPeers || node.connectedPeers) && (liveNode.connectedPeers || node.connectedPeers)!.length > 0 ? (
+                {connectedPeers.length > 0 ? (
                   <div className="space-y-1">
-                    {(liveNode.connectedPeers || node.connectedPeers)!.map((pZid, idx) => (
+                    {connectedPeers.map((pZid, idx) => (
                       <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
                         <span className="truncate" title={pZid}>{pZid}</span>
                         <Badge variant="outline" className="text-[8px] px-1 py-0 bg-emerald-500/10 text-emerald-500 border-emerald-500/20">

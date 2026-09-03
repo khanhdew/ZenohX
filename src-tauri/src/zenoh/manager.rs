@@ -879,7 +879,11 @@ impl SessionManager {
             } else if entry.key_expr.contains("/session/link") {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
                     if let Some(dst) = v.get("dst").and_then(|v| v.as_str()) {
-                        if !dst.is_empty() && !dst.contains("127.0.0.1") && !dst.ends_with(":0") {
+                        if !dst.is_empty()
+                            && !dst.contains("127.0.0.1")
+                            && !dst.ends_with(":0")
+                            && !is_ephemeral_port_locator(dst)
+                        {
                             remote_connect_locs.push(dst.to_string());
                         }
                     }
@@ -1066,6 +1070,11 @@ impl SessionManager {
             }
         }
 
+        // Dedup and filter root next_wave_zids
+        next_wave_zids.sort();
+        next_wave_zids.dedup();
+        next_wave_zids.retain(|z| !visited_zids.contains(z));
+
         // 2. Iterative BFS waves up to max_depth
         let mut current_depth = 1;
         while current_depth < max_depth && !next_wave_zids.is_empty() {
@@ -1079,9 +1088,16 @@ impl SessionManager {
                 break;
             }
 
-            for target_zid in unvisited {
+            let wave_timeout = (timeout_ms / 2).max(1000);
+            let query_futures = unvisited.iter().map(|target_zid| async move {
                 let sel = format!("@/{target_zid}/**");
-                if let Ok(entries) = self.query_admin_space(session_id, Some(&sel), (timeout_ms / 2).max(1000)).await {
+                self.query_admin_space(session_id, Some(&sel), wave_timeout).await
+            });
+
+            let wave_results = futures::future::join_all(query_futures).await;
+
+            for entries_res in wave_results {
+                if let Ok(entries) = entries_res {
                     for entry in entries {
                         if entry.key_expr.contains("/router/") {
                             let parts: Vec<&str> = entry.key_expr.split('/').collect();
@@ -1100,6 +1116,12 @@ impl SessionManager {
                     }
                 }
             }
+
+            // Dedup sub-node ZIDs extracted from this wave
+            next_wave_zids.sort();
+            next_wave_zids.dedup();
+            next_wave_zids.retain(|z| !visited_zids.contains(z));
+
             current_depth += 1;
         }
 
@@ -1312,6 +1334,24 @@ pub fn resolve_bound_locators(raw_locators: Vec<String>) -> Vec<String> {
     }
 
     resolved
+}
+
+/// Checks if a locator uses an ephemeral outbound dynamic socket port (>= 32768).
+pub fn is_ephemeral_port_locator(loc: &str) -> bool {
+    let clean = loc.trim();
+    if clean.starts_with("unix/") || clean.starts_with("unixpipe/") {
+        return false;
+    }
+    if let Some(last_colon) = clean.rfind(':') {
+        let port_part = clean[last_colon + 1..]
+            .split(&['/', '?', '#'][..])
+            .next()
+            .unwrap_or("");
+        if let Ok(port) = port_part.parse::<u16>() {
+            return port >= 32768;
+        }
+    }
+    false
 }
 
 

@@ -336,6 +336,47 @@ describe('Admin Space Parser', () => {
     assert.ok(node);
     assert.deepEqual(node.connectLocators, []);
   });
+
+  it('does not classify inbound links with ephemeral ports as connect locators', () => {
+    const entries: AdminSpaceEntry[] = [
+      {
+        keyExpr: '@/remote-node-ephemeral/session/info',
+        zid: 'remote-node-ephemeral',
+        category: 'info',
+        payloadJson: JSON.stringify({ zid: 'remote-node-ephemeral', whatami: 'Router' }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: '@/remote-node-ephemeral/session/link/unicast/0',
+        zid: 'remote-node-ephemeral',
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tcp/10.0.0.1:7447',
+          dst: 'tcp/192.168.1.50:49152',
+          is_streamed: true,
+        }),
+        timestamp: 1000,
+      },
+      {
+        keyExpr: '@/remote-node-ephemeral/session/link/unicast/1',
+        zid: 'remote-node-ephemeral',
+        category: 'link',
+        payloadJson: JSON.stringify({
+          src: 'tcp/10.0.0.1:7447',
+          dst: 'tcp/10.0.0.2:7447',
+          is_streamed: true,
+        }),
+        timestamp: 1000,
+      },
+    ];
+
+    const parsed = parseAdminSpaceEntries(entries);
+    const node = parsed.nodes.get('remote-node-ephemeral');
+    assert.ok(node);
+    assert.ok(node.connectLocators.includes('tcp/10.0.0.2:7447'));
+    assert.equal(node.connectLocators.includes('tcp/192.168.1.50:49152'), false);
+    assert.equal(parsed.links.length, 2);
+  });
 });
 
 

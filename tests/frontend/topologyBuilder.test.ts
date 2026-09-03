@@ -1364,6 +1364,57 @@ describe('Topology Data Builder', () => {
     );
     assert.ok(edge, 'Edge should exist between sub-node and parent router matching dstLocator');
   });
+
+  it('preserves loopback 127.0.0.1 connectLocators on local nodes during Admin Space merge', () => {
+    const profile: ConnectionProfile = {
+      id: 'local-loopback-peer',
+      name: 'Local Loopback Peer',
+      mode: 'peer',
+      connect_locators: ['tcp/127.0.0.1:7447'],
+      listen_locators: ['tcp/127.0.0.1:7448'],
+      scout_multicast: false,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    const adminData: AdminTopologyData = {
+      nodes: new Map([
+        [
+          'local-loopback-peer',
+          {
+            zid: 'local-loopback-peer',
+            whatami: 'peer',
+            locators: ['tcp/10.0.0.1:7448'],
+            connectLocators: ['tcp/10.0.0.2:7447'],
+            neighbors: [],
+            links: [],
+          },
+        ],
+      ]),
+      links: [],
+    };
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {
+        'local-loopback-peer': {
+          id: 'sess-loopback',
+          profile_id: 'local-loopback-peer',
+          zid: 'local-loopback-peer',
+          connected_at: '2026-01-01T00:00:00Z',
+          connect_locators: ['tcp/127.0.0.1:7447'],
+        },
+      },
+      profiles: [profile],
+      adminData,
+    });
+
+    const node = nodes.find((n) => n.zid === 'local-loopback-peer');
+    assert.ok(node);
+    assert.equal(node.scope, 'local');
+    assert.ok(node.connectLocators?.includes('tcp/127.0.0.1:7447'), 'local node must retain loopback connect locator');
+    assert.ok(node.connectLocators?.includes('tcp/10.0.0.2:7447'), 'local node should also gain new connect locator');
+  });
 });
 
 

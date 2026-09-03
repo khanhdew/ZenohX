@@ -20,6 +20,7 @@ import type {
   BuildTopologyOptions,
   LinkTrafficFlash,
   AdminTopologyData,
+  AdminSpaceEntry,
 } from '../types/topology';
 import { buildTopologyGraph } from '../lib/topology/topologyBuilder';
 import { applyRadialLayout, type ViewTransform } from '../lib/topology/forceEngine';
@@ -208,7 +209,7 @@ export const useTopologyStore = create<TopologyState>()(
       }
 
       try {
-        const allEntries: import('../types/topology').AdminSpaceEntry[] = [];
+        const allEntries: AdminSpaceEntry[] = [];
         for (const s of sessionList) {
           try {
             const entries = await discoverAdminTopology(s.id, 3, 2500);

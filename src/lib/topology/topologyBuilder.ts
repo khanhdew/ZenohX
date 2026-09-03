@@ -604,13 +604,19 @@ export function buildTopologyGraph({
       if (existing) {
         existing.status = 'connected';
         if (admNode.locators && admNode.locators.length > 0) {
-          existing.locators = filterRealLocators(
-            Array.from(new Set([...existing.locators, ...admNode.locators]))
+          const incomingLocs = existing.scope === 'local'
+            ? admNode.locators
+            : filterRealLocators(admNode.locators);
+          existing.locators = Array.from(
+            new Set([...existing.locators, ...incomingLocs])
           );
         }
         if (admNode.connectLocators && admNode.connectLocators.length > 0) {
-          existing.connectLocators = filterRealLocators(
-            Array.from(new Set([...(existing.connectLocators || []), ...admNode.connectLocators]))
+          const incomingConnects = existing.scope === 'local'
+            ? admNode.connectLocators
+            : filterRealLocators(admNode.connectLocators);
+          existing.connectLocators = Array.from(
+            new Set([...(existing.connectLocators || []), ...incomingConnects])
           );
         }
         if (admNode.links) {

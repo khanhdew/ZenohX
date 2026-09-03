@@ -24,7 +24,7 @@ import type {
   AdminTopologyData,
 } from '../../types/topology';
 import type { SessionLinkInfo } from '../../types/zenoh';
-import { filterRealLocators } from '../tls';
+import { filterRealLocators, isEphemeralPortLocator } from '../tls';
 
 const RESERVED_ADMIN_PATH_TOKENS = new Set([
   'session',
@@ -335,10 +335,12 @@ export function parseAdminSpaceEntries(entries: AdminSpaceEntry[]): AdminTopolog
           node.links.push(linkInfo);
 
           if (dst) {
-            const expandedDst = expandBoundLocator(dst, interfaces);
-            node.connectLocators = filterRealLocators(
-              Array.from(new Set([...node.connectLocators, ...expandedDst]))
-            );
+            if (!isEphemeralPortLocator(dst)) {
+              const expandedDst = expandBoundLocator(dst, interfaces);
+              node.connectLocators = filterRealLocators(
+                Array.from(new Set([...node.connectLocators, ...expandedDst]))
+              );
+            }
 
             links.push({
               sourceZid: targetZid,

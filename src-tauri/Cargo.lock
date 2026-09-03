@@ -7214,6 +7214,7 @@ version = "0.6.0"
 dependencies = [
  "chrono",
  "ciborium",
+ "futures",
  "hex",
  "if-addrs 0.13.4",
  "mdns-sd",

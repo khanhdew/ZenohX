@@ -1135,6 +1135,21 @@ mod tests {
             .await
             .unwrap();
 
+        // Inbound link with ephemeral client port (>= 32768) - must NOT be treated as connect locator
+        let q4_key = format!("@/{remote_zid}/session/link/link_ephemeral");
+        let q4_id = uuid::Uuid::new_v4();
+        manager
+            .declare_queryable(&session_id, q4_id, &q4_key, move |query| async move {
+                let _ = query
+                    .reply(
+                        &query.key_expr,
+                        br#"{"dst": "tcp/192.168.1.50:49152", "src": "tcp/127.0.0.1:0"}"#.to_vec(),
+                    )
+                    .await;
+            })
+            .await
+            .unwrap();
+
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let res = manager
@@ -1146,12 +1161,25 @@ mod tests {
         assert_eq!(res.status, "remote");
         assert_eq!(res.mode, "router");
         assert!(!res.is_local);
+        // Verify ephemeral port 49152 is excluded, only static ports 7447 are kept
         assert_eq!(
             res.connect_locators,
             vec!["tcp/10.0.0.5:7447".to_string(), "tcp/192.168.1.100:7447".to_string()]
         );
+        assert!(!res.connect_locators.contains(&"tcp/192.168.1.50:49152".to_string()));
 
         manager.disconnect(&session_id).await.unwrap();
+    }
+
+    #[test]
+    fn test_is_ephemeral_port_locator() {
+        assert!(is_ephemeral_port_locator("tcp/192.168.1.50:49152"));
+        assert!(is_ephemeral_port_locator("tcp/10.0.0.1:32768"));
+        assert!(is_ephemeral_port_locator("tls/example.com:65535"));
+        assert!(!is_ephemeral_port_locator("tcp/192.168.1.100:7447"));
+        assert!(!is_ephemeral_port_locator("tcp/10.0.0.1:8080"));
+        assert!(!is_ephemeral_port_locator("tcp/10.0.0.1:32767"));
+        assert!(!is_ephemeral_port_locator("unix//tmp/zenoh.sock"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

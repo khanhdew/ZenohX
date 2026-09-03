@@ -857,8 +857,9 @@ impl SessionManager {
             }
         };
 
-        // Extract remote locators from admin space
+        // Extract remote locators and connect locators from admin space
         let mut remote_locs = Vec::new();
+        let mut remote_connect_locs = Vec::new();
         let mut remote_mode = "router".to_string();
         for entry in &remote_admin_entries {
             if entry.key_expr.contains("/session/info") {
@@ -875,17 +876,39 @@ impl SessionManager {
                         }
                     }
                 }
+            } else if entry.key_expr.contains("/session/link") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                    if let Some(dst) = v.get("dst").and_then(|v| v.as_str()) {
+                        if !dst.is_empty() && !dst.contains("127.0.0.1") && !dst.ends_with(":0") {
+                            remote_connect_locs.push(dst.to_string());
+                        }
+                    }
+                }
+            } else if entry.key_expr.contains("/config") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&entry.payload_json) {
+                    if let Some(endpoints) = v.get("connect").and_then(|c| c.get("endpoints")).and_then(|e| e.as_array()) {
+                        for ep in endpoints {
+                            if let Some(s) = ep.as_str() {
+                                if !s.is_empty() && !s.contains("127.0.0.1") {
+                                    remote_connect_locs.push(s.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
         remote_locs.sort();
         remote_locs.dedup();
+        remote_connect_locs.sort();
+        remote_connect_locs.dedup();
 
         let is_remote_router = remote_mode.to_lowercase() == "router";
         let remote_config = SessionConfig {
             profile_id: None,
             mode: remote_mode.clone(),
-            connect_locators: vec![],
+            connect_locators: remote_connect_locs.clone(),
             listen_locators: if is_remote_router { remote_locs.clone() } else { vec![] },
             scout_multicast: true,
             scout_gossip: true,
@@ -903,7 +926,7 @@ impl SessionManager {
             mode: remote_mode,
             status: "remote".to_string(),
             locators: remote_locs,
-            connect_locators: vec![],
+            connect_locators: remote_connect_locs,
             json5,
             is_local: false,
         })
@@ -1008,6 +1031,79 @@ impl SessionManager {
         }
 
         Ok(entries)
+    }
+
+    /// Recursively discovers admin space topology across connected routers and peers up to max_depth waves.
+    pub async fn discover_admin_topology(
+        &self,
+        session_id: &Uuid,
+        max_depth: usize,
+        timeout_ms: u64,
+    ) -> Result<Vec<AdminSpaceEntry>, String> {
+        let mut all_entries = Vec::new();
+        let mut visited_zids = std::collections::HashSet::new();
+        let mut key_set = std::collections::HashSet::new();
+
+        // 1. Root query @/**
+        let root_entries = self.query_admin_space(session_id, Some("@/**"), timeout_ms).await?;
+        let mut next_wave_zids = Vec::new();
+
+        for entry in root_entries {
+            if let Some(ref zid) = entry.zid {
+                visited_zids.insert(zid.to_lowercase());
+            }
+            // Extract neighbor/sub-node ZIDs from entry
+            if entry.key_expr.contains("/router/") {
+                let parts: Vec<&str> = entry.key_expr.split('/').collect();
+                if let Some(idx) = parts.iter().position(|&p| p == "router") {
+                    if idx + 1 < parts.len() {
+                        next_wave_zids.push(parts[idx + 1].to_lowercase());
+                    }
+                }
+            }
+            if key_set.insert(entry.key_expr.clone()) {
+                all_entries.push(entry);
+            }
+        }
+
+        // 2. Iterative BFS waves up to max_depth
+        let mut current_depth = 1;
+        while current_depth < max_depth && !next_wave_zids.is_empty() {
+            let wave = std::mem::take(&mut next_wave_zids);
+            let unvisited: Vec<String> = wave
+                .into_iter()
+                .filter(|z| visited_zids.insert(z.clone()))
+                .collect();
+
+            if unvisited.is_empty() {
+                break;
+            }
+
+            for target_zid in unvisited {
+                let sel = format!("@/{target_zid}/**");
+                if let Ok(entries) = self.query_admin_space(session_id, Some(&sel), (timeout_ms / 2).max(1000)).await {
+                    for entry in entries {
+                        if entry.key_expr.contains("/router/") {
+                            let parts: Vec<&str> = entry.key_expr.split('/').collect();
+                            if let Some(idx) = parts.iter().position(|&p| p == "router") {
+                                if idx + 1 < parts.len() {
+                                    let sub = parts[idx + 1].to_lowercase();
+                                    if !visited_zids.contains(&sub) {
+                                        next_wave_zids.push(sub);
+                                    }
+                                }
+                            }
+                        }
+                        if key_set.insert(entry.key_expr.clone()) {
+                            all_entries.push(entry);
+                        }
+                    }
+                }
+            }
+            current_depth += 1;
+        }
+
+        Ok(all_entries)
     }
 }
 

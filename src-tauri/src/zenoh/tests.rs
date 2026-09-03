@@ -1089,6 +1089,117 @@ mod tests {
         assert_eq!(reconnect_sorted, expected_sorted);
         manager.disconnect(&reconnect_id).await.expect("disconnect reconnect session");
     }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_remote_node_configuration_extracts_connect_locators() {
+        let manager = SessionManager::new();
+        let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
+
+        let remote_zid = "a1b2c3d4e5f60718";
+        let q1_key = format!("@/{remote_zid}/session/link/link0");
+        let q1_id = uuid::Uuid::new_v4();
+        manager
+            .declare_queryable(&session_id, q1_id, &q1_key, move |query| async move {
+                let _ = query
+                    .reply(
+                        &query.key_expr,
+                        br#"{"dst": "tcp/192.168.1.100:7447", "src": "tcp/127.0.0.1:0"}"#.to_vec(),
+                    )
+                    .await;
+            })
+            .await
+            .unwrap();
+
+        let q2_key = format!("@/{remote_zid}/config");
+        let q2_id = uuid::Uuid::new_v4();
+        manager
+            .declare_queryable(&session_id, q2_id, &q2_key, move |query| async move {
+                let _ = query
+                    .reply(
+                        &query.key_expr,
+                        br#"{"connect": {"endpoints": ["tcp/10.0.0.5:7447", "tcp/127.0.0.1:7447"]}}"#.to_vec(),
+                    )
+                    .await;
+            })
+            .await
+            .unwrap();
+
+        let q3_key = format!("@/{remote_zid}/session/info");
+        let q3_id = uuid::Uuid::new_v4();
+        manager
+            .declare_queryable(&session_id, q3_id, &q3_key, move |query| async move {
+                let _ = query
+                    .reply(&query.key_expr, br#"{"whatami": "router"}"#.to_vec())
+                    .await;
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let res = manager
+            .get_node_configuration(remote_zid)
+            .await
+            .expect("get remote node configuration");
+
+        assert_eq!(res.zid, remote_zid);
+        assert_eq!(res.status, "remote");
+        assert_eq!(res.mode, "router");
+        assert!(!res.is_local);
+        assert_eq!(
+            res.connect_locators,
+            vec!["tcp/10.0.0.5:7447".to_string(), "tcp/192.168.1.100:7447".to_string()]
+        );
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_discover_admin_topology_bounds_depth() {
+        let manager = SessionManager::new();
+        let session_id = manager.connect(SessionConfig::default_peer()).await.unwrap();
+
+        // 1. Invalid session returns error
+        let invalid_sid = uuid::Uuid::new_v4();
+        let err_res = manager.discover_admin_topology(&invalid_sid, 3, 1000).await;
+        assert!(err_res.is_err());
+
+        // 2. Mock a cycle between routers: r1 -> r2, r2 -> r1
+        let r1_zid = "1111111111111111";
+        let r2_zid = "2222222222222222";
+        let q1_id = uuid::Uuid::new_v4();
+        let q2_id = uuid::Uuid::new_v4();
+
+        let k1 = format!("@/{r1_zid}/router/{r2_zid}");
+        let k2 = format!("@/{r2_zid}/router/{r1_zid}");
+
+        manager
+            .declare_queryable(&session_id, q1_id, &k1, move |query| async move {
+                let _ = query.reply(&query.key_expr, b"{}".to_vec()).await;
+            })
+            .await
+            .unwrap();
+
+        manager
+            .declare_queryable(&session_id, q2_id, &k2, move |query| async move {
+                let _ = query.reply(&query.key_expr, b"{}".to_vec()).await;
+            })
+            .await
+            .unwrap();
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Bounded depth test with max_depth = 2
+        let entries = manager
+            .discover_admin_topology(&session_id, 2, 1000)
+            .await
+            .expect("discover admin topology");
+
+        // Verify entries were returned and cycle did not cause infinite loop
+        assert!(!entries.is_empty());
+
+        manager.disconnect(&session_id).await.unwrap();
+    }
 }
 
 

@@ -103,6 +103,7 @@ pub fn run() {
             get_all_sessions,
             get_node_configuration,
             query_admin_space,
+            discover_admin_topology,
             publish_sample,
             publish_sample_advanced,
             subscribe,

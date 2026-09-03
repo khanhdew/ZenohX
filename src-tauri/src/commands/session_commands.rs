@@ -141,6 +141,21 @@ pub async fn query_admin_space(
         .await
 }
 
+/// Recursively discovers admin space topology across connected routers and peers up to max_depth waves.
+#[tauri::command]
+pub async fn discover_admin_topology(
+    state: State<'_, AppState>,
+    session_id: String,
+    max_depth: Option<usize>,
+    timeout_ms: Option<u64>,
+) -> Result<Vec<AdminSpaceEntry>, String> {
+    let sid = Uuid::parse_str(&session_id).map_err(|e| format!("Invalid session ID: {e}"))?;
+    state
+        .session_manager
+        .discover_admin_topology(&sid, max_depth.unwrap_or(3), timeout_ms.unwrap_or(2000))
+        .await
+}
+
 /// Retrieves authoritative node configuration (JSON5) by ZID directly from Rust backend.
 #[tauri::command]
 pub async fn get_node_configuration(

@@ -24,7 +24,7 @@ import {
 } from '../../src/lib/topology/topologyBuilder.ts';
 import { parseAdminSpaceEntries } from '../../src/lib/topology/adminSpaceParser.ts';
 import type { ScoutedNode, ConnectionProfile, ActiveSession } from '../../src/types/zenoh.ts';
-import type { TopologyNode, AdminSpaceEntry } from '../../src/types/topology.ts';
+import type { TopologyNode, AdminSpaceEntry, AdminTopologyData } from '../../src/types/topology.ts';
 
 describe('Topology Data Builder', () => {
   it('extracts locator protocols correctly', () => {
@@ -1204,6 +1204,165 @@ describe('Topology Data Builder', () => {
     // Ephemeral port 44331 must NOT be in locators
     assert.equal(clientNode.locators.length, 0);
     assert.ok(!clientNode.locators.some((l) => l.includes('44331')));
+  });
+
+  it('populates connectLocators on remote admin nodes and links edges', () => {
+    const adminData: AdminTopologyData = {
+      nodes: new Map([
+        [
+          'sub-peer-1',
+          {
+            zid: 'sub-peer-1',
+            whatami: 'peer',
+            locators: ['tcp/192.168.1.200:7447'],
+            connectLocators: ['tcp/10.0.0.1:7447'],
+            neighbors: [],
+            links: [],
+          },
+        ],
+        [
+          'parent-router-1',
+          {
+            zid: 'parent-router-1',
+            whatami: 'router',
+            locators: ['tcp/10.0.0.1:7447'],
+            connectLocators: [],
+            neighbors: ['sub-peer-1'],
+            links: [],
+          },
+        ],
+      ]),
+      links: [
+        {
+          sourceZid: 'sub-peer-1',
+          targetZid: 'parent-router-1',
+          srcLocator: 'tcp/192.168.1.200:54321',
+          dstLocator: 'tcp/10.0.0.1:7447',
+        },
+      ],
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {},
+      profiles: [],
+      adminData,
+    });
+
+    const subNode = nodes.find((n) => n.zid === 'sub-peer-1');
+    assert.ok(subNode);
+    assert.deepEqual(subNode.connectLocators, ['tcp/10.0.0.1:7447']);
+
+    const edge = edges.find(
+      (e) =>
+        (e.source === subNode.id && e.target === 'admin-parent-router-1') ||
+        (e.target === subNode.id && e.source === 'admin-parent-router-1')
+    );
+    assert.ok(edge, 'Edge should exist between sub-node and parent router');
+  });
+
+  it('merges connectLocators when updating existing node from Admin Space', () => {
+    const profile: ConnectionProfile = {
+      id: 'sub-peer-2',
+      name: 'Sub Peer 2',
+      mode: 'peer',
+      connect_locators: ['tcp/10.0.0.1:7447'],
+      listen_locators: ['tcp/192.168.1.201:7447'],
+      scout_multicast: false,
+      created_at: 1000,
+      updated_at: 1000,
+    };
+
+    const adminData: AdminTopologyData = {
+      nodes: new Map([
+        [
+          'sub-peer-2',
+          {
+            zid: 'sub-peer-2',
+            whatami: 'peer',
+            locators: ['tcp/192.168.1.201:7447'],
+            connectLocators: ['tcp/10.0.0.2:7447'],
+            neighbors: [],
+            links: [],
+          },
+        ],
+      ]),
+      links: [],
+    };
+
+    const { nodes } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {
+        'sub-peer-2': {
+          id: 'sess-2',
+          profile_id: 'sub-peer-2',
+          zid: 'sub-peer-2',
+          connected_at: '2026-01-01T00:00:00Z',
+          connect_locators: ['tcp/10.0.0.1:7447'],
+        },
+      },
+      profiles: [profile],
+      adminData,
+    });
+
+    const node = nodes.find((n) => n.zid === 'sub-peer-2');
+    assert.ok(node);
+    assert.deepEqual(node.connectLocators, ['tcp/10.0.0.1:7447', 'tcp/10.0.0.2:7447']);
+  });
+
+  it('links sub-node to parent router by matching dstLocator when targetZid is omitted', () => {
+    const adminData: AdminTopologyData = {
+      nodes: new Map([
+        [
+          'sub-peer-3',
+          {
+            zid: 'sub-peer-3',
+            whatami: 'peer',
+            locators: ['tcp/192.168.1.202:7447'],
+            connectLocators: ['tcp/10.0.0.5:7447'],
+            neighbors: [],
+            links: [],
+          },
+        ],
+        [
+          'parent-router-5',
+          {
+            zid: 'parent-router-5',
+            whatami: 'router',
+            locators: ['tcp/10.0.0.5:7447'],
+            connectLocators: [],
+            neighbors: [],
+            links: [],
+          },
+        ],
+      ]),
+      links: [
+        {
+          sourceZid: 'sub-peer-3',
+          srcLocator: 'tcp/192.168.1.202:54322',
+          dstLocator: 'tcp/10.0.0.5:7447',
+        },
+      ],
+    };
+
+    const { nodes, edges } = buildTopologyGraph({
+      scoutedNodes: [],
+      activeSessions: {},
+      profiles: [],
+      adminData,
+    });
+
+    const subNode = nodes.find((n) => n.zid === 'sub-peer-3');
+    const parentNode = nodes.find((n) => n.zid === 'parent-router-5');
+    assert.ok(subNode);
+    assert.ok(parentNode);
+
+    const edge = edges.find(
+      (e) =>
+        (e.source === subNode.id && e.target === parentNode.id) ||
+        (e.target === subNode.id && e.source === parentNode.id)
+    );
+    assert.ok(edge, 'Edge should exist between sub-node and parent router matching dstLocator');
   });
 });
 

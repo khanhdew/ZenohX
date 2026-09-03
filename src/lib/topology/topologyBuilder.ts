@@ -608,6 +608,11 @@ export function buildTopologyGraph({
             Array.from(new Set([...existing.locators, ...admNode.locators]))
           );
         }
+        if (admNode.connectLocators && admNode.connectLocators.length > 0) {
+          existing.connectLocators = filterRealLocators(
+            Array.from(new Set([...(existing.connectLocators || []), ...admNode.connectLocators]))
+          );
+        }
         if (admNode.links) {
           existing.links = [...(existing.links || []), ...admNode.links];
         }
@@ -626,7 +631,7 @@ export function buildTopologyGraph({
         status: 'connected',
         scope: 'remote',
         locators: filterRealLocators(admNode.locators || []),
-        connectLocators: [],
+        connectLocators: filterRealLocators(admNode.connectLocators || []),
         links: admNode.links || [],
         isTls: (admNode.locators || []).some((l: string) => extractLocatorProtocol(l) === 'tls'),
         mode: type,
@@ -708,11 +713,29 @@ export function buildTopologyGraph({
 
   if (adminData && adminData.links) {
     adminData.links.forEach((link) => {
-      if (!link.sourceZid) return;
-      const srcNode = nodeMap.get(link.sourceZid.toLowerCase());
-      const dstNode = link.targetZid ? nodeMap.get(link.targetZid.toLowerCase()) : undefined;
+      let srcNode = link.sourceZid ? nodeMap.get(link.sourceZid.toLowerCase()) : undefined;
+      let dstNode = link.targetZid ? nodeMap.get(link.targetZid.toLowerCase()) : undefined;
+
+      if (!srcNode && link.srcLocator) {
+        for (const candidate of nodeMap.values()) {
+          if (candidate.locators.some((loc) => isLocatorMatch(loc, link.srcLocator!))) {
+            srcNode = candidate;
+            break;
+          }
+        }
+      }
+
+      if (!dstNode && link.dstLocator) {
+        for (const candidate of nodeMap.values()) {
+          if (candidate.locators.some((loc) => isLocatorMatch(loc, link.dstLocator!))) {
+            dstNode = candidate;
+            break;
+          }
+        }
+      }
+
       if (srcNode && dstNode) {
-        addEdge(srcNode, dstNode, 'active', link.dstLocator);
+        addEdge(srcNode, dstNode, 'active', link.dstLocator || link.srcLocator);
       }
     });
   }

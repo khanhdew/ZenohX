@@ -10,4 +10,5 @@ repomix.txt
 *.db-shm
 *.db-wal
 .codegraph/
+.worktrees/
 

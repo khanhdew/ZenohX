@@ -410,61 +410,61 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
         })()}
 
         {/* Configured Upstreams (Connect Endpoints) */}
-        {((node.connectLocators && node.connectLocators.length > 0) ||
-          (existingProfile?.connect_locators && existingProfile.connect_locators.length > 0)) && (
-          <div className="space-y-1.5">
-            <label className="text-[11px] font-medium text-muted-foreground">
-              Configured Upstreams (
-                {(
-                  (node.connectLocators && node.connectLocators.length > 0
-                    ? node.connectLocators
-                    : existingProfile?.connect_locators) || []
-                ).length}
-              )
-            </label>
-            <div className="space-y-1">
-              {(
-                (node.connectLocators && node.connectLocators.length > 0
-                  ? node.connectLocators
-                  : existingProfile?.connect_locators) || []
-              ).map((loc, idx) => {
-                const proto = extractLocatorProtocol(loc, node.isTls);
-                const host = extractLocatorHostPort(loc);
-                const isCopied = copiedLocator === loc;
+        {(() => {
+          const effectiveConnectLocators =
+            (liveNode.connectLocators && liveNode.connectLocators.length > 0
+              ? liveNode.connectLocators
+              : node.connectLocators && node.connectLocators.length > 0
+              ? node.connectLocators
+              : existingProfile?.connect_locators) || [];
 
-                return (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-1.5 rounded-md bg-muted/40 border text-[11px]"
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono">
-                        {proto}
-                      </Badge>
-                      <span className="font-mono truncate">{host}</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="iconSm"
-                      onClick={() => handleCopyLocator(loc)}
-                      className="h-5 w-5 shrink-0"
-                      title="Copy Locator"
+          if (effectiveConnectLocators.length === 0) return null;
+
+          return (
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Configured Upstreams ({effectiveConnectLocators.length})
+              </label>
+              <div className="space-y-1">
+                {effectiveConnectLocators.map((loc, idx) => {
+                  const proto = extractLocatorProtocol(loc, liveNode.isTls || node.isTls);
+                  const host = extractLocatorHostPort(loc);
+                  const isCopied = copiedLocator === loc;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-1.5 rounded-md bg-muted/40 border text-[11px]"
                     >
-                      {isCopied ? (
-                        <Check className="w-3 h-3 text-emerald-500" />
-                      ) : (
-                        <Copy className="w-3 h-3 text-muted-foreground" />
-                      )}
-                    </Button>
-                  </div>
-                );
-              })}
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase font-mono">
+                          {proto}
+                        </Badge>
+                        <span className="font-mono truncate">{host}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="iconSm"
+                        onClick={() => handleCopyLocator(loc)}
+                        className="h-5 w-5 shrink-0"
+                        title="Copy Locator"
+                      >
+                        {isCopied ? (
+                          <Check className="w-3 h-3 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3 h-3 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Live Verified Neighbors (Exact Engine Connections) */}
-        {node.status === 'connected' && (
+        {(liveNode.status === 'connected' || node.status === 'connected') && (
           <div className="space-y-1.5 pt-1 border-t border-border/50">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
@@ -482,12 +482,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                   <span className="flex items-center gap-1">
                     <Server className="w-3 h-3 text-indigo-500" />
-                    Connected Routers ({node.connectedRouters?.length || 0})
+                    Connected Routers ({(liveNode.connectedRouters || node.connectedRouters)?.length || 0})
                   </span>
                 </div>
-                {node.connectedRouters && node.connectedRouters.length > 0 ? (
+                {(liveNode.connectedRouters || node.connectedRouters) && (liveNode.connectedRouters || node.connectedRouters)!.length > 0 ? (
                   <div className="space-y-1">
-                    {node.connectedRouters.map((rZid, idx) => (
+                    {(liveNode.connectedRouters || node.connectedRouters)!.map((rZid, idx) => (
                       <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
                         <span className="truncate" title={rZid}>{rZid}</span>
                         <Badge variant="outline" className="text-[8px] px-1 py-0 bg-indigo-500/10 text-indigo-500 border-indigo-500/20">
@@ -506,12 +506,12 @@ export const TopologyInspector: React.FC<TopologyInspectorProps> = ({
                 <div className="flex items-center justify-between text-[10px] text-muted-foreground uppercase font-semibold">
                   <span className="flex items-center gap-1">
                     <Share2 className="w-3 h-3 text-emerald-500" />
-                    Connected Peers ({liveNode.connectedPeers?.length || 0})
+                    Connected Peers ({(liveNode.connectedPeers || node.connectedPeers)?.length || 0})
                   </span>
                 </div>
-                {liveNode.connectedPeers && liveNode.connectedPeers.length > 0 ? (
+                {(liveNode.connectedPeers || node.connectedPeers) && (liveNode.connectedPeers || node.connectedPeers)!.length > 0 ? (
                   <div className="space-y-1">
-                    {liveNode.connectedPeers.map((pZid, idx) => (
+                    {(liveNode.connectedPeers || node.connectedPeers)!.map((pZid, idx) => (
                       <div key={idx} className="flex items-center justify-between p-1 rounded bg-background/60 border text-[10px] font-mono">
                         <span className="truncate" title={pZid}>{pZid}</span>
                         <Badge variant="outline" className="text-[8px] px-1 py-0 bg-emerald-500/10 text-emerald-500 border-emerald-500/20">

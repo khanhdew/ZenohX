@@ -24,7 +24,7 @@ import type {
 import { buildTopologyGraph } from '../lib/topology/topologyBuilder';
 import { applyRadialLayout, type ViewTransform } from '../lib/topology/forceEngine';
 import { parseAdminSpaceEntries } from '../lib/topology/adminSpaceParser';
-import { queryAdminSpace } from '../lib/tauri';
+import { queryAdminSpace, discoverAdminTopology } from '../lib/tauri';
 import { useConnectionStore } from './connectionStore';
 import { useConnectionJsonStore } from './connectionJsonStore';
 
@@ -211,12 +211,16 @@ export const useTopologyStore = create<TopologyState>()(
         const allEntries: import('../types/topology').AdminSpaceEntry[] = [];
         for (const s of sessionList) {
           try {
-            const entries = await queryAdminSpace(s.id, '@/**', 2000);
+            const entries = await discoverAdminTopology(s.id, 3, 2500);
             if (Array.isArray(entries)) {
               allEntries.push(...entries);
             }
           } catch {
-            // Ignore if admin query fails on particular session
+            // Fallback to single queryAdminSpace if discover fails
+            try {
+              const fallback = await queryAdminSpace(s.id, '@/**', 2000);
+              if (Array.isArray(fallback)) allEntries.push(...fallback);
+            } catch {}
           }
         }
 

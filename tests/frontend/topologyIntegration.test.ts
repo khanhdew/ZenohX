@@ -16,13 +16,35 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
+
+// Set up mock window and Tauri internals
+let mockInvokeHandler: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> = async () => undefined;
+
+// @ts-expect-error Mocking global window
+globalThis.window = globalThis;
+// @ts-expect-error Mocking tauri internals
+globalThis.window.__TAURI_INTERNALS__ = {
+  invoke: async (cmd: string, args?: Record<string, unknown>) => {
+    return mockInvokeHandler(cmd, args);
+  },
+  transformCallback: (cb: unknown) => cb,
+};
+// @ts-expect-error Mocking tauri event plugin internals
+globalThis.window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+  unregisterListener: () => {},
+};
+
 import { useTopologyStore } from '../../src/stores/topologyStore.ts';
 import { useConnectionStore } from '../../src/stores/connectionStore.ts';
 import { TopologyWorkspace } from '../../src/components/topology/TopologyWorkspace.tsx';
+import { TopologyInspector } from '../../src/components/topology/TopologyInspector.tsx';
 import type { ConnectionProfile } from '../../src/types/zenoh.ts';
+import type { TopologyNode } from '../../src/types/topology.ts';
 
 describe('Topology Integration & Navigation', () => {
   beforeEach(() => {
+    mockInvokeHandler = async () => undefined;
+
     useTopologyStore.setState({
       nodes: [],
       edges: [],
@@ -33,6 +55,8 @@ describe('Topology Integration & Navigation', () => {
       layoutMode: 'force',
       isSimulating: true,
       transform: { x: 0, y: 0, k: 1 },
+      adminDiscoveryEnabled: true,
+      adminData: null,
     });
 
     useConnectionStore.setState({
@@ -153,5 +177,198 @@ describe('Topology Integration & Navigation', () => {
     assert.ok(nodes.some((n) => n.zid === 'zid-cloud-router' && n.status === 'connected' && n.scope === 'remote'));
     assert.ok(nodes.some((n) => n.zid === 'zid-peer-2' && n.scope === 'remote'));
   });
+
+  it('fetchAdminTopology calls discoverAdminTopology and populates adminData with remote connect locators', async () => {
+    const invokedCalls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+
+    mockInvokeHandler = async (cmd, args) => {
+      invokedCalls.push({ cmd, args });
+      if (cmd === 'discover_admin_topology') {
+        return [
+          {
+            keyExpr: '@/aabbccddeeff00112233445566778899/session/info',
+            zid: 'aabbccddeeff00112233445566778899',
+            category: 'info',
+            payloadJson: JSON.stringify({
+              zid: 'aabbccddeeff00112233445566778899',
+              whatami: 'Router',
+              locators: ['tcp/10.0.100.2:7447'],
+            }),
+            timestamp: 1000,
+          },
+          {
+            keyExpr: '@/aabbccddeeff00112233445566778899/config',
+            zid: 'aabbccddeeff00112233445566778899',
+            category: 'config',
+            payloadJson: JSON.stringify({
+              connect: {
+                endpoints: ['tcp/10.0.100.1:7447'],
+              },
+            }),
+            timestamp: 1000,
+          },
+        ];
+      }
+      return undefined;
+    };
+
+    useConnectionStore.setState({
+      profiles: [],
+      scoutedNodes: [],
+      activeSessions: {
+        'prof-1': {
+          id: 'sess-active-1',
+          profile_id: 'prof-1',
+          zid: 'zid-local-peer',
+          mode: 'peer',
+          connect_locators: [],
+          listen_locators: [],
+        },
+      },
+    });
+
+    await useTopologyStore.getState().fetchAdminTopology();
+
+    assert.equal(invokedCalls.length, 1);
+    assert.equal(invokedCalls[0].cmd, 'discover_admin_topology');
+    assert.deepEqual(invokedCalls[0].args, {
+      sessionId: 'sess-active-1',
+      maxDepth: 3,
+      timeoutMs: 2500,
+    });
+
+    const adminData = useTopologyStore.getState().adminData;
+    assert.ok(adminData);
+    assert.ok(adminData.nodes instanceof Map);
+    const remoteNode = adminData.nodes.get('aabbccddeeff00112233445566778899');
+    assert.ok(remoteNode);
+    assert.deepEqual(remoteNode.connectLocators, ['tcp/10.0.100.1:7447']);
+
+    const nodes = useTopologyStore.getState().nodes;
+    const graphRemoteNode = nodes.find((n) => n.zid === 'aabbccddeeff00112233445566778899');
+    assert.ok(graphRemoteNode);
+    assert.deepEqual(graphRemoteNode.connectLocators, ['tcp/10.0.100.1:7447']);
+  });
+
+  it('fetchAdminTopology falls back to queryAdminSpace when discoverAdminTopology fails', async () => {
+    const invokedCalls: Array<{ cmd: string; args?: Record<string, unknown> }> = [];
+
+    mockInvokeHandler = async (cmd, args) => {
+      invokedCalls.push({ cmd, args });
+      if (cmd === 'discover_admin_topology') {
+        throw new Error('Command discover_admin_topology not supported');
+      }
+      if (cmd === 'query_admin_space') {
+        return [
+          {
+            keyExpr: '@/11223344556677889900aabbccddeeff/session/info',
+            zid: '11223344556677889900aabbccddeeff',
+            category: 'info',
+            payloadJson: JSON.stringify({
+              zid: '11223344556677889900aabbccddeeff',
+              whatami: 'Router',
+            }),
+            timestamp: 1000,
+          },
+          {
+            keyExpr: '@/11223344556677889900aabbccddeeff/config',
+            zid: '11223344556677889900aabbccddeeff',
+            category: 'config',
+            payloadJson: JSON.stringify({
+              connect: {
+                endpoints: ['tcp/10.0.200.1:7447'],
+              },
+            }),
+            timestamp: 1000,
+          },
+        ];
+      }
+      return undefined;
+    };
+
+    useConnectionStore.setState({
+      profiles: [],
+      scoutedNodes: [],
+      activeSessions: {
+        'prof-fallback': {
+          id: 'sess-fallback-1',
+          profile_id: 'prof-fallback',
+          zid: 'zid-local-peer',
+          mode: 'peer',
+          connect_locators: [],
+          listen_locators: [],
+        },
+      },
+    });
+
+    await useTopologyStore.getState().fetchAdminTopology();
+
+    assert.equal(invokedCalls.length, 2);
+    assert.equal(invokedCalls[0].cmd, 'discover_admin_topology');
+    assert.equal(invokedCalls[1].cmd, 'query_admin_space');
+    assert.deepEqual(invokedCalls[1].args, {
+      sessionId: 'sess-fallback-1',
+      selector: '@/**',
+      timeoutMs: 2000,
+    });
+
+    const adminData = useTopologyStore.getState().adminData;
+    assert.ok(adminData);
+    const fallbackNode = adminData.nodes.get('11223344556677889900aabbccddeeff');
+    assert.ok(fallbackNode);
+    assert.deepEqual(fallbackNode.connectLocators, ['tcp/10.0.200.1:7447']);
+  });
+
+  it('TopologyInspector renders remote node connect locators and active links', () => {
+    const remoteNode: TopologyNode = {
+      id: 'admin-aabbccddeeff00112233445566778899',
+      zid: 'aabbccddeeff00112233445566778899',
+      label: 'Remote Router (aabb...8899)',
+      type: 'router',
+      status: 'connected',
+      scope: 'remote',
+      locators: ['tcp/10.0.100.2:7447'],
+      connectLocators: ['tcp/10.0.100.1:7447'],
+      links: [
+        {
+          zid: 'zid-upstream-parent',
+          whatami: 'router',
+          src: 'tcp/10.0.100.1:7447',
+          dst: 'tcp/10.0.100.2:7447',
+        },
+      ],
+      isTls: false,
+      mode: 'router',
+      connectedRouters: ['zid-upstream-parent'],
+      connectedPeers: [],
+      activeSubscribers: 0,
+      activeQueryables: 0,
+      uptimeSeconds: 0,
+      x: 200,
+      y: 200,
+      vx: 0,
+      vy: 0,
+      fx: null,
+      fy: null,
+      radius: 34,
+    };
+
+    useTopologyStore.setState({
+      nodes: [remoteNode],
+    });
+
+    const element = React.createElement(TopologyInspector, {
+      node: remoteNode,
+      onClose: () => {},
+      onOpenProfileEditor: () => {},
+      onNavigateToPubSub: () => {},
+    });
+
+    assert.ok(React.isValidElement(element));
+    assert.equal(element.type, TopologyInspector);
+    assert.equal(element.props.node.connectLocators[0], 'tcp/10.0.100.1:7447');
+    assert.equal(element.props.node.links[0].zid, 'zid-upstream-parent');
+  });
 });
+
 

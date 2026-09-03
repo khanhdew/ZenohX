@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [v0.6.1] - 2026-09-04
+
+### 🚀 Added & Enhanced
+- **backend:** add recursive admin topology discovery and extract remote connect locators
+- **topology:** add connectLocators to AdminRemoteNode and enhance adminSpaceParser
+- **topology:** populate connectLocators on remote nodes and build sub-node edges
+- **ui:** integrate recursive admin discovery and remote connect locators in Inspector
+
+### 🐛 Fixed
+- **topology:** address code review findings for ephemeral ports and parallel BFS
+- **topology:** support Zenoh 1.10 transport/link admin paths and peer connect locators
+- **topology:** parse active sessions and links from @/<router_zid>/router
+- **topology:** resolve child node links, connect locators, and inspector relations
+
+### ⚡ Changed & Refactored
+- declutter connection modals, clean topology toolbar, and streamline settings tabs
+
+### 🔧 Maintenance
+- add design spec for recursive sub-node discovery and remote connect locators
+- add implementation plan for recursive sub-node discovery and remote connect locators
+- ignore .worktrees directory
+
+---
 ## [v0.6.0] - 2026-09-02
 
 ### 🚀 Added & Enhanced

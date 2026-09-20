@@ -257,33 +257,7 @@ In your client's MCP configuration settings:
 
 ### Available MCP Tools & Resources
 
-#### Tools
-| Tool | Description |
-| :--- | :--- |
-| `zenoh_scout` | Scout for active Zenoh peers and routers across the local network via multicast or gossip. |
-| `zenoh_connect_session` | Establish a new Zenoh session with specific mode (Peer, Client, Router) and connect/listen locators. |
-| `zenoh_disconnect_session` | Gracefully close an active Zenoh session. |
-| `zenoh_get_sessions` | List active sessions, their runtime status, and configured endpoints. |
-| `zenoh_get_profiles` | List saved connection profiles (configured nodes) from SQLite. |
-| `zenoh_create_profile` | Create a new connection profile (configured node) in SQLite with real-time UI synchronization. |
-| `zenoh_edit_profile` | Edit a connection profile (name, connect/listen locators, multicast scouting; operation mode is immutable). |
-| `zenoh_publish` | Publish sample payloads to a Zenoh key expression with QoS and encoding parameters. |
-| `zenoh_subscribe` | Subscribe to key expressions and stream incoming samples to the message buffer. |
-| `zenoh_unsubscribe` | Cancel an active key expression subscription. |
-| `zenoh_get_messages` | Retrieve recent ingested messages, optionally filtered by key expression. |
-| `zenoh_query` | Query distributed Zenoh queryables with consolidation and timeout settings. |
-| `zenoh_declare_queryable` | Declare a queryable handler for distributed RPC and data serving (supports static payloads or dynamic JavaScript scripts). |
-| `zenoh_inspect_topology` | Retrieve the active network topology graph, nodes, links, and bound locators. |
-| `zenohx_gui_switch_workspace` | *(Live GUI only)* Switch the active workspace tab in the running ZenohX application. |
-| `zenohx_gui_get_state` | Retrieve the current GUI runtime connection status and active workspace tab. |
-
-#### Resources
-| Resource URI | Description |
-| :--- | :--- |
-| `zenohx://sessions` | JSON snapshot of all currently open Zenoh sessions and configurations. |
-| `zenohx://profiles` | Saved connection profiles from the SQLite database. |
-| `zenohx://messages/recent` | Recent ingested message log stream. |
-| `zenohx://topology` | Live topology graph representing nodes and transport links. |
+For detailed information on the tools, input schemas, and resources available via the ZenohX MCP server, please refer to the [**MCP API Documentation**](docs/api/README.md).
 
 ---
 
